@@ -1,0 +1,31 @@
+{
+  "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+  "whisper_model": "large",
+  "response_format": "json",
+  "vlm_resolution": 1280,
+  "scene_threshold": 0.15,
+  "min_scene_duration": 1.5,
+  "max_scene_duration": 20,
+  "keyframes_per_scene": 1,
+  "vlm_max_tokens_scene": 1024,
+  "vlm_max_tokens_summary": 2048,
+  "skip_audio": false,
+  "skip_visual": false,
+  "generate_txt": true,
+  "enable_audio_features": true,
+  "enable_apple_ocr": true,
+  "generate_summary": true,
+  "ram_mode": "ram-",
+  "mlx_device": "auto",
+  "apple_ocr_recognition_level": "accurate",
+  "apple_ocr_languages": [
+    "ru-RU",
+    "en-US"
+  ],
+  "apple_ocr_confidence": 0.3,
+  "visual_user_prompt": "Анализируй техническое видео на русском языке. Сосредоточься на информации, видимой на экране: заголовках и пунктах слайдов, новых понятиях, коде, командах терминала, именах файлов, таблицах, схемах, ошибках и результатах. Переписывай ключевой текст и команды дословно, когда они читаемы. Разделяй факты, видимые на кадре, и предположения. Не трать место на курсор, анимации и декоративные изменения. Если текст неразборчив, прямо укажи это. При анализе схемы описывай связи между блоками и сохраняй читаемые подписи и значения.",
+  "summary_user_prompt": "Составь подробный технический конспект на русском языке. Организуй содержание по временным отметкам. Выдели основные темы, новые понятия, команды терминала, примеры кода, названия инструментов, ошибки и решения. Сохраняй важные команды и имена файлов дословно, если они доступны в расшифровке или описаниях сцен. Не выдумывай отсутствующую информацию. Заверши списком ключевых выводов и практических действий.",
+  "whisper_acceleration": true,
+  "generate_json": true,
+  "word_timestamps": true
+}

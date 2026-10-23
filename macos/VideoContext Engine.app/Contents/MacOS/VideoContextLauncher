@@ -1,0 +1,41 @@
+#!/bin/bash
+set -eu
+APP_CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
+START_SCRIPT="$APP_CONTENTS/Resources/start_server.command"
+UI_URL="http://127.0.0.1:7555/ui"
+DOCS_URL="http://127.0.0.1:7555/docs"
+
+# If the new API UI is already serving, open it without launching a second server.
+if /usr/bin/curl -fsS "$UI_URL" >/dev/null 2>&1; then
+  /usr/bin/open "$UI_URL"
+  exit 0
+fi
+# If an older engine is still running on the port, avoid a second-server bind error.
+if /usr/bin/curl -fsS "$DOCS_URL" >/dev/null 2>&1; then
+  /usr/bin/osascript -e 'display dialog "VideoContext Engine уже запущен, но не отвечает на /ui. Останови старый сервер в Terminal (Ctrl+C), затем запусти ярлык ещё раз." buttons {"Открыть /ui", "OK"} default button 1' >/dev/null 2>&1 || true
+  /usr/bin/open "$UI_URL"
+  exit 0
+fi
+
+if [[ ! -f "$START_SCRIPT" ]]; then
+  /usr/bin/osascript -e 'display dialog "Не найден встроенный скрипт запуска VideoContext Engine." buttons {"OK"} default button 1 with icon stop'
+  exit 1
+fi
+/usr/bin/osascript - "$START_SCRIPT" <<'APPLESCRIPT'
+on run argv
+    set scriptPath to item 1 of argv
+    tell application "Terminal"
+        activate
+        do script "bash " & quoted form of scriptPath
+    end tell
+end run
+APPLESCRIPT
+for _ in {1..120}; do
+  if /usr/bin/curl -fsS "$UI_URL" >/dev/null 2>&1; then
+    /usr/bin/open "$UI_URL"
+    exit 0
+  fi
+  sleep 1
+done
+/usr/bin/osascript -e 'display dialog "Команда запуска отправлена в Terminal, но веб-интерфейс не ответил за 120 секунд. Проверь ошибки в окне Terminal." buttons {"OK"} default button 1 with icon caution' >/dev/null 2>&1 || true
+exit 1

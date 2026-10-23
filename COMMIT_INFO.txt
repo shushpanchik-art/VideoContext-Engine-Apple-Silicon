@@ -1,0 +1,6 @@
+Prepared Git repository: VideoContext-Engine-Apple-Silicon
+Branch: main
+Upstream base: dolphin-creator/VideoContext-Engine @ 4a42b4a309d9d7d8f7f944c2e210a027940208f3
+Source file blob: VideoContextEngine_v3.19.py @ cfa22be84dfbb5f9e6f29269c9906c376e90ef17
+This repository contains the patch-set source and documentation, not the upstream engine source file.
+Run `git log -1 --oneline` to show the prepared commit after cloning this bundle.

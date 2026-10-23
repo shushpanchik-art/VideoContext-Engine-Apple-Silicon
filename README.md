@@ -1,0 +1,100 @@
+# VideoContext Engine — Apple Silicon Optimization & macOS Workflow
+
+Русскоязычный набор патчей и macOS launcher для **VideoContext Engine v3.19**. Репозиторий описывает локальные доработки, которые применяются поверх исходного проекта; он не является официальным форком и не связан с автором upstream-проекта.
+
+**Исходный проект:** [dolphin-creator/VideoContext-Engine](https://github.com/dolphin-creator/VideoContext-Engine) — локальный Video RAG / FastAPI engine, объединяющий детекцию сцен, Whisper ASR, Qwen3-VL и сводку.
+
+Исходная база, проверенная для этого набора: `main` на коммите `4a42b4a309d9d7d8f7f944c2e210a027940208f3` (4 декабря 2025); файл `VideoContextEngine_v3.19.py` имел blob SHA `cfa22be84dfbb5f9e6f29269c9906c376e90ef17` при проверке 23 октября 2026. Сверяйте код перед применением к более новой версии upstream.
+
+> **Ключевая работа — практический поиск баланса качество/скорость на Apple Silicon.** Профиль подобран по замерам на MacBook Pro M1 Max, 32 ГБ RAM, MLX Qwen3-VL-8B-4bit и Whisper `large`, а не только теоретически. Результаты и ограничения опубликованы в [`docs/APPLE_SILICON_BENCHMARKS.md`](docs/APPLE_SILICON_BENCHMARKS.md).
+
+## Что доработано
+
+- Аспектно-сохраняющее уменьшение изображения для VLM; тестовый профиль 1280 px вместо дорогих больших входных кадров.
+- Apple Vision OCR с точным режимом и оригинальным разрешением исходного кадра; текст OCR передаётся Qwen как подсказка и включается в результаты.
+- JSON-файл постоянных настроек и их панель в веб-интерфейсе.
+- Переключатель ускорения Whisper для MPS/CUDA/CPU и использование MPS на Apple Silicon.
+- Временные метки слов Whisper, распределение распознанной речи по сценам и аудиопризнаки сцены.
+- Точечное исправление Whisper DTW на MPS: `x.double().cpu()` → `x.cpu().double()`.
+- Выбор нескольких видео через системное окно macOS, последовательная очередь и отдельный статус/прогресс для каждого файла.
+- Кооперативная кнопка **«Остановить распознавание»**: текущий GPU/MLX шаг завершается до безопасной точки, следующие файлы очереди не запускаются.
+- Автоматическое сохранение TXT и JSON рядом с исходным видео и ссылки на результаты в интерфейсе.
+- macOS launcher `.app`, установка в `/Applications` и Finder alias на рабочем столе.
+
+## Рекомендуемый профиль для презентаций и лекций
+
+См. [пример настроек](config/videocontext_settings.apple_silicon.example.json). Важнейшие параметры:
+
+| Параметр | Значение |
+|---|---|
+| VLM | `mlx-community/Qwen3-VL-8B-Instruct-4bit` |
+| Whisper | `large` |
+| Whisper acceleration | `true` — MPS на Apple Silicon |
+| VLM resolution | `1280` |
+| Scene threshold | `0.15` |
+| Min / max scene duration | `1.5` / `20` секунд |
+| Keyframes per scene | `1` для преимущественно статичных слайдов |
+| Apple Vision OCR | enabled, `accurate`, `ru-RU` + `en-US` |
+| Audio features / global summary | enabled |
+| TXT + JSON autosave | enabled |
+| RAM mode | `ram-` |
+
+Для демонстраций интерфейса, видео с движением и быстрыми переходами используйте 2 кадра на сцену и/или меньшую длительность сцены. Рекомендация `20 s / 1 frame` — компромисс, проверенный на презентационном видео, а не универсальный оптимум для всех типов контента.
+
+## Установка на macOS
+
+### Вариант A — свежий checkout upstream v3.19
+
+1. Установите исходный проект из [upstream README](https://github.com/dolphin-creator/VideoContext-Engine) в `~/Downloads/VideoContext-Engine` и подготовьте `.venv`.
+2. Для Apple Silicon установите исходные и дополнительные зависимости в активном окружении (сверяйте команды с upstream README):
+
+   ```bash
+   cd ~/Downloads/VideoContext-Engine
+   source .venv/bin/activate
+   python -m pip install fastapi 'uvicorn[standard]' opencv-python yt-dlp pillow numpy openai-whisper huggingface_hub
+   python -m pip install mlx-vlm torchvision ocrmac certifi
+   ```
+
+3. Скопируйте содержимое этого репозитория/архива и выполните из Terminal:
+
+   ```bash
+   bash ./install_patches_to_existing_checkout.command "$HOME/Downloads/VideoContext-Engine"
+   ```
+
+4. Скрипт скопирует патчеры в проект и применит их в нужном порядке. Он делает резервные копии, которые создаёт каждый патчер.
+5. Введите пароль macOS, когда установщик спросит его для записи `/Applications`.
+6. Запустите **VideoContext Engine** из приложения/ярлыка рабочего стола. Интерфейс: <http://127.0.0.1:7555/ui>; Swagger: <http://127.0.0.1:7555/docs>.
+
+**Внимание:** установщик предназначен для свежего исходного checkout ожидаемой версии. Не запускайте всю последовательность заново поверх уже настроенного экземпляра: часть первоначальных патчеров устанавливает рекомендуемые значения по умолчанию. Для обновления работающего экземпляра изучайте и применяйте только нужный патч.
+
+### Вариант B — текущая уже установленная копия
+
+Не запускайте `install_patches_to_existing_checkout.command` поверх рабочей копии без резервной копии. Ваш рабочий инстанс может иметь более свежие патчи и пользовательские настройки. Используйте индивидуальный патчер только после проверки его README и бэкапов.
+
+## Выходные файлы
+
+Для видео, выбранного через нативный file picker macOS, TXT и JSON записываются рядом с оригинальным роликом. Это работает потому, что сервис получает реальный локальный путь через локальный API; обычный браузерный `<input type=file>` не раскрывает исходный абсолютный путь.
+
+## Важные технические детали
+
+- Выбор локальных видео через `osascript` доступен для macOS и ограничен локальным loopback клиентом.
+- Видео в очереди обрабатываются последовательно, чтобы не конкурировать за unified memory/GPU.
+- «Остановить» — кооперативная отмена; она не уничтожает принудительно текущий вызов Whisper/Qwen/MLX.
+- Процент загрузки файла измеряется фактически; во время инференса UI показывает состояние занятости, а не выдуманный прогресс модели.
+- Выходные папки/видео и персональный `videocontext_settings.json` не должны попадать в Git.
+
+## Проверка на реальном Mac
+
+Ручной тест из лога пользователя (23 октября 2026): `/ui` и `/api/v1/ui-settings` отвечали `200 OK`, системный выбор файлов `/api/v1/select-local-videos` — `200 OK`, `/api/v1/analyze` — `200 OK`; Whisper `large` работал на MPS, Qwen3-VL-8B и Apple OCR завершились. Для одного видео в этом запуске записаны Whisper 46.13 s, VLM 140.31 s, OCR 5.65 s, total 210.44 s. Это пользовательский smoke test, не автоматический CI. На предоставленном фрагменте лога нет подтверждения завершения второго видео очереди и явного пути сохранённых TXT/JSON, поэтому эти две вещи следует проверять отдельно.
+
+## Состав репозитория
+
+- `patches/` — исходники миграционных патчеров.
+- `macos/` — launcher `.app` и установочный shell script.
+- `config/` — пример профиля Apple Silicon.
+- `docs/APPLE_SILICON_BENCHMARKS.md` — замеры и интерпретация.
+- `install_patches_to_existing_checkout.command` — orchestration для свежего checkout upstream.
+
+## Attribution
+
+Основой является [VideoContext Engine v3.19](https://github.com/dolphin-creator/VideoContext-Engine), автор upstream — `dolphin-creator`. Эта ветка содержит сторонний набор оптимизаций/интеграций для конкретного рабочего процесса. Перед публикацией исходного кода upstream изучите лицензию и условия оригинального репозитория. Этот репозиторий распространяет patch scripts и launcher templates, а не копию всего upstream source file.
