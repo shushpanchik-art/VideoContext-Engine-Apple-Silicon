@@ -30,7 +30,7 @@ class NativeWindowLauncherTests(unittest.TestCase):
         self.assertIn("find_icon_in_app", installer)
         self.assertIn("CFBundleIconFile", installer)
         self.assertIn("VideoContext Engine.app.backup.*", installer)
-        self.assertIn("Sохраняю иконку предыдущей версии", installer)
+        self.assertIn("Сохраняю иконку предыдущей версии", installer)
 
     def test_installer_compiles_before_replacing_installed_app_and_backs_it_up(self):
         installer = INSTALLER.read_text(encoding="utf-8")
