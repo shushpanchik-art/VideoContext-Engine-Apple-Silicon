@@ -230,24 +230,24 @@ def patch_engine(source: str) -> str:
     if not has_mode:
         if has_ffmpeg_enabled or has_ffmpeg_interval:
             raise ValueError("Обнаружена частичная установка параметров профилей/FFmpeg OCR; ручная проверка нужна до повторного запуска.")
-        func_match = re.search(r"(?m)^async def analyze_video\\(", source)
+        func_match = re.search(r"(?m)^async def analyze_video\(", source)
         if not func_match:
             raise ValueError("Не найдена сигнатура async def analyze_video() для добавления параметров сценария.")
-        close_match = re.search(r"(?m)^(?P<indent>[ \\t]*)\\):[ \\t]*$", source[func_match.start():])
+        close_match = re.search(r"(?m)^(?P<indent>[ \t]*)\):[ \t]*$", source[func_match.start():])
         if not close_match:
             raise ValueError("Не найден конец сигнатуры analyze_video(); файлы не изменены.")
         sig_start = func_match.start()
         sig_close = sig_start + close_match.start()
         signature = source[sig_start:sig_close]
         for required_name in ("skip_audio", "skip_visual"):
-            if not re.search(rf"(?m)^\\s*{required_name}\\s*:", signature):
+            if not re.search(rf"(?m)^\s*{required_name}\s*:", signature):
                 raise ValueError(f"В сигнатуре analyze_video() отсутствует параметр {required_name}; текущая версия не поддерживается безопасно.")
-        indent_match = re.search(r"(?m)^(?P<indent>[ \\t]+)[A-Za-z_][A-Za-z0-9_]*\\s*:", signature)
+        indent_match = re.search(r"(?m)^(?P<indent>[ \t]+)[A-Za-z_][A-Za-z0-9_]*\s*:", signature)
         param_indent = indent_match.group("indent") if indent_match else "    "
         params = (
-            f'{param_indent}analysis_mode: str = Form("full", description="full | whisper_ocr | ocr_only"),\\n'
-            f'{param_indent}enable_ffmpeg_ocr: bool = Form(False, description="Дополнительный OCR через FFmpeg/Tesseract"),\\n'
-            f'{param_indent}ffmpeg_ocr_interval: int = Form(5, ge=1, le=60, description="Интервал выборки FFmpeg OCR, секунд"),\\n'
+            f'{param_indent}analysis_mode: str = Form("full", description="full | whisper_ocr | ocr_only"),\n'
+            f'{param_indent}enable_ffmpeg_ocr: bool = Form(False, description="Дополнительный OCR через FFmpeg/Tesseract"),\n'
+            f'{param_indent}ffmpeg_ocr_interval: int = Form(5, ge=1, le=60, description="Интервал выборки FFmpeg OCR, секунд"),\n'
         )
         source = source[:sig_close] + params + source[sig_close:]
     elif not has_ffmpeg_enabled or not has_ffmpeg_interval:

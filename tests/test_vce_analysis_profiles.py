@@ -301,13 +301,14 @@ class TestAnalysisProfiles(unittest.TestCase):
         twice = patch.patch_engine(once)
         self.assertEqual(once, twice)
 
+
     def test_extended_skip_visual_form_anchor_supported(self):
         variants = [
-            '    skip_visual: bool = Form(False, description="Skip visual analysis"),\\n',
-            '    skip_visual: bool = Form(bool(setting("skip_visual", False))),\\n',
-            '    skip_visual: bool = Form(\\n        False, description="Skip visual analysis"\\n    ),\\n',
+            '    skip_visual: bool = Form(False, description="Skip visual analysis"),\n',
+            '    skip_visual: bool = Form(bool(setting("skip_visual", False))),\n',
+            '    skip_visual: bool = Form(\n        False, description="Skip visual analysis"\n    ),\n',
         ]
-        original = '    skip_visual: bool = Form(False),\\n'
+        original = '    skip_visual: bool = Form(False),\n'
         for variant in variants:
             with self.subTest(variant=variant):
                 changed_fixture = ENGINE.replace(original, variant, 1)
@@ -319,7 +320,7 @@ class TestAnalysisProfiles(unittest.TestCase):
                 self.assertIn('ffmpeg_ocr_interval: int = Form(5', updated)
 
     def test_missing_analysis_skip_parameter_fails_safely(self):
-        changed_fixture = ENGINE.replace('    skip_visual: bool = Form(False),\\n', '', 1)
+        changed_fixture = ENGINE.replace('    skip_visual: bool = Form(False),\n', '', 1)
         with self.assertRaisesRegex(ValueError, 'отсутствует параметр skip_visual'):
             patch.patch_engine(changed_fixture)
 
