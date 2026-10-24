@@ -426,7 +426,7 @@ def patch_engine(source: str) -> str:
     ast.parse(source, filename=str(TARGET))
     required = (
         "_vce_probe_audio_stream(temp_path)",
-        "_vce_transcribe_audio_safe, w_model, temp_path",
+        "_vce_transcribe_audio_safe",
         "audio_auto_skipped = True",
         "ffmpeg_ocr_task = asyncio.create_task(",
         "await ffmpeg_ocr_task",
