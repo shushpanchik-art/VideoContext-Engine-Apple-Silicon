@@ -5,6 +5,8 @@
 - Added an optional patcher that exposes the name-reconciliation prompt in the settings UI for extended builds with Qwen3.5 text post-processing.
 - The prompt is persisted as text_llm_name_reconciliation_prompt and appended to the actual text post-processing instruction, while original transcript/OCR/timestamps remain protected by the engine's fixed rules.
 - Added a qualitative audit documenting remaining summary inconsistency for standard identifiers. A single different-video sample is not treated as a controlled quality comparison.
+- Strengthened the editable default prompt with a final cross-field consistency check.
+- Added optional OCR-gated v2 runtime patch: normalize a known СП-number alias across derived fields and the base summary while preserving raw evidence.
 - Strengthened the prompt's final cross-field consistency check and added regression coverage for canonical names across normalized summaries, topics, and scene fields while preserving original/raw evidence.
 
 

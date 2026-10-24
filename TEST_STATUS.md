@@ -27,3 +27,11 @@
 - Улучшенные описания сцен 13–14 осторожно разделяют аудиосодержание и видимый интерфейс. Это качественное наблюдение по одному ролику, не объективная оценка WER/CER и не A/B-сравнение.
 - В `meta.global_summary` и `enhanced_analysis.executive_summary` используется СП 1.13130.2020, но `enhanced_analysis.topics` всё ещё содержит ошибочную форму СП 1.13.132.020. `enhanced_analysis.original_summary` оставлен исходной сводкой до постобработки; `audio_transcript` и `ocr_text` должны сохраняться как исходные данные. Нормализацию производных полей нельзя считать полностью исправленной.
 - Факт применения редактируемой инструкции ASR/OCR не подтверждается одним логом анализа; ручная проверка поля в UI и сохранения настройки нужна отдельно.
+
+
+## ASR/OCR consistency guard v2 (prepared patch, 2026-10-24)
+
+- New optional patch: `patch_vce_name_consistency_v2.py`.
+- It targets extended VCE builds that already have Qwen3.5 text post-processing. It adds a final cross-field instruction and deterministic correction for the known СП 1.13130.2020 misread, gated by exact OCR confirmation.
+- Raw transcript, OCR, visual description, timestamps and original_summary remain unchanged.
+- The patch has been syntactically and synthetically smoke-tested; it has not been applied to the user's Mac from this chat.

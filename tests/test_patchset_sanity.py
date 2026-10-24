@@ -37,9 +37,17 @@ class PatchsetSanityTests(unittest.TestCase):
     def test_name_reconciliation_prompt_requires_cross_field_consistency(self):
         patcher = (PATCHES / "patch_vce_name_reconciliation_prompt.py").read_text(encoding="utf-8")
         self.assertIn("единый канонический вариант", patcher)
-        self.assertIn("global_summary, executive_summary, topics", patcher)
+        self.assertIn("executive_summary, topics, key_points, entities", patcher)
         self.assertIn("original_summary", patcher)
         self.assertIn("audio_transcript, ocr_text, visual_description", patcher)
+
+    def test_name_consistency_v2_patch_has_ocr_gated_canonicalizer(self):
+        patcher = (PATCHES / "patch_vce_name_consistency_v2.py").read_text(encoding="utf-8")
+        self.assertIn("VCE_CONFIRMED_STANDARD_CANONICALIZATION_V2", patcher)
+        self.assertIn("СП 1.13.132.020", patcher)
+        self.assertIn("СП 1.13130.2020", patcher)
+        self.assertIn("original_summary", patcher)
+        self.assertIn("VCE_NAME_CONSISTENCY_V2_GLOBAL_SUMMARY", patcher)
 
     def test_recommended_profile(self):
         cfg = json.loads((ROOT / "config/videocontext_settings.apple_silicon.example.json").read_text(encoding="utf-8"))
