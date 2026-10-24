@@ -22,7 +22,7 @@ import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 V3_MARKER = "VCE_NAME_CONSISTENCY_V3_CROSS_FIELD_REPAIR"
 V4_MARKER = "VCE_REPORT_INTEGRITY_V4"
@@ -135,6 +135,7 @@ def _vce_v4_update_entity_scene_ids(payload, segments):
                 if isinstance(_vce4_id, int) and not isinstance(_vce4_id, bool) and _vce4_id in _vce4_valid_ids:
                     if _vce4_id not in _vce4_current:
                         _vce4_current.append(_vce4_id)
+        _vce4_added = []
         # Avoid broad, noisy associations for very short acronyms such as "КСИ".
         if len(str(_vce4_name).strip()) >= 4:
             for _vce4_seg in segments:
@@ -145,6 +146,7 @@ def _vce_v4_update_entity_scene_ids(payload, segments):
                 if isinstance(_vce4_id, int) and not isinstance(_vce4_id, bool) and _vce4_id in _vce4_valid_ids and _vce4_pattern.search(_vce4_ocr):
                     if _vce4_id not in _vce4_current:
                         _vce4_current.append(_vce4_id)
+                        _vce4_added.append(_vce4_id)
         _vce4_current.sort()
         if _vce4_old != _vce4_current:
             _vce4_entity["scene_ids"] = _vce4_current
@@ -178,8 +180,9 @@ def _vce_v4_validate_analysis(payload, segments, global_summary=""):
             _vce4_issues.append(f"отсутствует поле { _vce4_key }")
         elif not isinstance(payload[_vce4_key], _vce4_type):
             _vce4_issues.append(f"{_vce4_key} имеет тип {type(payload[_vce4_key]).__name__}, ожидался {_vce4_type.__name__}")
-    if isinstance(payload.get("topics"), list) and any(not isinstance(_vce4_item, str) for _vce4_item in payload["topics"]):
-        _vce4_issues.append("topics содержит элементы не-строки")
+    for _vce4_key in ("topics",):
+        if isinstance(payload.get(_vce4_key), list) and any(not isinstance(_vce4_item, str) for _vce4_item in payload[_vce4_key]):
+            _vce4_issues.append(f"{_vce4_key} содержит элементы не-строки")
     for _vce4_key in ("key_points", "scene_enrichment"):
         _vce4_value = payload.get(_vce4_key)
         if isinstance(_vce4_value, list):
@@ -212,12 +215,13 @@ def _vce_v4_validate_analysis(payload, segments, global_summary=""):
     _vce4_entity_changes = _vce_v4_update_entity_scene_ids(payload, segments)
     if _vce4_entity_changes:
         print(f"🧭 [JSON integrity V4] Обновлены связи сущностей со сценами: {_vce4_entity_changes} сущностей.")
+    _vce4_scenes = len(_vce4_valid_ids)
     if _vce4_issues:
         print("⚠️ [JSON integrity V4] Проверка аналитического JSON нашла замечания:")
         for _vce4_issue in _vce4_issues:
             print("   - " + _vce4_issue)
     else:
-        print(f"✅ [JSON integrity V4] Структура аналитики проверена; доступно {len(_vce4_valid_ids)} scene_id, ссылки сущностей сверены с OCR.")
+        print(f"✅ [JSON integrity V4] Структура аналитики проверена; доступно {_vce4_scenes} scene_id, ссылки сущностей сверены с OCR.")
     return payload
 
 
@@ -296,7 +300,8 @@ def _prepare(project: Path):
         call_anchor = '        parsed = _vce_canonicalize_confirmed_standard_names(parsed, segments)\n'
         py = _replace_once(py, call_anchor, call_anchor + '        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n', "post-LLM integrity validator call")
         # V3 can leave this comment at column zero while the statements below it
-        # remain nested. Match the marker itself and normalize its indentation.
+        # remain nested. Match the marker itself, validate that it is the only
+        # non-code text on its line, and normalize its indentation on insertion.
         _stage_matches = list(re.finditer(re.escape(STAGE_MARKER), py))
         if len(_stage_matches) != 1:
             raise RuntimeError("Маркер TEXT_LLM_POSTPROCESS_STAGE найден не ровно один раз; файлы не изменены.")
@@ -351,8 +356,9 @@ def _report_issues(report: Any) -> List[str]:
     valid_ids = {s.get("scene_id") for s in segments if isinstance(s, dict) and isinstance(s.get("scene_id"), int) and not isinstance(s.get("scene_id"), bool)}
     if isinstance(meta.get("scene_count"), int) and valid_ids and meta["scene_count"] != len(valid_ids):
         issues.append(f"meta.scene_count={meta['scene_count']} не совпадает с числом уникальных scene_id={len(valid_ids)}")
-    if "global_summary" in meta and not isinstance(meta["global_summary"], str):
-        issues.append("meta.global_summary имеет неверный тип")
+    for key, typ in (("global_summary", str),):
+        if key in meta and not isinstance(meta[key], typ):
+            issues.append(f"meta.{key} имеет неверный тип")
     for key, typ in (("executive_summary", str), ("topics", list), ("key_points", list), ("entities", list), ("scene_enrichment", list)):
         if key not in analysis:
             issues.append(f"enhanced_analysis.{key} отсутствует")
@@ -378,8 +384,9 @@ def _report_issues(report: Any) -> List[str]:
             if not isinstance(seg, dict):
                 continue
             # Raw audio_transcript is intentionally allowed to retain ASR output.
-            if alias.search(json.dumps(seg.get("text_llm", {}), ensure_ascii=False, default=str)):
-                issues.append(f"неправильный вариант СП остался в segments[{i}].text_llm")
+            for key in ("text_llm",):
+                if alias.search(json.dumps(seg.get(key, {}), ensure_ascii=False, default=str)):
+                    issues.append(f"неправильный вариант СП остался в segments[{i}].{key}")
     entities = analysis.get("entities")
     if isinstance(entities, list):
         for i, entity in enumerate(entities):
@@ -498,3 +505,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
