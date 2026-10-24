@@ -16,4 +16,4 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run benchmark unit tests
-        run: python -m unittest discover -s tests -p "test_vce_benchmark.py" -v
+        run: python -m unittest discover -s tests -p "test_vce_*.py" -v
