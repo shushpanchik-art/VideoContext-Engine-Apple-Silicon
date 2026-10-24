@@ -233,28 +233,34 @@ def _patch_whisper_result(source: str) -> str:
 def _patch_async_ocr_setup(source: str) -> str:
     if "ffmpeg_ocr_task = asyncio.create_task(" in source:
         return source
-    start = source.find("        if enable_ffmpeg_ocr:\n")
-    if start < 0:
+    start_match = re.search(r'(?m)^(?P<i>[ \t]*)if enable_ffmpeg_ocr:[ \t]*$', source)
+    if start_match is None:
         raise ValueError("Не найден блок включения FFmpeg OCR; текущая версия не поддерживается.")
-    end = source.find("        if skip_audio and skip_visual", start)
-    if end < 0:
+    indent = start_match.group("i")
+    rest = source[start_match.start():]
+    end_match = re.search(
+        r'(?m)^' + re.escape(indent) + r'if skip_audio and skip_visual\b.*$',
+        rest[start_match.end() - start_match.start():],
+    )
+    if end_match is None:
         raise ValueError("Не найден следующий этап analyze_video после настройки FFmpeg OCR.")
-    block = source[start:end]
+    end = start_match.end() + end_match.start()
+    block = source[start_match.start():end]
     if "_vce_run_ffmpeg_ocr" not in block or "ffmpeg_ocr_infer_time" not in block:
         raise ValueError("Блок FFmpeg OCR имеет неожиданную структуру; файлы не изменены.")
     workers = "ffmpeg_ocr_workers" if "ffmpeg_ocr_workers" in source else "2"
     replacement = (
-        "        ffmpeg_ocr_task = None\n"
-        "        if enable_ffmpeg_ocr:\n"
-        "            if ffmpeg_ocr_available:\n"
-        "                _vce_ffmpeg_ocr_start = time.time()\n"
-        "                ffmpeg_ocr_task = asyncio.create_task(asyncio.to_thread(\n"
-        f"                    _vce_run_ffmpeg_ocr_timed, temp_path, ffmpeg_ocr_interval, {workers}\n"
-        "                ))\n"
-        "            else:\n"
-        "                print(\"⚠️ [FFmpeg OCR] \" + ffmpeg_ocr_reason)\n\n"
+        indent + "ffmpeg_ocr_task = None\n"
+        + indent + "if enable_ffmpeg_ocr:\n"
+        + indent + "    if ffmpeg_ocr_available:\n"
+        + indent + "        _vce_ffmpeg_ocr_start = time.time()\n"
+        + indent + "        ffmpeg_ocr_task = asyncio.create_task(asyncio.to_thread(\n"
+        + indent + f"            _vce_run_ffmpeg_ocr_timed, temp_path, ffmpeg_ocr_interval, {workers}\n"
+        + indent + "        ))\n"
+        + indent + "    else:\n"
+        + indent + '        print("⚠️ [FFmpeg OCR] " + ffmpeg_ocr_reason)\n\n'
     )
-    return source[:start] + replacement + source[end:]
+    return source[:start_match.start()] + replacement + source[end:]
 
 
 def _insert_ocr_wait(source: str) -> str:
