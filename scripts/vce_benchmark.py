@@ -232,6 +232,15 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _contains_expected_term(text: str, term: str) -> bool:
+    """Match a term as a phrase/token, not as an accidental substring in a longer word."""
+    target = normalize_text(term)
+    if not target:
+        return False
+    pattern = r"(?<!\\w)" + re.escape(target) + r"(?!\\w)"
+    return re.search(pattern, normalize_text(text), flags=re.UNICODE) is not None
+
+
 def _score_record(record: dict[str, Any]) -> dict[str, Any]:
     reference = record["reference"]
     hypothesis = record["hypothesis"]
@@ -249,7 +258,7 @@ def _score_record(record: dict[str, Any]) -> dict[str, Any]:
 
     expected_terms = record["expected_terms"]
     normalized_hypothesis = normalize_text(hypothesis)
-    found_terms = [term for term in expected_terms if normalize_text(term) in normalized_hypothesis]
+    found_terms = [term for term in expected_terms if _contains_expected_term(hypothesis, term)]
     missing_terms = [term for term in expected_terms if term not in found_terms]
     term_recall = len(found_terms) / len(expected_terms) if expected_terms else None
 
