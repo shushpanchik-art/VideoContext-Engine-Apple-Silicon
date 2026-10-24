@@ -15,7 +15,7 @@ scripts/vce_compare_runs.py последовательно отправляет 
 
 В общей папке создаются comparison.html для визуального сравнения результатов рядом и comparison.md со ссылками на все файлы. Один упавший профиль не мешает остальным завершиться. Запуски выполняются по одному, чтобы не перегружать память и ML-модели на Apple Silicon.
 
-Сценарий не записывает настройки обратно в videocontext_settings.json. Для защиты от перезаписи файлов рядом с исходным видео он отключает сохранение TXT/JSON самим VCE на время запроса, но сохраняет всё возвращённое API в отдельную папку результатов.
+Сценарий не записывает настройки обратно в videocontext_settings.json. Для защиты от перезаписи файлов рядом с исходным видео он отключает сохранение TXT/JSON самим VCE на время запроса, но сохраняет всё возвращённое API в отдельную папку результатов. Сравнительная HTML-страница показывает структурированный итог Qwen3.5, темы, ключевые моменты, сущности, неопределённости и времена Whisper/VLM/OCR/Qwen3.5 отдельно.
 
 ## Быстрый запуск на Mac
 
@@ -51,8 +51,10 @@ scripts/vce_compare_runs.py последовательно отправляет 
 
 В примере config/vce_compare_profiles.example.json есть варианты:
 - baseline-current — сохранённые сейчас настройки;
+- whisper-ocr-no-vlm — отключается Qwen3-VL, оставляя Whisper и Apple OCR;
 - whisper-medium — меняется только Whisper на medium;
 - two-keyframes — меняется только число кадров на сцену;
+- vlm-4b — меняется только визуальная модель на Qwen3-VL-4B;
 - ffmpeg-ocr-on — включается дополнительный FFmpeg/Tesseract OCR.
 
 Можно менять профили и имена под свой эксперимент. Среди поддерживаемых параметров — analysis_mode, whisper_model, vlm_model, vlm_resolution, scene_threshold, min_scene_duration, max_scene_duration, keyframes_per_scene, vlm_max_tokens_scene, vlm_max_tokens_summary, enable_apple_ocr, enable_ffmpeg_ocr, ffmpeg_ocr_interval, whisper_acceleration, enable_audio_features, generate_summary, word_timestamps, visual_user_prompt, summary_user_prompt.
