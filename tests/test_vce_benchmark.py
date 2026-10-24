@@ -103,6 +103,11 @@ class VCEBenchmarkTests(unittest.TestCase):
             self.assertGreater(summary["comparisons"]["candidate"]["mean_wer_delta_candidate_minus_baseline"], 0)
             self.assertEqual(summary["comparisons"]["candidate"]["rtf_change_percent"], -25.0)
 
+    def test_json_pointer_can_represent_empty_whisper_transcript(self):
+        self.assertEqual(BENCH._read_json_pointer(
+            {"segments": [{"audio_transcript": ""}]}, "/segments/*/audio_transcript"
+        ), [""])
+
     def test_empty_reference_is_not_reported_as_zero_error_rate(self):
         item = {
             "case_id": "silent", "run_id": "default", "reference": "", "hypothesis": "текст",
