@@ -183,6 +183,7 @@ async def analyze_video(
                 "global_summary": global_summary_text,
                 "params": {
                     "keyframes_per_scene": keyframes_per_scene,
+                    "enable_apple_ocr": enable_apple_ocr,
                     "enable_audio_features": enable_audio_features,
                     "generate_summary": generate_summary,
                     "ram_mode": RAM_MODE,
@@ -342,6 +343,7 @@ class TestAnalysisProfiles(unittest.TestCase):
         updated = patch.patch_engine(variant)
         ast.parse(updated)
         self.assertIn('"analysis_mode": analysis_mode', updated)
+        self.assertEqual(updated.count('"enable_apple_ocr": enable_apple_ocr'), 1)
 
     def test_settings_routes_add_mode_and_ffmpeg_ocr(self):
         updated = patch.patch_settings_api(ENGINE)

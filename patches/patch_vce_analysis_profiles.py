@@ -401,7 +401,6 @@ def patch_engine(source: str) -> str:
         replacement = "".join(indent + line + "\n" for line in (
             '"analysis_mode": analysis_mode,',
             '"run_vlm": run_vlm,',
-            '"enable_apple_ocr": enable_apple_ocr,',
             '"enable_ffmpeg_ocr": enable_ffmpeg_ocr,',
             '"keyframes_per_scene": keyframes_per_scene,',
         ))
