@@ -8,7 +8,7 @@
 
 > **Ключевая работа — практический поиск баланса качество/скорость на Apple Silicon.** Профиль подобран по замерам на MacBook Pro M1 Max, 32 ГБ RAM, MLX Qwen3-VL-8B-4bit и Whisper `large`, а не только теоретически. Результаты и ограничения опубликованы в [`docs/APPLE_SILICON_BENCHMARKS.md`](docs/APPLE_SILICON_BENCHMARKS.md).
 
-Исследовательские выводы и quality-first roadmap: [`docs/QUALITY_AND_SPEED_RESEARCH_ROADMAP.md`](docs/QUALITY_AND_SPEED_RESEARCH_ROADMAP.md). Контрольная точка текущего состояния: [`docs/STATE_CHECKPOINT_2026-10-24.md`](docs/STATE_CHECKPOINT_2026-10-24.md).
+Исследовательские выводы и quality-first roadmap: [`docs/QUALITY_AND_SPEED_RESEARCH_ROADMAP.md`](docs/QUALITY_AND_SPEED_RESEARCH_ROADMAP.md). Контрольная точка текущего состояния: [`docs/STATE_CHECKPOINT_2026-10-24.md`](docs/STATE_CHECKPOINT_2026-10-24.md). Разведка кода и P0-риски: [`docs/CODE_RECONNAISSANCE_2026-10-24.md`](docs/CODE_RECONNAISSANCE_2026-10-24.md).
 
 ## Что доработано
 
