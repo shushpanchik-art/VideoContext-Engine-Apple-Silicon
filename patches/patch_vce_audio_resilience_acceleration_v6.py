@@ -211,7 +211,7 @@ def _patch_whisper_result(source: str) -> str:
         r'(?m)^(?P<i>[ \t]*)whisper_segments\s*=\s*audio_res\.get\(["\']segments["\'],\s*\[\]\)\s*or\s*\[\][ \t]*$'
     )
     matches = list(pattern.finditer(source))
-    safe_call = source.find("audio_res, whisper_audio_error = await asyncio.to_thread(_vce_transcribe_audio_safe")
+    safe_call = source.find("audio_res, whisper_audio_error = await asyncio.to_thread(")
     match = next((m for m in matches if m.start() > safe_call), None)
     if match is None or safe_call < 0:
         raise ValueError("Не найден результат Whisper после безопасного transcribe; файлы не изменены.")
