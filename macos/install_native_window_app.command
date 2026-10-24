@@ -30,13 +30,50 @@ command -v xcrun >/dev/null 2>&1 || { echo "ОШИБКА: нужен Xcode Comma
 /bin/mkdir -p "$STAGING_APP/Contents/Resources"
 /usr/bin/printf '%s\n' "$PROJECT_DIR" > "$STAGING_APP/Contents/Resources/project-path.txt"
 
+# Preserve the icon from the installed app. If this app was already updated once,
+# search its dated backups too; the original icon may only be there.
+find_icon_in_app() {
+  local app_dir="$1"
+  local resources="$app_dir/Contents/Resources"
+  local icon_name=""
+  local icon_path=""
+  [[ -d "$resources" ]] || return 1
+  icon_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$app_dir/Contents/Info.plist" 2>/dev/null || true)"
+  if [[ -n "$icon_name" ]]; then
+    icon_path="$resources/$icon_name"
+    if [[ "$icon_path" != *.icns ]]; then icon_path="$icon_path.icns"; fi
+    if [[ -f "$icon_path" ]]; then printf '%s\n' "$icon_path"; return 0; fi
+  fi
+  find "$resources" -maxdepth 1 -type f -name '*.icns' -print -quit
+}
+LEGACY_ICON="$(find_icon_in_app "$APP_TARGET" || true)"
+if [[ -z "$LEGACY_ICON" ]]; then
+  while IFS= read -r backup_app; do
+    LEGACY_ICON="$(find_icon_in_app "$backup_app" || true)"
+    if [[ -n "$LEGACY_ICON" ]]; then break; fi
+  done < <(find /Applications -maxdepth 1 -type d -name 'VideoContext Engine.app.backup.*' -print | sort -r)
+fi
+if [[ -n "$LEGACY_ICON" ]]; then
+  icon_file="$(basename "$LEGACY_ICON")"
+  icon_key="$(basename "$LEGACY_ICON" .icns)"
+  /usr/bin/ditto "$LEGACY_ICON" "$STAGING_APP/Contents/Resources/$icon_file"
+  plist="$STAGING_APP/Contents/Info.plist"
+  if /usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$plist" >/dev/null 2>&1; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $icon_key" "$plist"
+  else
+    /usr/libexec/PlistBuddy -c "Add :CFBundleIconFile string $icon_key" "$plist"
+  fi
+  echo "Сохраняю иконку предыдущей версии: $icon_file"
+fi
+
+
 echo "[1/3] Сборка нативного окна на этом Mac…"
 xcrun swiftc -parse-as-library -O -target arm64-apple-macos11.0 \
   -framework AppKit -framework WebKit -framework Foundation \
   -o "$STAGING_APP/Contents/MacOS/VideoContextLauncher" "$SWIFT_SOURCE"
 /bin/chmod 755 "$STAGING_APP/Contents/MacOS/VideoContextLauncher"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 1.3' "$STAGING_APP/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.3' "$STAGING_APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleVersion 1.4' "$STAGING_APP/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c 'Set :CFBundleShortVersionString 1.4' "$STAGING_APP/Contents/Info.plist"
 /usr/bin/codesign --force --deep --sign - "$STAGING_APP"
 
 echo "[2/3] Установка в /Applications…"
