@@ -19,6 +19,28 @@ class VCEBenchmarkTests(unittest.TestCase):
         self.assertEqual(BENCH.edit_distance(["я", "вижу", "экран"], ["я", "вижу", "слайд"]), 1)
         self.assertEqual(BENCH.normalize_words("Привет, МИР!  СП 1.13130.2020"), ["привет", "мир", "сп", "1", "13130", "2020"])
 
+    def test_expected_terms_use_token_boundaries(self):
+        self.assertTrue(BENCH._contains_expected_term("название СП 1.13130.2020 показано", "СП 1.13130.2020"))
+        self.assertFalse(BENCH._contains_expected_term("Операторская панель", "оператор"))
+
+    def test_timing_json_supplies_runtime_and_stage_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "ref.txt").write_text("один два", encoding="utf-8")
+            (root / "hyp.txt").write_text("один два", encoding="utf-8")
+            (root / "timings.json").write_text(
+                json.dumps({"video_seconds": 60, "wall_seconds": 40, "stage_seconds": {"whisper": 20}}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            record = {
+                "case_id": "timing-01", "reference_text_path": "ref.txt",
+                "hypothesis_text_path": "hyp.txt", "timings_json_path": "timings.json",
+            }
+            (root / "manifest.jsonl").write_text(json.dumps(record, ensure_ascii=False) + "\n", encoding="utf-8")
+            item = BENCH.load_manifest(root / "manifest.jsonl")[0]
+            self.assertAlmostEqual(item["rtf"], 40 / 60)
+            self.assertEqual(item["stage_seconds"], {"whisper": 20.0})
+
     def test_cer_preserves_punctuation_and_unicode_normalization(self):
         reference = "Ёж. СП 1.13130.2020"
         hypothesis = "ёж СП 1.13130.2020"
