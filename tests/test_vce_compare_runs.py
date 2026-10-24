@@ -15,6 +15,39 @@ SPEC.loader.exec_module(COMPARE)
 
 
 class VCECompareRunsTests(unittest.TestCase):
+    def test_missing_video_path_resolves_unique_same_name_under_downloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "Downloads"
+            root.mkdir()
+            actual = root / "renamed-folder"
+            actual.mkdir()
+            video = actual / "telegram-cloud-document.mp4"
+            video.write_bytes(b"fake video")
+            resolved, notice = COMPARE.resolve_video_path(
+                Path(tmp) / "old-folder" / video.name, search_root=root
+            )
+            self.assertEqual(resolved, video.resolve())
+            self.assertIn("автоматически найден", notice)
+
+    def test_missing_video_path_shows_candidates_without_guessing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "Downloads"
+            root.mkdir()
+            candidate = root / "actual-video.mp4"
+            candidate.write_bytes(b"fake video")
+            with self.assertRaisesRegex(ValueError, "actual-video.mp4"):
+                COMPARE.resolve_video_path(root / "wrong-name.mp4", search_root=root)
+
+    def test_missing_video_path_rejects_duplicate_same_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "Downloads"
+            (root / "one").mkdir(parents=True)
+            (root / "two").mkdir(parents=True)
+            (root / "one" / "same.mp4").write_bytes(b"1")
+            (root / "two" / "same.mp4").write_bytes(b"2")
+            with self.assertRaisesRegex(ValueError, "несколько файлов"):
+                COMPARE.resolve_video_path(root / "missing" / "same.mp4", search_root=root)
+
     def test_profile_file_accepts_named_overrides(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "profiles.json"
