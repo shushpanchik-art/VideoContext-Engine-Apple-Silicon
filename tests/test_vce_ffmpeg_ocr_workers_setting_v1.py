@@ -44,6 +44,10 @@ class FfmpegOcrWorkersSettingTests(unittest.TestCase):
     def test_patcher_is_valid_python(self):
         ast.parse(PATCHER_PATH.read_text(encoding="utf-8"))
 
+    def test_p0_settings_smoke_script_is_valid_python(self):
+        script = ROOT / "scripts" / "p0_smoke_settings_roundtrip.py"
+        ast.parse(script.read_text(encoding="utf-8"))
+
     def test_adds_default_range_and_form_setting(self):
         updated = PATCH.patch_engine(FIXTURE)
         ast.parse(updated)
