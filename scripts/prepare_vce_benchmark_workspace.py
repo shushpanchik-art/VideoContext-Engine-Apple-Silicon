@@ -39,9 +39,6 @@ def main() -> int:
         json.dumps({"segments": [{"scene_id": 1, "audio_transcript": ""}]}, ensure_ascii=False, indent=2) + "\n",
     ):
         created.append("runs/baseline/lecture-01.json")
-    if write_if_missing(candidate / "lecture-01.transcript.txt", ""):
-        created.append("runs/candidate/lecture-01.transcript.txt")
-
     manifest = private / "manifest.jsonl"
     lines = [
         {
@@ -50,13 +47,6 @@ def main() -> int:
             "reference_text_path": "references/lecture-01.txt",
             "hypothesis_json_path": "runs/baseline/lecture-01.json",
             "hypothesis_json_pointer": "/segments/*/audio_transcript",
-            "expected_terms": [],
-        },
-        {
-            "case_id": "lecture-01", "run_id": "candidate",
-            "model": "", "backend": "", "profile": "",
-            "reference_text_path": "references/lecture-01.txt",
-            "hypothesis_text_path": "runs/candidate/lecture-01.transcript.txt",
             "expected_terms": [],
         },
     ]
@@ -69,7 +59,8 @@ def main() -> int:
 
     print(f"Workspace: {root}")
     print("Created empty starter files (if absent): " + (", ".join(created) if created else "none; all files already existed"))
-    print("IMPORTANT: empty files are intentional placeholders. Add a manually reviewed reference and real VCE outputs before comparing quality.")
+    print("The initial manifest contains only a baseline row. Add a candidate row only when a real candidate output exists.")
+    print("IMPORTANT: empty files are intentional placeholders. Add a manually reviewed reference and real VCE JSON before running meaningful WER/CER.")
     print("Do not put private videos, reference transcripts, or result files into Git.")
     return 0
 
