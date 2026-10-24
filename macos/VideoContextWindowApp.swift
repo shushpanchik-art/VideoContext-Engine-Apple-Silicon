@@ -57,9 +57,12 @@ final class VideoContextAppDelegate: NSObject, NSApplicationDelegate, NSWindowDe
         return false
     }
 
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        guard !showingStatusPage else { return }
-        showStatusPage(title: "Не удалось открыть интерфейс", detail: "Локальный сервер пока не отвечает: \(error.localizedDescription)")
+    nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let message = error.localizedDescription
+        Task { @MainActor [weak self] in
+            guard let self, !self.showingStatusPage else { return }
+            self.showStatusPage(title: "Не удалось открыть интерфейс", detail: "Локальный сервер пока не отвечает: \(message)")
+        }
     }
 
     @objc private func reloadPage() {
@@ -194,15 +197,6 @@ final class VideoContextAppDelegate: NSObject, NSApplicationDelegate, NSWindowDe
 
         do {
             let process = try makeEngineProcess(project: project)
-            process.terminationHandler = { [weak self] process in
-                Task { @MainActor in
-                    guard let self, self.ownsServer, !self.quitConfirmed else { return }
-                    self.showStatusPage(
-                        title: "Сервер остановился",
-                        detail: "Движок завершился с кодом \(process.terminationStatus). Подробности: \(self.logURL?.path ?? "лог недоступен")."
-                    )
-                }
-            }
             try process.run()
             serverProcess = process
             ownsServer = true
