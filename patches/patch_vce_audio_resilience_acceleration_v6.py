@@ -289,19 +289,33 @@ def _patch_report_metadata(source: str) -> str:
     )
     # The separate params object is consumed by TXT generation.
     local_anchor = '            "ram_mode": RAM_MODE,\n        }\n\n        text_report_content = generate_text_report'
-    if '"audio_track_available": audio_track_available' not in source:
-        if local_anchor in source:
-            source = replace_once(
-                source, local_anchor,
-                '            "ram_mode": RAM_MODE,\n' + fields + '        }\n\n        text_report_content = generate_text_report',
-                "text report audio diagnostics",
-            )
+    if '"audio_track_available": audio_track_available' not in source and local_anchor in source:
+        source = replace_once(
+            source, local_anchor,
+            '            "ram_mode": RAM_MODE,\n' + fields + '        }\n\n        text_report_content = generate_text_report',
+            "text report audio diagnostics",
+        )
 
-    # Report JSON has a second, literal meta.params object. Insert into this object,
-    # not into the text-LLM prompt or any of the protected raw transcript fields.
-    matches = list(re.finditer(r'(?m)^(?P<i>[ \t]*)"params": \{[ \t]*
+    # Add diagnostics only to the literal JSON meta.params object.
+    matches = list(re.finditer(r'(?m)^(?P<i>[ \t]*)"params": \{[ \t]*$', source))
+    if len(matches) != 1:
+        raise ValueError(f"Ожидался один объект meta.params для диагностики аудио; найдено {len(matches)}.")
+    match = matches[0]
+    close_pattern = re.compile(r'(?m)^' + re.escape(match.group("i")) + r'\}[,]?[ \t]*$')
+    close_match = close_pattern.search(source, match.end())
+    if close_match is None:
+        raise ValueError("Не найден конец объекта meta.params.")
+    meta_params_block = source[match.start():close_match.end()]
+    if '"audio_status": audio_probe_message' not in meta_params_block:
+        child_indent = match.group("i") + "    "
+        insertion = (
+            child_indent + '"audio_track_available": audio_track_available,\n'
+            + child_indent + '"audio_auto_skipped": audio_auto_skipped,\n'
+            + child_indent + '"audio_status": audio_probe_message,\n'
+        )
+        line_end = source.find("\n", match.start()) + 1
+        source = source[:line_end] + insertion + source[line_end:]
     return source
-
 
 def patch_engine(source: str) -> str:
     if MARKER in source:
