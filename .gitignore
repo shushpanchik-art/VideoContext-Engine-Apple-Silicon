@@ -13,3 +13,7 @@ videocontext_settings.json
 *_context.json
 video_ocr_output*/
 .DS_Store
+
+# Local ASR benchmark inputs and generated results
+benchmarks/private/
+benchmarks/results/
