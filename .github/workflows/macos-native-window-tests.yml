@@ -13,6 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Type-check the native WKWebView app
-        run: swiftc -typecheck -framework AppKit -framework WebKit macos/VideoContextWebView.swift
+        run: swiftc -parse-as-library -typecheck -framework AppKit -framework WebKit macos/VideoContextWebView.swift
       - name: Test launcher and safe installer anchors
         run: python3 -m unittest discover -s tests -p "test_macos_native_window.py" -v
