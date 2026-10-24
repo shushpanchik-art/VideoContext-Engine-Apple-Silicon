@@ -111,22 +111,17 @@ def _vce_is_audio_decode_failure(exc: BaseException) -> bool:
     return any(marker in message for marker in markers)
 
 
-def _vce_transcribe_audio_safe(model, media_path: str) -> tuple[dict, str]:
-    """Transcribe on a worker thread; downgrade only known audio-decode failures to video-only."""
+def _vce_transcribe_audio_safe(model, media_path: str, *args, **kwargs) -> tuple[dict, str]:
+    """Transcribe on a worker thread; preserve the engine's original Whisper options."""
     try:
-        result = model.transcribe(
-            str(media_path),
-            condition_on_previous_text=False,
-            temperature=0.0,
-            compression_ratio_threshold=1.8,
-        )
+        result = model.transcribe(str(media_path), *args, **kwargs)
         if not isinstance(result, dict):
             raise TypeError("Whisper returned a non-dictionary transcription result.")
         return result, ""
     except Exception as exc:
         if not _vce_is_audio_decode_failure(exc):
             raise
-        detail = re.sub(r"\s+", " ", str(exc)).strip()[-700:]
+        detail = re.sub(r"\\s+", " ", str(exc)).strip()[-700:]
         return {"segments": []}, (
             "Whisper автоматически пропущен: FFmpeg не смог прочитать аудиодорожку. "
             "Видеоанализ продолжается без транскрипции. " + detail
@@ -169,7 +164,7 @@ def _line_offsets(source: str) -> list[int]:
 
 
 def _patch_whisper_call(source: str) -> str:
-    if "audio_res, whisper_audio_error = await asyncio.to_thread(_vce_transcribe_audio_safe" in source:
+    if "audio_res, whisper_audio_error = await asyncio.to_thread(" in source and "_vce_transcribe_audio_safe" in source:
         return source
     tree = ast.parse(source, filename=str(TARGET))
     candidates = []
@@ -177,29 +172,74 @@ def _patch_whisper_call(source: str) -> str:
         if not isinstance(node, ast.Assign) or len(node.targets) != 1:
             continue
         target = node.targets[0]
-        value = node.value
-        if not (isinstance(target, ast.Name) and target.id == "audio_res" and isinstance(value, ast.Call)):
+        if not (isinstance(target, ast.Name) and target.id == "audio_res"):
             continue
-        func = value.func
-        if (isinstance(func, ast.Attribute) and func.attr == "transcribe"
-                and isinstance(func.value, ast.Name) and func.value.id == "w_model"):
-            candidates.append(node)
+
+        value = node.value
+        transcribe_args = None
+        transcribe_keywords = None
+
+        # Older engines call w_model.transcribe(...) directly.
+        if isinstance(value, ast.Call):
+            func = value.func
+            if (isinstance(func, ast.Attribute) and func.attr == "transcribe"
+                    and isinstance(func.value, ast.Name) and func.value.id == "w_model"):
+                transcribe_args = value.args
+                transcribe_keywords = value.keywords
+
+        # Current VCE already offloads inference with asyncio.to_thread(...).
+        elif isinstance(value, ast.Await) and isinstance(value.value, ast.Call):
+            outer = value.value
+            outer_func = outer.func
+            if (isinstance(outer_func, ast.Attribute) and outer_func.attr == "to_thread"
+                    and isinstance(outer_func.value, ast.Name) and outer_func.value.id == "asyncio"
+                    and outer.args):
+                transcribe_func = outer.args[0]
+                if (isinstance(transcribe_func, ast.Attribute)
+                        and transcribe_func.attr == "transcribe"
+                        and isinstance(transcribe_func.value, ast.Name)
+                        and transcribe_func.value.id == "w_model"):
+                    transcribe_args = outer.args[1:]
+                    transcribe_keywords = outer.keywords
+
+        if transcribe_args is not None:
+            candidates.append((node, transcribe_args, transcribe_keywords or []))
+
     if len(candidates) != 1:
         raise ValueError(
-            f"Ожидался один прямой вызов audio_res = w_model.transcribe(...); найдено {len(candidates)}. "
+            f"Ожидался один распознаваемый вызов Whisper, назначаемый в audio_res; найдено {len(candidates)}. "
             "Локальная версия отличается от проверенной; файлы не изменены."
         )
-    node = candidates[0]
+
+    node, call_args, call_keywords = candidates[0]
+    if not call_args:
+        raise ValueError("Вызов Whisper не содержит аргумента пути к видео; файлы не изменены.")
+
+    # Preserve the exact input path, positional args, and keyword options such as word_timestamps.
+    rendered_args = [
+        "_vce_transcribe_audio_safe",
+        "w_model",
+        *[ast.get_source_segment(source, arg) or "" for arg in call_args],
+    ]
+    for keyword in call_keywords:
+        value_text = ast.get_source_segment(source, keyword.value)
+        if not value_text:
+            raise ValueError("Не удалось безопасно прочитать параметр Whisper; файлы не изменены.")
+        if keyword.arg is None:
+            rendered_args.append("**" + value_text)
+        else:
+            rendered_args.append(f"{keyword.arg}={value_text}")
+
     offsets = _line_offsets(source)
     start = offsets[node.lineno - 1]
     end = offsets[node.end_lineno] if node.end_lineno < len(offsets) else len(source)
     line = source[start:offsets[node.lineno]]
-    indent_match = re.match(r"[ \t]*", line)
+    indent_match = re.match(r"[ \\t]*", line)
     indent = indent_match.group(0) if indent_match else ""
     replacement = (
-        indent + "audio_res, whisper_audio_error = await asyncio.to_thread(\n"
-        + indent + "    _vce_transcribe_audio_safe, w_model, temp_path\n"
-        + indent + ")\n"
+        indent + "audio_res, whisper_audio_error = await asyncio.to_thread(\\n"
+        + "".join(indent + "    " + arg + ",\\n" for arg in rendered_args)
+        + indent + ")\\n"
     )
     return source[:start] + replacement + source[end:]
 
