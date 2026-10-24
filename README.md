@@ -95,6 +95,15 @@
 - `docs/APPLE_SILICON_BENCHMARKS.md` — замеры и интерпретация.
 - `install_patches_to_existing_checkout.command` — orchestration для свежего checkout upstream.
 
+## Дополнительная настройка согласования ASR/OCR
+
+Для локальной сборки, в которой **уже установлено расширение текстовой постобработки Qwen3.5**, можно добавить редактируемый промпт согласования названий:
+
+    python3 patches/patch_vce_name_reconciliation_prompt.py --project "$HOME/VideoContext-Engine" --dry-run
+    python3 patches/patch_vce_name_reconciliation_prompt.py --project "$HOME/VideoContext-Engine"
+
+Патчер добавляет поле в «Параметры анализа», сохраняет значение в videocontext_settings.json и включает его в инструкцию текстовой постобработки. Он создаёт резервные копии, проверяет Python/JSON и останавливается без изменений, если не найдены ожидаемые точки подключения. Это **опциональный патч**: он не входит в последовательность установки свежего upstream v3.19, потому что стандартная upstream-версия не содержит указанного расширения Qwen3.5. После применения перезапустите приложение и сохраните промпт через UI.
+
 ## Attribution
 
 Основой является [VideoContext Engine v3.19](https://github.com/dolphin-creator/VideoContext-Engine), автор upstream — `dolphin-creator`. Эта ветка содержит сторонний набор оптимизаций/интеграций для конкретного рабочего процесса. Перед публикацией исходного кода upstream изучите лицензию и условия оригинального репозитория. Этот репозиторий распространяет patch scripts и launcher templates, а не копию всего upstream source file.

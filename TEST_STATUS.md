@@ -19,3 +19,11 @@
 - Python patchers compile with `py_compile`.
 - The macOS orchestration script passes `bash -n`.
 - Package file list is checked; the patched upstream engine is not copied into this repository.
+
+
+## Качественная проверка ASR/OCR (пользовательский прогон, 2026-10-24)
+
+- Один ролик длиной 108.23 s, 14 сцен: /ui и /api/v1/analyze завершились успешно; Whisper large на MPS — 30.49 s, Qwen3-VL-8B — 209.02 s, Apple OCR — 8.48 s, Qwen3.5 text post-processing — 93.49 s, общий process_time — 368.56 s.
+- Улучшенные описания сцен 13–14 осторожно разделяют аудиосодержание и видимый интерфейс. Это качественное наблюдение по одному ролику, не объективная оценка WER/CER и не A/B-сравнение.
+- В производных полях осталась несогласованность номера норматива: СП 1.13.132.020 в global_summary/original_summary/topics против СП 1.13130.2020 в OCR и executive_summary. Считать нормализацию полностью исправленной пока нельзя.
+- Факт применения редактируемой инструкции ASR/OCR не подтверждается одним логом анализа; ручная проверка поля в UI и сохранения настройки нужна отдельно.
