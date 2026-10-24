@@ -40,7 +40,7 @@ echo "[1/4] Загружаю исходники отдельного окна…
 /usr/bin/curl -fL "$REPO_RAW_BASE/macos/VideoContextLauncher.sh" -o "$TMP_DIR/VideoContextLauncher"
 
 echo "[2/4] Компилирую WKWebView-приложение средствами macOS…"
-/usr/bin/swiftc -O -framework AppKit -framework WebKit \
+/usr/bin/swiftc -parse-as-library -O -framework AppKit -framework WebKit \
   "$TMP_DIR/VideoContextWebView.swift" \
   -o "$TMP_DIR/VideoContextWebView" || fail "Swift-компиляция не прошла; установленное приложение не изменено."
 
