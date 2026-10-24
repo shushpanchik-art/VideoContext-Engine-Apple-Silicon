@@ -41,6 +41,7 @@ class PatchsetSanityTests(unittest.TestCase):
         self.assertIn("executive_summary, topics, key_points, entities", patcher)
         self.assertIn("original_summary", patcher)
         self.assertIn("audio_transcript, ocr_text, visual_description", patcher)
+        self.assertIn("Не объявляй действие завершённым", patcher)
 
     def test_name_consistency_v2_patch_has_ocr_gated_canonicalizer(self):
         patch_path = PATCHES / "patch_vce_name_consistency_v2.py"
