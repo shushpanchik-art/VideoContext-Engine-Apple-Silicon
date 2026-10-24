@@ -177,6 +177,66 @@ def post_video(base_url, video_path, fields, timeout):
         connection.close()
 
 
+def resolve_video_path(requested_path: Path, search_root: Path | None = None) -> tuple[Path, str | None]:
+    """Resolve a missing video path safely; never guess between different video files."""
+    requested = requested_path.expanduser()
+    if requested.is_file():
+        return requested.resolve(), None
+
+    root = (search_root or (Path.home() / "Downloads")).expanduser()
+    suffixes = {".mp4", ".mov", ".m4v", ".mkv", ".webm", ".avi", ".mts", ".m2ts"}
+    exact_matches = []
+    recent_videos = []
+    if root.is_dir():
+        try:
+            for candidate in root.rglob("*"):
+                try:
+                    if not candidate.is_file() or candidate.suffix.casefold() not in suffixes:
+                        continue
+                    resolved = candidate.resolve()
+                    if candidate.name.casefold() == requested.name.casefold():
+                        exact_matches.append(resolved)
+                    recent_videos.append((candidate.stat().st_mtime, resolved))
+                except OSError:
+                    continue
+        except OSError:
+            pass
+
+    exact_matches = sorted(set(exact_matches), key=lambda item: str(item).casefold())
+    if len(exact_matches) == 1:
+        resolved = exact_matches[0]
+        return resolved, (
+            f"Внимание: исходный путь не найден; автоматически найден файл с тем же именем: {resolved}"
+        )
+    if len(exact_matches) > 1:
+        options = "\n".join(f"  - {candidate}" for candidate in exact_matches[:10])
+        raise ValueError(
+            f"Видео не найдено по указанному пути: {requested}\n"
+            f"В Downloads найдено несколько файлов с именем {requested.name!r}; выбери нужный явно:\n{options}"
+        )
+
+    recent_videos.sort(key=lambda item: item[0], reverse=True)
+    suggestions = []
+    seen = set()
+    for _mtime, candidate in recent_videos:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        suggestions.append(candidate)
+        if len(suggestions) >= 15:
+            break
+    if suggestions:
+        options = "\n".join(f"  - {candidate}" for candidate in suggestions)
+        hint = f"\nНедавно изменённые видео в {root}:\n{options}"
+    else:
+        hint = f"\nВ {root} не найдены видеофайлы поддерживаемых форматов."
+    raise ValueError(
+        f"Видео не найдено: {requested}\n"
+        "Проверь имя и расположение файла. VCE Compare не выбрал другое видео автоматически."
+        + hint
+    )
+
+
 def format_time(value):
     if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
         milliseconds = int(round(value * 1000))
@@ -434,11 +494,11 @@ def main(argv=None):
     parser.add_argument("--timeout", type=float, default=7200, help="Таймаут каждого прогона в секундах.")
     args = parser.parse_args(argv)
     try:
-        video = args.video.expanduser().resolve()
+        video, video_notice = resolve_video_path(args.video)
+        if video_notice:
+            print(video_notice, file=sys.stderr, flush=True)
         profiles_path = args.profiles.expanduser().resolve()
         out_dir = args.out_dir.expanduser().resolve()
-        if not video.is_file():
-            raise ValueError(f"Видео не найдено: {video}")
         if args.timeout <= 0:
             raise ValueError("--timeout должен быть положительным.")
         if out_dir.exists() and any(out_dir.iterdir()):
