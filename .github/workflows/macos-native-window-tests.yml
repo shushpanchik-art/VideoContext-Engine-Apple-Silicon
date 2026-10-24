@@ -1,0 +1,18 @@
+name: macOS native app window tests
+
+on:
+  push:
+    branches: [main, "feat/macos-native-window-confirm-quit"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  native-window:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Type-check the native WKWebView app
+        run: swiftc -typecheck -framework AppKit -framework WebKit macos/VideoContextWebView.swift
+      - name: Test launcher and safe installer anchors
+        run: python3 -m unittest discover -s tests -p "test_macos_native_window.py" -v
