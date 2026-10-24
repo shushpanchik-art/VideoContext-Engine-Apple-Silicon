@@ -1,9 +1,10 @@
 import AppKit
 import WebKit
 
-final class VideoContextAppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class VideoContextAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKUIDelegate {
     private var window: NSWindow!
     private var webView: WKWebView!
+    private var skipNextTerminationConfirmation = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -25,6 +26,7 @@ final class VideoContextAppDelegate: NSObject, NSApplicationDelegate, WKNavigati
         window.minSize = NSSize(width: 820, height: 560)
         window.center()
         window.contentView = webView
+        window.delegate = self
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
@@ -35,10 +37,27 @@ final class VideoContextAppDelegate: NSObject, NSApplicationDelegate, WKNavigati
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        return true
+        // The close-button path asks first and terminates explicitly only after confirmation.
+        return false
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard confirmQuit() else { return false }
+        skipNextTerminationConfirmation = true
+        NSApp.terminate(nil)
+        // Keep the window alive until the accepted application termination completes.
+        return false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if skipNextTerminationConfirmation {
+            skipNextTerminationConfirmation = false
+            return .terminateNow
+        }
+        return confirmQuit() ? .terminateNow : .terminateCancel
+    }
+
+    private func confirmQuit() -> Bool {
         let alert = NSAlert()
         alert.alertStyle = .warning
         alert.messageText = "Закрыть VideoContext Engine?"
@@ -46,7 +65,7 @@ final class VideoContextAppDelegate: NSObject, NSApplicationDelegate, WKNavigati
             "Точно закрыть окно приложения? Сервер анализа запускается отдельно в Terminal и может продолжить работу. Чтобы остановить сам сервер, проверьте окно Terminal."
         alert.addButton(withTitle: "Не закрывать")
         alert.addButton(withTitle: "Закрыть приложение")
-        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
+        return alert.runModal() == .alertSecondButtonReturn
     }
 
     private func configureMenu() {
