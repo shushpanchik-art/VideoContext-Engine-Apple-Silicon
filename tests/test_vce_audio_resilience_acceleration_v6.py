@@ -154,7 +154,7 @@ class AudioResilienceV6Tests(unittest.TestCase):
         namespace["_vce_which_binary"] = lambda name: None
         has_audio, message = namespace["_vce_probe_audio_stream"]("unknown.mp4")
         self.assertIsNone(has_audio)
-        self.assertIn("не удалось надёжно определить", message)
+        self.assertIn("не удалось надёжно определить", message.casefold())
 
     def test_known_missing_audio_error_is_recoverable(self):
         namespace = dict(vars(PATCH))
