@@ -32,6 +32,8 @@ class NativeWindowAppTests(unittest.TestCase):
         ):
             self.assertIn(token, source)
         self.assertIn("applicationShouldTerminateAfterLastWindowClosed", source)
+        self.assertIn("windowShouldClose", source)
+        self.assertIn("skipNextTerminationConfirmation", source)
         self.assertIn("createWebViewWith", source)
 
     def test_launcher_execs_native_window_instead_of_opening_browser(self):
@@ -43,7 +45,7 @@ class NativeWindowAppTests(unittest.TestCase):
 
     def test_installer_compiles_and_backs_up_without_touching_project_engine(self):
         source = INSTALLER.read_text(encoding="utf-8")
-        self.assertIn("/usr/bin/swiftc -O -framework AppKit -framework WebKit", source)
+        self.assertIn("/usr/bin/swiftc -parse-as-library -O -framework AppKit -framework WebKit", source)
         self.assertIn("VideoContext-Engine-native-window-backup", source)
         self.assertIn("VideoContextLauncher", source)
         self.assertNotIn("VideoContextEngine_v3.19.py", source)
