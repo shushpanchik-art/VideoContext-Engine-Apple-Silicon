@@ -6,7 +6,7 @@
 
 Исходная база, проверенная для этого набора: `main` на коммите `4a42b4a309d9d7d8f7f944c2e210a027940208f3` (4 декабря 2025); файл `VideoContextEngine_v3.19.py` имел blob SHA `cfa22be84dfbb5f9e6f29269c9906c376e90ef17` при проверке 23 октября 2026. Сверяйте код перед применением к более новой версии upstream.
 
-> **Ключевая работа — практический поиск баланса качество/скорость на Apple Silicon.** Профиль подобран по замерам на MacBook Pro M1 Max, 32 ГБ RAM, MLX Qwen3-VL-8B-4bit и Whisper `large`, а не только теоретически. Результаты и ограничения опубликованы в [`docs/APPLE_SILICON_BENCHMARKS.md`](docs/APPLE_SILICON_BENCHMARKS.md).
+> **Ключевая работа — практический поиск баланса качество/скорость на Apple Silicon.** Профиль подобран по замерам на MacBook Pro M1 Max, 32 ГБ RAM, MLX Qwen3-VL-8B-4bit и Whisper `large`, а не только теоретически. Результаты и ограничения опубликованы в [`docs/APPLE_SILICON_BENCHMARKS.md`](docs/APPLE_SILICON_BENCHMARKS.md). Для повторяемого сравнения качества транскрипции и runtime используйте [локальный benchmark harness](docs/VCE_QUALITY_BENCHMARKS.md).
 
 ## Что доработано
 
