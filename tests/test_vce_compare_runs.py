@@ -47,6 +47,24 @@ class VCECompareRunsTests(unittest.TestCase):
         self.assertEqual(base["generate_txt"], True)
         self.assertEqual(form["whisper_model"], "large")
 
+    def test_cpu_ocr_and_text_postprocessing_settings_are_passed_per_run(self):
+        base = {
+            "ffmpeg_ocr_workers": 2,
+            "text_llm_enabled": True,
+            "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+            "text_llm_max_tokens": 4096,
+        }
+        form = COMPARE.effective_settings(base, {
+            "ffmpeg_ocr_workers": 4,
+            "text_llm_enabled": False,
+            "text_llm_max_tokens": 2048,
+        })
+        self.assertEqual(form["ffmpeg_ocr_workers"], "4")
+        self.assertEqual(form["text_llm_enabled"], "false")
+        self.assertEqual(form["text_llm_max_tokens"], "2048")
+        self.assertEqual(base["ffmpeg_ocr_workers"], 2)
+        self.assertTrue(base["text_llm_enabled"])
+
     def test_form_booleans_are_lowercase_and_overrides_are_per_run(self):
         base = {"enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5}
         form = COMPARE.effective_settings(base, {"enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 2})
@@ -80,7 +98,7 @@ class VCECompareRunsTests(unittest.TestCase):
         }
         report = COMPARE.make_report("baseline", payload, 31.4)
         for expected in ("Structured summary", "Raw summary", "Building code", "Ramp slope rule",
-                         "SP 1.13130.2020", "uncertainties", "3.10", "7.50", "Apple OCR"):
+                         "SP 1.13130.2020", "НЕОПРЕДЕЛЁННОСТИ", "The final violation is not visually confirmed.", "3.10", "7.50", "Apple OCR"):
             self.assertIn(expected.casefold(), report.casefold())
 
     def test_stage_time_extraction_uses_all_available_models(self):
