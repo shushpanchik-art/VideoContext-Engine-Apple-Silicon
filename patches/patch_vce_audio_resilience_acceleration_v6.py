@@ -348,19 +348,28 @@ def patch_engine(source: str) -> str:
     route_pos = source.index(route_anchor)
     source = source[:route_pos] + HELPERS + source[route_pos:]
 
-    preflight_anchor = "        video_duration = validate_video_file(temp_path)\n"
-    preflight = (
-        "        audio_track_available, audio_probe_message = _vce_probe_audio_stream(temp_path)\n"
-        "        audio_auto_skipped = False\n"
-        "        if audio_track_available is False and not skip_audio:\n"
-        "            skip_audio = True\n"
-        "            audio_auto_skipped = True\n"
-        "            print(\"⚠️ [Audio] Аудиопоток отсутствует; продолжим анализ видео без Whisper.\")\n"
-        "        elif audio_track_available is None:\n"
-        "            print(\"ℹ️ [Audio] \" + audio_probe_message)\n\n"
-    )
     if "audio_track_available, audio_probe_message = _vce_probe_audio_stream(temp_path)" not in source:
-        source = replace_once(source, preflight_anchor, preflight + preflight_anchor, "audio preflight before validation")
+        matches = list(re.finditer(
+            r'(?m)^(?P<i>[ \t]+)video_duration\s*=\s*validate_video_file\(temp_path\)[ \t]*$',
+            source,
+        ))
+        if len(matches) != 1:
+            raise ValueError(f"Ожидалось одно место перед validate_video_file(temp_path); найдено {len(matches)}.")
+        match = matches[0]
+        indent = match.group("i")
+        lines = (
+            "audio_track_available, audio_probe_message = _vce_probe_audio_stream(temp_path)",
+            "audio_auto_skipped = False",
+            "if audio_track_available is False and not skip_audio:",
+            "    skip_audio = True",
+            "    audio_auto_skipped = True",
+            '    print("⚠️ [Audio] Аудиопоток отсутствует; продолжим анализ видео без Whisper.")',
+            "elif audio_track_available is None:",
+            '    print("ℹ️ [Audio] " + audio_probe_message)',
+            "",
+        )
+        preflight = "\n".join((indent + line) if line else "" for line in lines) + "\n"
+        source = source[:match.start()] + preflight + source[match.start():]
 
     source = _patch_whisper_call(source)
     source = _patch_whisper_result(source)
