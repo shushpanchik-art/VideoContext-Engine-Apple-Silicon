@@ -1,5 +1,6 @@
 from __future__ import annotations
 import ast
+import importlib.util
 import json
 import subprocess
 import unittest
@@ -36,18 +37,38 @@ class PatchsetSanityTests(unittest.TestCase):
 
     def test_name_reconciliation_prompt_requires_cross_field_consistency(self):
         patcher = (PATCHES / "patch_vce_name_reconciliation_prompt.py").read_text(encoding="utf-8")
-        self.assertIn("единый канонический вариант", patcher)
+        self.assertIn("один канонический вариант", patcher)
         self.assertIn("executive_summary, topics, key_points, entities", patcher)
         self.assertIn("original_summary", patcher)
         self.assertIn("audio_transcript, ocr_text, visual_description", patcher)
 
     def test_name_consistency_v2_patch_has_ocr_gated_canonicalizer(self):
-        patcher = (PATCHES / "patch_vce_name_consistency_v2.py").read_text(encoding="utf-8")
-        self.assertIn("VCE_CONFIRMED_STANDARD_CANONICALIZATION_V2", patcher)
-        self.assertIn("СП 1.13.132.020", patcher)
-        self.assertIn("СП 1.13130.2020", patcher)
-        self.assertIn("original_summary", patcher)
-        self.assertIn("VCE_NAME_CONSISTENCY_V2_GLOBAL_SUMMARY", patcher)
+        patch_path = PATCHES / "patch_vce_name_consistency_v2.py"
+        patch_source = patch_path.read_text(encoding="utf-8")
+        self.assertIn("VCE_CONFIRMED_STANDARD_CANONICALIZATION_V2", patch_source)
+        self.assertIn("СП 1.13.132.020", patch_source)
+        self.assertIn("СП 1.13130.2020", patch_source)
+        self.assertIn("original_summary", patch_source)
+        self.assertIn("VCE_NAME_CONSISTENCY_V2_GLOBAL_SUMMARY", patch_source)
+
+        spec = importlib.util.spec_from_file_location("vce_name_consistency_patch", patch_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        namespace = {"Any": object, "Dict": dict, "List": list}
+        exec(module.CANONICALIZER_SOURCE, namespace)
+        normalize = namespace["_vce_canonicalize_confirmed_standard_names"]
+        payload = {
+            "executive_summary": "См. СП 1.13.132.020",
+            "topics": ["СП 1.13.132.020"],
+            "entities": [{"name": "СП 1.13.132.020", "type": "standard"}],
+            "original_summary": "СП 1.13.132.020",
+        }
+        result = normalize(payload, [{"ocr_text": "СП 1.13130.2020 Системы противопожарной защиты"}])
+        self.assertEqual(result["topics"], ["СП 1.13130.2020"])
+        self.assertEqual(result["entities"][0]["name"], "СП 1.13130.2020")
+        self.assertEqual(result["original_summary"], "СП 1.13.132.020")
+        untouched = normalize({"topics": ["СП 1.13.132.020"]}, [{"ocr_text": "СП 59.13330.2020"}])
+        self.assertEqual(untouched["topics"], ["СП 1.13.132.020"])
 
     def test_recommended_profile(self):
         cfg = json.loads((ROOT / "config/videocontext_settings.apple_silicon.example.json").read_text(encoding="utf-8"))

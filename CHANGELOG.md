@@ -7,7 +7,6 @@
 - Added a qualitative audit documenting remaining summary inconsistency for standard identifiers. A single different-video sample is not treated as a controlled quality comparison.
 - Strengthened the editable default prompt with a final cross-field consistency check.
 - Added optional OCR-gated v2 runtime patch: normalize a known СП-number alias across derived fields and the base summary while preserving raw evidence.
-- Strengthened the prompt's final cross-field consistency check and added regression coverage for canonical names across normalized summaries, topics, and scene fields while preserving original/raw evidence.
 
 
 ## 0.1.0 — Apple Silicon patch set
