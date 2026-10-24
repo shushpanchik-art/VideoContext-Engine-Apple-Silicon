@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — Analysis profiles
+
+- Added Full, Whisper + Apple Vision OCR without Qwen3-VL, and OCR-only analysis profiles.
+- Kept the Qwen3.5 text post-processing stage active in every profile so it can synthesize the final report from the enabled evidence sources.
+- Added optional FFmpeg/Tesseract OCR, runtime capability detection, per-scene provenance, and a non-fatal fallback when the installed FFmpeg lacks the `ocr` filter.
+- Added regression tests for profile behavior, settings migration, FFmpeg metadata parsing, idempotency, and Qwen3.5 stage preservation.
+
+
 ## Unreleased — ASR/OCR reconciliation
 
 - Added an optional patcher that exposes the name-reconciliation prompt in the settings UI for extended builds with Qwen3.5 text post-processing.
