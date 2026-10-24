@@ -384,12 +384,16 @@ def patch_engine(source: str) -> str:
         source = source[:anchor_pos] + inserted + source[anchor_pos:]
 
     if '"analysis_mode": analysis_mode' not in source:
-        return_match = re.search(r"(?m)^[ \t]*else:[ \t]*\n(?P<i>[ \t]*)return \{[ \t]*$", source)
-        if not return_match:
-            raise ValueError("Не найден return-словарь JSON-ответа.")
-        meta_pos = source.find('"params": {', return_match.start())
-        if meta_pos < 0:
-            raise ValueError("Не найден meta.params в JSON-ответе.")
+        # Do not assume the JSON response is written as \`else: return {...}\`.
+        # Different save/export patches may build \`result = {...}; return result\` or
+        # return a response object after constructing the payload. Locate the unique
+        # meta.params dictionary structurally and insert diagnostics there.
+        meta_params_matches = list(re.finditer(r'(?m)^(?P<i>[ \t]*)"params": \{[ \t]*$', source))
+        if len(meta_params_matches) != 1:
+            raise ValueError(
+                f"Ожидалось ровно одно поле meta.params JSON-ответа; найдено {len(meta_params_matches)}."
+            )
+        meta_pos = meta_params_matches[0].start()
         params_match = re.search(r'(?m)^(?P<i>[ \t]*)"keyframes_per_scene": keyframes_per_scene,[ \t]*$', source[meta_pos:])
         if not params_match:
             raise ValueError("Не найден keyframes_per_scene в meta.params.")
@@ -402,7 +406,8 @@ def patch_engine(source: str) -> str:
             '"keyframes_per_scene": keyframes_per_scene,',
         ))
         anchor_pos = meta_pos + params_match.start()
-        source = source[:anchor_pos] + replacement + source[anchor_pos + params_match.end():]
+        anchor_end = meta_pos + params_match.end()
+        source = source[:anchor_pos] + replacement + source[anchor_end:]
 
     # Preserve the underlying Qwen3.5 call if present. This patch intentionally makes no edits there.
     if "run_text_llm_postprocess(" in source and "# Important: only this flag controls Qwen3-VL." not in source:

@@ -326,6 +326,23 @@ class TestAnalysisProfiles(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'отсутствует параметр skip_visual'):
             patch.patch_engine(changed_fixture)
 
+    def test_json_payload_insertion_does_not_require_else_return_dict(self):
+        variant = ENGINE.replace(
+            '    else:\n        return {\n            "meta": {',
+            '    result = {\n            "meta": {',
+            1,
+        )
+        self.assertNotEqual(variant, ENGINE)
+        # Return the constructed payload later, as some output patches do.
+        variant = variant.replace(
+            '            "segments": final_segments,\n        }\n\n\ndef run_text_llm_postprocess(payload):',
+            '            "segments": final_segments,\n        }\n    return result\n\n\ndef run_text_llm_postprocess(payload):',
+            1,
+        )
+        updated = patch.patch_engine(variant)
+        ast.parse(updated)
+        self.assertIn('"analysis_mode": analysis_mode', updated)
+
     def test_settings_routes_add_mode_and_ffmpeg_ocr(self):
         updated = patch.patch_settings_api(ENGINE)
         self.assertIn('"analysis_mode": "full"', updated)
