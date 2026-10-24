@@ -1,0 +1,21 @@
+name: Audio resilience V6 patch tests
+
+on:
+  push:
+    branches:
+      - main
+      - fix/vce-audio-resilience-acceleration-v6
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  audio-resilience-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run audio resilience regression tests
+        run: python -m unittest discover -s tests -p "test_vce_audio_resilience_acceleration_v6.py" -v
