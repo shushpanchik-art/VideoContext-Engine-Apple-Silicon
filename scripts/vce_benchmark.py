@@ -102,8 +102,8 @@ def _read_json_pointer(root: Any, pointer: str) -> list[str]:
 
     def collect(value: Any) -> None:
         if isinstance(value, str):
-            if value.strip():
-                fragments.append(value.strip())
+            # Preserve an empty transcript as a valid output for silent/no-speech test cases.
+            fragments.append(value.strip())
         elif isinstance(value, list):
             for item in value:
                 collect(item)
@@ -198,8 +198,16 @@ def load_manifest(path: Path) -> list[dict[str, Any]]:
                     merged_record[key] = timings[key]
 
             ref_path = _path_from(base_dir, record.get("reference_text_path"), "reference_text_path")
-            reference = ref_path.read_text(encoding="utf-8-sig")
-            hypothesis, hypothesis_source = _load_hypothesis(record, base_dir)
+            try:
+                reference = ref_path.read_text(encoding="utf-8-sig")
+                hypothesis, hypothesis_source = _load_hypothesis(record, base_dir)
+            except FileNotFoundError as exc:
+                missing = str(getattr(exc, "filename", None) or exc)
+                raise ValueError(
+                    f"Missing input file: {missing}. Create the manually reviewed reference transcript "
+                    "and copy the matching VCE TXT/JSON result into the private benchmark workspace. "
+                    "See docs/VCE_QUALITY_BENCHMARKS.md; the manifest example is a template, not a dataset."
+                ) from exc
             video_seconds = _optional_nonnegative_number(merged_record, "video_seconds")
             wall_seconds = _optional_nonnegative_number(merged_record, "wall_seconds")
             if video_seconds == 0:
