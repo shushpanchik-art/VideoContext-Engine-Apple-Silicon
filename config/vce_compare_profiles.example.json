@@ -5,21 +5,29 @@
       "settings": {}
     },
     {
+      "name": "whisper-ocr-no-vlm",
+      "settings": {
+        "analysis_mode": "whisper_ocr"
+      }
+    },
+    {
       "name": "whisper-medium",
       "settings": {
         "whisper_model": "medium"
       }
     },
     {
-      "name": "two-keyframes",
+      "name": "vlm-4b",
       "settings": {
-        "keyframes_per_scene": 2
+        "vlm_model": "mlx-community/Qwen3-VL-4B-Instruct-4bit"
       }
     },
     {
       "name": "ffmpeg-ocr-on",
       "settings": {
-        "enable_ffmpeg_ocr": true
+        "enable_ffmpeg_ocr": true,
+        "ffmpeg_ocr_interval": 5,
+        "ffmpeg_ocr_workers": 2
       }
     }
   ]
