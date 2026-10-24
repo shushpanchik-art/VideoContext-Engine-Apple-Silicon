@@ -121,7 +121,7 @@ def _vce_transcribe_audio_safe(model, media_path: str, *args, **kwargs) -> tuple
     except Exception as exc:
         if not _vce_is_audio_decode_failure(exc):
             raise
-        detail = re.sub(r"\\s+", " ", str(exc)).strip()[-700:]
+        detail = re.sub(r"\s+", " ", str(exc)).strip()[-700:]
         return {"segments": []}, (
             "Whisper автоматически пропущен: FFmpeg не смог прочитать аудиодорожку. "
             "Видеоанализ продолжается без транскрипции. " + detail
@@ -234,12 +234,12 @@ def _patch_whisper_call(source: str) -> str:
     start = offsets[node.lineno - 1]
     end = offsets[node.end_lineno] if node.end_lineno < len(offsets) else len(source)
     line = source[start:offsets[node.lineno]]
-    indent_match = re.match(r"[ \\t]*", line)
+    indent_match = re.match(r"[ \t]*", line)
     indent = indent_match.group(0) if indent_match else ""
     replacement = (
-        indent + "audio_res, whisper_audio_error = await asyncio.to_thread(\\n"
-        + "".join(indent + "    " + arg + ",\\n" for arg in rendered_args)
-        + indent + ")\\n"
+        indent + "audio_res, whisper_audio_error = await asyncio.to_thread(\n"
+        + "".join(indent + "    " + arg + ",\n" for arg in rendered_args)
+        + indent + ")\n"
     )
     return source[:start] + replacement + source[end:]
 
