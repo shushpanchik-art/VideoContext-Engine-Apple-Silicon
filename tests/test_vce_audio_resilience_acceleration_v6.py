@@ -62,8 +62,10 @@ async def analyze_video():
     else:
         if not skip_audio:
             t_infer_start = time.time()
-            audio_res = w_model.transcribe(
+            audio_res = await asyncio.to_thread(
+                w_model.transcribe,
                 temp_path,
+                word_timestamps=word_timestamps,
                 condition_on_previous_text=False,
                 temperature=0.0,
                 compression_ratio_threshold=1.8,
@@ -99,6 +101,7 @@ class AudioResilienceV6Tests(unittest.TestCase):
         ast.parse(patched)
         self.assertIn("_vce_probe_audio_stream(temp_path)", patched)
         self.assertIn("_vce_transcribe_audio_safe, w_model, temp_path", patched)
+        self.assertIn("word_timestamps=word_timestamps", patched)
         self.assertIn("if whisper_audio_error:", patched)
         self.assertIn("audio_track_available = False", patched)
         self.assertIn("ffmpeg_ocr_task = asyncio.create_task(", patched)
