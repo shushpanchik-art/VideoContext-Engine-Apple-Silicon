@@ -199,10 +199,18 @@ def _stage_times(payload):
         ("ffmpeg_ocr", "FFmpeg/Tesseract OCR"),
     ):
         stage = timings.get(key)
-        if isinstance(stage, dict):
-            seconds = stage.get("inference_time")
-            if isinstance(seconds, (int, float)) and not isinstance(seconds, bool):
-                stages.append((label, float(seconds)))
+        if not isinstance(stage, dict):
+            continue
+        if key == "ffmpeg_ocr" and not stage.get("requested", False):
+            continue
+        if key == "apple_ocr" and stage.get("enabled") is False:
+            continue
+        if key == "vlm" and (meta.get("skipped", {}).get("visual") is True
+                             or meta.get("params", {}).get("run_vlm") is False):
+            continue
+        seconds = stage.get("inference_time")
+        if isinstance(seconds, (int, float)) and not isinstance(seconds, bool):
+            stages.append((label, float(seconds)))
     text_llm = payload.get("text_llm")
     if isinstance(text_llm, dict):
         seconds = text_llm.get("inference_time")
@@ -373,7 +381,7 @@ def write_comparison(out_dir, video_path, results):
                 + '<div class="stats"><div><small>Время VCE</small><strong>' + html.escape(str(api_time))
                 + ' с</strong></div><div><small>Полное время запроса</small><strong>' + html.escape(str(elapsed))
                 + ' с</strong></div><div><small>Сцен</small><strong>' + html.escape(str(scenes))
-                + '</strong></div></div>' + summary_html + '<h3>Полный результат</h3><pre>' + report
+                + '</strong></div></div>' + stages_html + summary_html + '<h3>Подробный отчёт</h3><pre>' + report
                 + '</pre><details><summary>Настройки запуска</summary><pre>' + setting_text
                 + '</pre></details><p><a href="runs/' + html.escape(item["slug"])
                 + '/result.json">JSON</a> · <a href="runs/' + html.escape(item["slug"])
