@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import importlib.util
 import unittest
+import subprocess
+from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -119,6 +121,40 @@ class AudioResilienceV6Tests(unittest.TestCase):
     def test_unknown_engine_fails_without_guessing(self):
         with self.assertRaises(ValueError):
             PATCH.patch_engine("async def unrelated():\n    pass\n")
+
+    def test_ffprobe_empty_stream_list_detects_silent_video(self):
+        namespace = dict(vars(PATCH))
+        exec(PATCH.HELPERS, namespace)
+        namespace["_vce_which_binary"] = lambda name: "/fake/ffprobe" if name == "ffprobe" else None
+        proc = subprocess.CompletedProcess(
+            args=["ffprobe"], returncode=0, stdout='{"streams":[]}', stderr=""
+        )
+        with patch("subprocess.run", return_value=proc):
+            has_audio, message = namespace["_vce_probe_audio_stream"]("silent.mp4")
+        self.assertIs(has_audio, False)
+        self.assertIn("не обнаружен", message)
+
+    def test_ffprobe_audio_stream_is_detected(self):
+        namespace = dict(vars(PATCH))
+        exec(PATCH.HELPERS, namespace)
+        namespace["_vce_which_binary"] = lambda name: "/fake/ffprobe" if name == "ffprobe" else None
+        proc = subprocess.CompletedProcess(
+            args=["ffprobe"], returncode=0,
+            stdout='{"streams":[{"index":1,"codec_name":"aac","codec_type":"audio"}]}',
+            stderr="",
+        )
+        with patch("subprocess.run", return_value=proc):
+            has_audio, message = namespace["_vce_probe_audio_stream"]("with-audio.mp4")
+        self.assertIs(has_audio, True)
+        self.assertIn("aac", message)
+
+    def test_probe_is_inconclusive_if_no_tools_are_available(self):
+        namespace = dict(vars(PATCH))
+        exec(PATCH.HELPERS, namespace)
+        namespace["_vce_which_binary"] = lambda name: None
+        has_audio, message = namespace["_vce_probe_audio_stream"]("unknown.mp4")
+        self.assertIsNone(has_audio)
+        self.assertIn("не удалось надёжно определить", message)
 
     def test_known_missing_audio_error_is_recoverable(self):
         namespace = dict(vars(PATCH))
