@@ -1,0 +1,21 @@
+name: FFmpeg OCR worker setting tests
+
+on:
+  push:
+    branches:
+      - main
+      - fix/vce-audio-resilience-acceleration-v6
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  workers-setting-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run worker-setting regression tests
+        run: python -m unittest discover -s tests -p "test_vce_ffmpeg_ocr_workers_setting_v1.py" -v
