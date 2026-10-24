@@ -23,6 +23,8 @@
 - Автоматическое сохранение TXT и JSON рядом с исходным видео и ссылки на результаты в интерфейсе.
 - macOS launcher `.app`, установка в `/Applications` и Finder alias на рабочем столе.
 
+Для запуска интерфейса в отдельном окне macOS (WKWebView без вкладок браузера) с подтверждением `⌘Q` см. [инструкцию](docs/MACOS_NATIVE_WINDOW.md). Обновление существующего `.app` выполняется отдельным скриптом `scripts/install_native_window_app.command`; он собирает Swift-компонент, резервирует текущий launcher и не меняет Python-движок.
+
 ## Рекомендуемый профиль для презентаций и лекций
 
 См. [пример настроек](config/videocontext_settings.apple_silicon.example.json). Важнейшие параметры:
