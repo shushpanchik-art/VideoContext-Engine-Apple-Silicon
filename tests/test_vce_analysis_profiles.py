@@ -11,6 +11,8 @@ from unittest import mock
 from pathlib import Path
 
 PATCH = Path(__file__).with_name('patch_vce_analysis_profiles.py')
+if not PATCH.is_file():
+    PATCH = Path(__file__).resolve().parents[1] / 'patches' / 'patch_vce_analysis_profiles.py'
 spec = importlib.util.spec_from_file_location('vce_analysis_profiles', PATCH)
 patch = importlib.util.module_from_spec(spec)
 assert spec and spec.loader
