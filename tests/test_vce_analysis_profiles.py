@@ -301,6 +301,28 @@ class TestAnalysisProfiles(unittest.TestCase):
         twice = patch.patch_engine(once)
         self.assertEqual(once, twice)
 
+    def test_extended_skip_visual_form_anchor_supported(self):
+        variants = [
+            '    skip_visual: bool = Form(False, description="Skip visual analysis"),\\n',
+            '    skip_visual: bool = Form(bool(setting("skip_visual", False))),\\n',
+            '    skip_visual: bool = Form(\\n        False, description="Skip visual analysis"\\n    ),\\n',
+        ]
+        original = '    skip_visual: bool = Form(False),\\n'
+        for variant in variants:
+            with self.subTest(variant=variant):
+                changed_fixture = ENGINE.replace(original, variant, 1)
+                self.assertNotEqual(changed_fixture, ENGINE)
+                updated = patch.patch_engine(changed_fixture)
+                ast.parse(updated)
+                self.assertIn('analysis_mode: str = Form("full"', updated)
+                self.assertIn('enable_ffmpeg_ocr: bool = Form(False', updated)
+                self.assertIn('ffmpeg_ocr_interval: int = Form(5', updated)
+
+    def test_missing_analysis_skip_parameter_fails_safely(self):
+        changed_fixture = ENGINE.replace('    skip_visual: bool = Form(False),\\n', '', 1)
+        with self.assertRaisesRegex(ValueError, 'отсутствует параметр skip_visual'):
+            patch.patch_engine(changed_fixture)
+
     def test_settings_routes_add_mode_and_ffmpeg_ocr(self):
         updated = patch.patch_settings_api(ENGINE)
         self.assertIn('"analysis_mode": "full"', updated)

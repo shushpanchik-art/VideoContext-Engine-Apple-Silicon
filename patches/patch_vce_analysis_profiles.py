@@ -221,19 +221,38 @@ def patch_engine(source: str) -> str:
             line_start = source.rfind("\n", 0, source.find(anchor)) + 1
             source = source[:line_start] + HELPERS + source[line_start:]
 
-    # Form fields: mode is independent of the Qwen3.5 text post-processing option.
-    if "analysis_mode: str = Form(" not in source:
-        source = replace_once(
-            source,
-            "    skip_visual: bool = Form(False),\n",
-            "    skip_visual: bool = Form(False),\n"
-            '    analysis_mode: str = Form("full", description="full | whisper_ocr | ocr_only"),\n'
-            '    enable_ffmpeg_ocr: bool = Form(False, description="Дополнительный OCR через FFmpeg/Tesseract"),\n'
-            '    ffmpeg_ocr_interval: int = Form(5, ge=1, le=60, description="Интервал выборки FFmpeg OCR, секунд"),\n',
-            "analysis mode form parameters",
+    # Form fields: insert them inside the actual analyze_video signature instead of
+    # assuming a particular spelling/default/description for skip_visual. Existing
+    # local patchsets can legitimately extend that Form(...) line.
+    has_mode = "analysis_mode: str = Form(" in source
+    has_ffmpeg_enabled = "enable_ffmpeg_ocr: bool = Form(" in source
+    has_ffmpeg_interval = "ffmpeg_ocr_interval: int = Form(" in source
+    if not has_mode:
+        if has_ffmpeg_enabled or has_ffmpeg_interval:
+            raise ValueError("Обнаружена частичная установка параметров профилей/FFmpeg OCR; ручная проверка нужна до повторного запуска.")
+        func_match = re.search(r"(?m)^async def analyze_video\\(", source)
+        if not func_match:
+            raise ValueError("Не найдена сигнатура async def analyze_video() для добавления параметров сценария.")
+        close_match = re.search(r"(?m)^(?P<indent>[ \\t]*)\\):[ \\t]*$", source[func_match.start():])
+        if not close_match:
+            raise ValueError("Не найден конец сигнатуры analyze_video(); файлы не изменены.")
+        sig_start = func_match.start()
+        sig_close = sig_start + close_match.start()
+        signature = source[sig_start:sig_close]
+        for required_name in ("skip_audio", "skip_visual"):
+            if not re.search(rf"(?m)^\\s*{required_name}\\s*:", signature):
+                raise ValueError(f"В сигнатуре analyze_video() отсутствует параметр {required_name}; текущая версия не поддерживается безопасно.")
+        indent_match = re.search(r"(?m)^(?P<indent>[ \\t]+)[A-Za-z_][A-Za-z0-9_]*\\s*:", signature)
+        param_indent = indent_match.group("indent") if indent_match else "    "
+        params = (
+            f'{param_indent}analysis_mode: str = Form("full", description="full | whisper_ocr | ocr_only"),\\n'
+            f'{param_indent}enable_ffmpeg_ocr: bool = Form(False, description="Дополнительный OCR через FFmpeg/Tesseract"),\\n'
+            f'{param_indent}ffmpeg_ocr_interval: int = Form(5, ge=1, le=60, description="Интервал выборки FFmpeg OCR, секунд"),\\n'
         )
-    elif "enable_ffmpeg_ocr: bool = Form(" not in source or "ffmpeg_ocr_interval: int = Form(" not in source:
-        raise ValueError("Обнаружена частичная установка параметров FFmpeg OCR; ручная проверка нужна до повторного запуска.")
+        source = source[:sig_close] + params + source[sig_close:]
+    elif not has_ffmpeg_enabled or not has_ffmpeg_interval:
+        raise ValueError("Обнаружена частичная установка параметров профилей/FFmpeg OCR; ручная проверка нужна до повторного запуска.")
+
 
     mode_block = '''    analysis_mode = (analysis_mode or "full").strip().lower()
     if analysis_mode not in {"full", "whisper_ocr", "ocr_only"}:
