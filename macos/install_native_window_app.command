@@ -31,7 +31,7 @@ command -v xcrun >/dev/null 2>&1 || { echo "ОШИБКА: нужен Xcode Comma
 /usr/bin/printf '%s\n' "$PROJECT_DIR" > "$STAGING_APP/Contents/Resources/project-path.txt"
 
 echo "[1/3] Сборка нативного окна на этом Mac…"
-xcrun swiftc -O -target arm64-apple-macos11.0 \
+xcrun swiftc -parse-as-library -O -target arm64-apple-macos11.0 \
   -framework AppKit -framework WebKit -framework Foundation \
   -o "$STAGING_APP/Contents/MacOS/VideoContextLauncher" "$SWIFT_SOURCE"
 /bin/chmod 755 "$STAGING_APP/Contents/MacOS/VideoContextLauncher"
