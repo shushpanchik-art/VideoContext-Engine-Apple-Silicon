@@ -237,7 +237,7 @@ def _contains_expected_term(text: str, term: str) -> bool:
     target = normalize_text(term)
     if not target:
         return False
-    pattern = r"(?<!\\w)" + re.escape(target) + r"(?!\\w)"
+    pattern = r"(?<!\w)" + re.escape(target) + r"(?!\w)"
     return re.search(pattern, normalize_text(text), flags=re.UNICODE) is not None
 
 
