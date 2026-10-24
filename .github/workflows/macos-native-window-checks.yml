@@ -1,0 +1,25 @@
+name: macOS native window app checks
+
+on:
+  push:
+    branches: ["feat/macos-native-window-quit-confirm"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  native-window:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Type-check native WKWebView app
+        run: xcrun swiftc -typecheck -target arm64-apple-macos11.0 -framework AppKit -framework WebKit -framework Foundation "macos/VideoContextWindowApp.swift"
+      - name: Validate installer syntax and app Info.plist
+        run: |
+          bash -n "macos/install_native_window_app.command"
+          plutil -lint "macos/VideoContext Engine.app/Contents/Info.plist"
+      - name: Run launcher tests
+        run: python -m unittest discover -s tests -p "test_macos_native_window.py" -v
