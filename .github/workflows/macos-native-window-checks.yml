@@ -15,8 +15,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Type-check native WKWebView app
-        run: xcrun swiftc -parse-as-library -typecheck -target arm64-apple-macos11.0 -framework AppKit -framework WebKit -framework Foundation "macos/VideoContextWindowApp.swift"
+      - name: Build native WKWebView app
+        run: xcrun swiftc -parse-as-library -O -target arm64-apple-macos11.0 -framework AppKit -framework WebKit -framework Foundation -o "$RUNNER_TEMP/VideoContextLauncher" "macos/VideoContextWindowApp.swift"
       - name: Validate installer syntax and app Info.plist
         run: |
           bash -n "macos/install_native_window_app.command"
