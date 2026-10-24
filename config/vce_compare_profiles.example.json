@@ -1,0 +1,26 @@
+{
+  "profiles": [
+    {
+      "name": "baseline-current",
+      "settings": {}
+    },
+    {
+      "name": "whisper-medium",
+      "settings": {
+        "whisper_model": "medium"
+      }
+    },
+    {
+      "name": "two-keyframes",
+      "settings": {
+        "keyframes_per_scene": 2
+      }
+    },
+    {
+      "name": "ffmpeg-ocr-on",
+      "settings": {
+        "enable_ffmpeg_ocr": true
+      }
+    }
+  ]
+}
