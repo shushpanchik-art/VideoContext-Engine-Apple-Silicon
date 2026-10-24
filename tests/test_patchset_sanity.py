@@ -34,6 +34,13 @@ class PatchsetSanityTests(unittest.TestCase):
         self.assertIn("OUTPUT_FILE_REGISTRY", beside)
         self.assertIn("videocontext_settings.json", settings)
 
+    def test_name_reconciliation_prompt_requires_cross_field_consistency(self):
+        patcher = (PATCHES / "patch_vce_name_reconciliation_prompt.py").read_text(encoding="utf-8")
+        self.assertIn("единый канонический вариант", patcher)
+        self.assertIn("global_summary, executive_summary, topics", patcher)
+        self.assertIn("original_summary", patcher)
+        self.assertIn("audio_transcript, ocr_text, visual_description", patcher)
+
     def test_recommended_profile(self):
         cfg = json.loads((ROOT / "config/videocontext_settings.apple_silicon.example.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["vlm_model"], "mlx-community/Qwen3-VL-8B-Instruct-4bit")
