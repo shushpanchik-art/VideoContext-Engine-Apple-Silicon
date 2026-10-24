@@ -59,7 +59,7 @@ echo "[4/4] Устанавливаю отдельное окно…"
 /usr/bin/sudo /usr/bin/install -m 755 "$TMP_DIR/VideoContextWebView" "$APP_TARGET/Contents/MacOS/VideoContextWebView"
 /usr/bin/sudo /usr/bin/install -m 644 "$TMP_DIR/VideoContextWebView.swift" "$APP_TARGET/Contents/Resources/VideoContextWebView.swift"
 /usr/bin/sudo /bin/chmod 755 "$APP_TARGET/Contents/MacOS/VideoContextLauncher"
-/usr/bin/touch "$APP_TARGET"
+/usr/bin/sudo /usr/bin/touch "$APP_TARGET"
 
 echo
 echo "ГОТОВО: $APP_TARGET"
