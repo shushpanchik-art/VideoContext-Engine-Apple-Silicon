@@ -21,10 +21,11 @@ FIELDS = {
     "analysis_mode", "vlm_model", "whisper_model", "vlm_resolution",
     "scene_threshold", "min_scene_duration", "max_scene_duration",
     "keyframes_per_scene", "vlm_max_tokens_scene", "vlm_max_tokens_summary",
-    "enable_apple_ocr", "enable_ffmpeg_ocr", "ffmpeg_ocr_interval",
+    "enable_apple_ocr", "enable_ffmpeg_ocr", "ffmpeg_ocr_interval", "ffmpeg_ocr_workers",
     "whisper_acceleration", "enable_audio_features", "generate_summary",
     "generate_txt", "generate_json", "word_timestamps", "visual_user_prompt",
-    "summary_user_prompt", "skip_audio", "skip_visual",
+    "summary_user_prompt", "text_llm_enabled", "text_llm_model", "text_llm_max_tokens",
+    "skip_audio", "skip_visual",
 }
 
 
@@ -186,23 +187,117 @@ def format_time(value):
     return "" if value is None else str(value)
 
 
+def _stage_times(payload):
+    """Return a stable set of per-stage durations from the VCE result."""
+    meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    timings = meta.get("timings") if isinstance(meta.get("timings"), dict) else {}
+    stages = []
+    for key, label in (
+        ("whisper", "Whisper"),
+        ("vlm", "Qwen3-VL"),
+        ("apple_ocr", "Apple OCR"),
+        ("ffmpeg_ocr", "FFmpeg/Tesseract OCR"),
+    ):
+        stage = timings.get(key)
+        if isinstance(stage, dict):
+            seconds = stage.get("inference_time")
+            if isinstance(seconds, (int, float)) and not isinstance(seconds, bool):
+                stages.append((label, float(seconds)))
+    text_llm = payload.get("text_llm")
+    if isinstance(text_llm, dict):
+        seconds = text_llm.get("inference_time")
+        if isinstance(seconds, (int, float)) and not isinstance(seconds, bool):
+            stages.append(("Qwen3.5 text", float(seconds)))
+    return stages
+
+
 def make_report(name, payload, elapsed):
     meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
     timings = meta.get("timings") if isinstance(meta.get("timings"), dict) else {}
+    enhanced = payload.get("enhanced_analysis") if isinstance(payload.get("enhanced_analysis"), dict) else {}
+    text_llm = payload.get("text_llm") if isinstance(payload.get("text_llm"), dict) else {}
+    stages = _stage_times(payload)
     lines = [
         f"Профиль: {name}",
         f"Видео: {meta.get('source', '')}",
         f"Длительность видео, с: {meta.get('duration', '')}",
         f"Время VCE, с: {meta.get('process_time', timings.get('total_process_time', ''))}",
-        f"Полное время запроса, с: {elapsed:.2f}",
+        f"Полное время HTTP-запроса, с: {elapsed:.2f}",
         f"Количество сцен: {meta.get('scene_count', '')}",
-        "",
     ]
-    summary = meta.get("global_summary")
-    if isinstance(summary, str) and summary.strip():
-        lines += ["ОБЩИЙ ИТОГ", summary.strip(), ""]
+    if stages:
+        lines.extend(["", "ВРЕМЯ ПО ЭТАПАМ"])
+        lines.extend(f"- {label}: {seconds:.2f} с" for label, seconds in stages)
+    if text_llm:
+        lines.extend([
+            "",
+            "ТЕКСТОВАЯ ПОСТОБРАБОТКА",
+            f"- Статус: {text_llm.get('status', 'не указан')}",
+            f"- Модель: {text_llm.get('model', 'не указана')}",
+        ])
+        if text_llm.get("error"):
+            lines.append(f"- Ошибка: {text_llm['error']}")
+
+    executive = enhanced.get("executive_summary")
+    if isinstance(executive, str) and executive.strip():
+        lines += ["", "СТРУКТУРИРОВАННЫЙ ИТОГ (Qwen3.5)", executive.strip()]
+    global_summary = meta.get("global_summary")
+    if isinstance(global_summary, str) and global_summary.strip():
+        lines += ["", "ГЛОБАЛЬНАЯ СВОДКА", global_summary.strip()]
+
+    topics = enhanced.get("topics")
+    if isinstance(topics, list) and topics:
+        lines += ["", "ТЕМЫ"]
+        lines.extend(f"- {item}" for item in topics if isinstance(item, str) and item.strip())
+
+    key_points = enhanced.get("key_points")
+    if isinstance(key_points, list) and key_points:
+        lines += ["", "КЛЮЧЕВЫЕ МОМЕНТЫ"]
+        for point in key_points:
+            if not isinstance(point, dict):
+                continue
+            scene_id = point.get("scene_id", "?")
+            timestamp = point.get("time", "")
+            text = point.get("text", "")
+            evidence = point.get("evidence") or []
+            lines.append(f"- Сцена {scene_id} {f'({timestamp}) ' if timestamp else ''}{text}")
+            if evidence:
+                lines.append("  Источники: " + ", ".join(str(value) for value in evidence))
+
+    entities = enhanced.get("entities")
+    if isinstance(entities, list) and entities:
+        lines += ["", "СУЩНОСТИ"]
+        for entity in entities:
+            if isinstance(entity, dict) and entity.get("name"):
+                kind = entity.get("type", "")
+                scenes = entity.get("scene_ids") or []
+                suffix = f"; сцены: {', '.join(map(str, scenes))}" if scenes else ""
+                lines.append(f"- {entity['name']}" + (f" ({kind})" if kind else "") + suffix)
+
+    uncertainties = enhanced.get("uncertainties")
+    if isinstance(uncertainties, list) and uncertainties:
+        lines += ["", "НЕОПРЕДЕЛЁННОСТИ"]
+        lines.extend(f"- {value}" for value in uncertainties if isinstance(value, str) and value.strip())
+
+    scene_enrichment = enhanced.get("scene_enrichment")
+    if isinstance(scene_enrichment, list) and scene_enrichment:
+        lines += ["", "ОПИСАНИЯ СЦЕН ПОСЛЕ ПОСТОБРАБОТКИ"]
+        for scene in scene_enrichment:
+            if not isinstance(scene, dict):
+                continue
+            scene_id = scene.get("scene_id", "?")
+            topic = scene.get("topic", "")
+            description = scene.get("improved_description", "")
+            lines.append(f"- Сцена {scene_id}" + (f" — {topic}" if topic else ""))
+            if description:
+                lines.append(f"  {description}")
+            for point in scene.get("key_points") or []:
+                if isinstance(point, str) and point.strip():
+                    lines.append(f"  • {point}")
+
     segments = payload.get("segments", [])
     if isinstance(segments, list):
+        lines += ["", "ИСХОДНЫЕ ДАННЫЕ ПО СЦЕНАМ"]
         for i, segment in enumerate(segments, 1):
             if not isinstance(segment, dict):
                 continue
@@ -213,10 +308,20 @@ def make_report(name, payload, elapsed):
                 stamp += "–" + format_time(end)
             lines.append("[" + stamp + "]" if stamp else f"[Сцена {i}]")
             for key, label in (("audio_transcript", "Речь"), ("visual_description", "Визуально"),
-                               ("ocr_text", "OCR"), ("detected_text", "OCR")):
+                               ("ocr_text", "Apple OCR"), ("ffmpeg_ocr_text", "FFmpeg OCR"),
+                               ("detected_text", "OCR")):
                 value = segment.get(key)
                 if isinstance(value, str) and value.strip():
                     lines.append(f"{label}: {value.strip()}")
+            segment_llm = segment.get("text_llm")
+            if isinstance(segment_llm, dict):
+                for key, label in (("topic", "Тема"), ("improved_description", "Описание"),
+                                   ("key_points", "Ключевые моменты")):
+                    value = segment_llm.get(key)
+                    if isinstance(value, list):
+                        value = "; ".join(str(v) for v in value)
+                    if isinstance(value, str) and value.strip():
+                        lines.append(f"Постобработка — {label}: {value.strip()}")
             if isinstance(segment.get("audio_features"), dict):
                 lines.append("Аудиопризнаки: " + json.dumps(segment["audio_features"], ensure_ascii=False))
             lines.append("")
@@ -234,8 +339,8 @@ def write_comparison(out_dir, video_path, results):
         f"- Исходное видео: {video_path}",
         f"- Создано: {created}",
         "- Эталонная транскрипция не требуется; WER/CER не вычисляются.", "",
-        "| Профиль | Статус | Время VCE, с | Время запроса, с | Сцен | Папка |",
-        "|---|---|---:|---:|---:|---|",
+        "| Профиль | Статус | VCE, с | HTTP, с | Whisper, с | VLM, с | Apple OCR, с | FFmpeg OCR, с | Qwen3.5, с | Сцен | Папка |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|",
     ]
     cards = []
     for item in results:
@@ -245,13 +350,24 @@ def write_comparison(out_dir, video_path, results):
         api_time = meta.get("process_time", timings.get("total_process_time", "—"))
         elapsed = item.get("elapsed_seconds", "—")
         scenes = meta.get("scene_count", "—")
-        table.append(f"| {item['name']} | {item['status']} | {api_time} | {elapsed} | {scenes} | runs/{item['slug']} |")
+        stage_values = {label: seconds for label, seconds in _stage_times(payload)} if isinstance(payload, dict) else {}
+        whisper = f"{stage_values['Whisper']:.1f}" if "Whisper" in stage_values else "—"
+        vlm = f"{stage_values['Qwen3-VL']:.1f}" if "Qwen3-VL" in stage_values else "—"
+        apple_ocr = f"{stage_values['Apple OCR']:.1f}" if "Apple OCR" in stage_values else "—"
+        ffmpeg_ocr = f"{stage_values['FFmpeg/Tesseract OCR']:.1f}" if "FFmpeg/Tesseract OCR" in stage_values else "—"
+        text_llm_time = f"{stage_values['Qwen3.5 text']:.1f}" if "Qwen3.5 text" in stage_values else "—"
+        table.append(f"| {item['name']} | {item['status']} | {api_time} | {elapsed} | {whisper} | {vlm} | {apple_ocr} | {ffmpeg_ocr} | {text_llm_time} | {scenes} | runs/{item['slug']} |")
         name = html.escape(item["name"])
         setting_text = html.escape(json.dumps(item.get("effective_settings", {}), ensure_ascii=False, indent=2))
         if item["status"] == "ok":
-            summary = meta.get("global_summary", "")
+            enhanced = payload.get("enhanced_analysis", {}) if isinstance(payload, dict) else {}
+            summary = enhanced.get("executive_summary") or meta.get("global_summary", "")
             report = html.escape(item.get("report_text", ""))
-            summary_html = "<h3>Общий итог</h3><p>" + html.escape(str(summary)) + "</p>" if summary else ""
+            summary_html = "<h3>Структурированный итог</h3><p>" + html.escape(str(summary)) + "</p>" if summary else ""
+            stages = _stage_times(payload) if isinstance(payload, dict) else []
+            stages_html = "<h3>Время по этапам</h3><ul>" + "".join(
+                "<li>" + html.escape(label) + ": " + f"{seconds:.2f}" + " с</li>" for label, seconds in stages
+            ) + "</ul>" if stages else ""
             cards.append(
                 '<section class="card"><h2>' + name + '</h2><p class="ok">Готово</p>'
                 + '<div class="stats"><div><small>Время VCE</small><strong>' + html.escape(str(api_time))
@@ -353,6 +469,8 @@ def main(argv=None):
                     "elapsed_seconds": round(elapsed, 3),
                     "api_process_seconds": payload.get("meta", {}).get("process_time") if isinstance(payload.get("meta"), dict) else None,
                     "video_duration_seconds": payload.get("meta", {}).get("duration") if isinstance(payload.get("meta"), dict) else None,
+                    "stage_timings": {label: seconds for label, seconds in _stage_times(payload)},
+                    "text_llm": payload.get("text_llm") if isinstance(payload.get("text_llm"), dict) else None,
                     "settings": form,
                 })
                 print(f"    готово: время запроса {elapsed:.1f} с", flush=True)
