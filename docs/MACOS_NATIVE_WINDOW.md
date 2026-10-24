@@ -9,7 +9,7 @@ The default bundle used to launch a shell script in Terminal and then open /ui i
 
    bash macos/install_native_window_app.command "$HOME/VideoContext-Engine"
 
-   Replace the path with the actual project directory if needed. The installer compiles the Swift app locally, stages and validates it, then backs up the current /Applications/VideoContext Engine.app before replacing it. Existing desktop Finder aliases keep the same target path and therefore continue to work.
+   Replace the path with the actual project directory if needed. The installer compiles the Swift app locally, stages and validates it, then backs up the current /Applications/VideoContext Engine.app before replacing it. On update it also attempts to carry over the old .icns icon, including from dated backup bundles if the current app no longer has one. Existing desktop Finder aliases keep the same target path and therefore continue to work.
 
 Requires Apple Silicon, macOS 11+, and Xcode Command Line Tools (xcrun swiftc). The installer does not modify VideoContextEngine_v3.19.py or user settings.
 
