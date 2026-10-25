@@ -37,7 +37,7 @@ fi
 [[ -n "$FFMPEG_BIN" && -x "$FFMPEG_BIN" ]] || fail "Не найден исполняемый ffmpeg. Сначала установи FFmpeg (например, brew install ffmpeg), затем повтори эту команду."
 FFMPEG_DIR="$(cd "$(dirname "$FFMPEG_BIN")" && pwd -P)"
 echo "Найден FFmpeg: $FFMPEG_BIN"
-"$FFMPEG_BIN" -version | head -n 1
+"$FFMPEG_BIN" -version | /usr/bin/sed -n '1p'
 
 PORT_PIDS="$(/usr/sbin/lsof -nP -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
 if [[ -n "$PORT_PIDS" ]]; then
