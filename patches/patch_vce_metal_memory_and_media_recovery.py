@@ -2,9 +2,11 @@
 # -*- coding: utf-8 -*-
 """Patch VCE v3.19 for resilient MLX-VLM memory fallback and damaged MP4 preflight.
 
-Benchmark-backed policy:
-- Keep PyTorch Whisper on MPS. User's full-clip benchmark: MPS inference 34.338 s;
-  CPU configurations took 94.871-118.722 s on the same 108.23 s audio.
+Benchmark-informed policy:
+- The isolated Whisper benchmark showed MPS is much faster by itself, but it did NOT
+  measure the intended end-to-end mode: Whisper on CPU overlapping with VLM on GPU.
+  Keep PyTorch Whisper on CPU here to reserve GPU capacity for VLM; the MLX Whisper
+  backend remains disabled. Revisit this only after a true concurrent end-to-end test.
 - Do not lower the user's default VLM resolution blindly: the benchmark did not
   measure visual accuracy at different resolutions. Instead retry at smaller sizes
   only after an actual Metal-memory failure, then continue with OCR/audio if needed.
@@ -372,9 +374,10 @@ def patch_settings(settings_text: str) -> str:
     settings = json.loads(settings_text)
     if not isinstance(settings, dict):
         raise ValueError("Корень videocontext_settings.json должен быть JSON-объектом.")
-    # Directly backed by user's full-video benchmark: MPS is about 2.76x faster
-    # than the best tested CPU configuration (34.338 s vs 94.871 s inference).
-    settings["whisper_acceleration"] = True
+    # The benchmark compared Whisper backends in isolation, not concurrently with VLM.
+    # Keep Whisper on CPU for the intended CPU-ASR + GPU-VLM workload until that full
+    # pipeline is benchmarked. This avoids allocating Whisper inference to MPS by default.
+    settings["whisper_acceleration"] = False
     settings["enable_mlx_whisper"] = False
     settings["enable_stage_timing"] = True
     # Intentionally do not change VLM resolution/scene thresholds: the benchmark
@@ -455,7 +458,7 @@ def main() -> int:
     print("\n✅ Recovery-патч установлен.")
     for path, backup in backups.items():
         print(f"Backup {path.name}: {backup}")
-    print("Настройки на базе бенчмарка: Whisper MPS включён; MLX Whisper выключен; тайминги включены.")
+    print("Настройки для параллельной стратегии: Whisper CPU (MPS выключен); MLX Whisper выключен; тайминги включены.")
     print("Разрешение VLM и параметры сегментации не изменялись без проверки качества.")
     print("Перезапусти VideoContext Engine после завершения активных задач.")
     return 0
