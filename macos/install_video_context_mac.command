@@ -1,5 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 if [[ -f "$HOME/Downloads/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
   PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
 elif [[ -f "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
@@ -7,11 +9,7 @@ elif [[ -f "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
 else
   PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
 fi
-if [[ -d "$PROJECT_DIR/macos/VideoContext Engine.app/Contents" ]]; then
-  APP_SOURCE="$PROJECT_DIR/macos/VideoContext Engine.app"
-else
-  APP_SOURCE="$PROJECT_DIR/VideoContext Engine.app"
-fi
+APP_SOURCE="$REPO_ROOT/macos/VideoContext Engine.app"
 APP_TARGET="/Applications/VideoContext Engine.app"
 DESKTOP_ALIAS="$HOME/Desktop/VideoContext Engine"
 DESKTOP_LINK="$HOME/Desktop/VideoContext Engine.app"
@@ -30,7 +28,8 @@ fail() { echo "ОШИБКА: $*"; echo "Проверьте сообщение в
 [[ -f "$STATUS_SOURCE" ]] || fail "Не найден исходник значка меню macOS: $STATUS_SOURCE. Обнови пакет патчей."
 command -v xcrun >/dev/null 2>&1 || fail "Не найден xcrun/swiftc. Установи Xcode Command Line Tools: xcode-select --install."
 
-echo "Важно: перед установкой закончи текущий анализ и останови сервер VCE сочетанием Ctrl+C в его Terminal-окне."
+echo "Важно: перед установкой закончи анализ, закрой VideoContext Engine.app и останови старый сервер (Ctrl+C в его Terminal-окне)."
+echo "После обновления новый сервер будет запускаться из приложения без Terminal; журнал: ~/Library/Logs/VideoContext Engine/server.log."
 read -r -p "Если сервер остановлен, введи STOP для продолжения: " STOP_CONFIRM </dev/tty
 if [[ "$STOP_CONFIRM" != "STOP" ]]; then
   echo "Установка отменена. Никакие файлы не менялись."
@@ -67,7 +66,7 @@ fi
 
 # Build a real, persistent NSStatusItem app. The old shell launcher exits after opening the browser.
 STATUS_BINARY="$APP_SOURCE/Contents/MacOS/VideoContextStatusBar"
-/usr/bin/xcrun swiftc -O "$STATUS_SOURCE" -framework AppKit -o "$STATUS_BINARY" || fail "Не удалось собрать значок меню. Проверь Xcode Command Line Tools."
+/usr/bin/xcrun swiftc -O "$STATUS_SOURCE" -framework AppKit -framework WebKit -o "$STATUS_BINARY" || fail "Не удалось собрать значок меню. Проверь Xcode Command Line Tools."
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable VideoContextStatusBar" "$APP_SOURCE/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :LSUIElement false" "$APP_SOURCE/Contents/Info.plist"
 if [[ -f "$APP_ICON" ]]; then
