@@ -56,3 +56,50 @@ jobs:
           assert set(adjustments) == {"visual_user_prompt", "summary_user_prompt"}
           print("Prompt-limit tests passed; original settings untouched.")
           PY
+      - name: Verify local video is uploaded as a multipart file
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import tempfile
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location(
+              "vce_benchmark", Path("scripts/vce_unattended_benchmark.py")
+          )
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+
+          captured = {}
+
+          class FakeResponse:
+              def __enter__(self):
+                  return self
+              def __exit__(self, *args):
+                  return False
+              def read(self):
+                  return b'{"accepted": true}'
+
+          def fake_urlopen(request, timeout=None):
+              captured["body"] = request.data
+              captured["headers"] = request.headers
+              captured["timeout"] = timeout
+              return FakeResponse()
+
+          module.urllib.request.urlopen = fake_urlopen
+          with tempfile.NamedTemporaryFile(suffix=".mp4") as sample:
+              sample.write(b"known-video-bytes")
+              sample.flush()
+              result = module.post_form(
+                  "http://127.0.0.1:7555/api/v1/analyze",
+                  {"video_url": "", "response_format": "json"},
+                  file_path=Path(sample.name),
+                  file_field="video_file",
+              )
+
+          body = captured["body"]
+          assert b'name="video_file"; filename="benchmark_video.mp4"' in body
+          assert b"Content-Type: video/mp4" in body
+          assert b"known-video-bytes" in body
+          assert result == {"accepted": True}
+          print("Multipart upload test passed.")
+          PY
