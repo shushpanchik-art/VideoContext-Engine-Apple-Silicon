@@ -6,12 +6,14 @@ on:
       - "patches/patch_vce_speed_profile.py"
       - "patches/patch_vce_defaults.py"
       - "patches/patch_vce_quality_prompt.py"
+      - "patches/patch_vce_memory_safety.py"
       - "tests/test_vce_quality_prompt.py"
       - "tests/test_vce_native_app_lifecycle.py"
       - "docs/**"
       - "install_patches_to_existing_checkout.command"
       - "macos/**"
       - "tests/test_vce_speed_profile.py"
+      - "tests/test_vce_memory_safety.py"
       - "tests/test_vce_native_app_lifecycle.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
   push:
@@ -39,7 +41,7 @@ jobs:
       - name: Test reversible VLM speed profile
         run: python -m unittest discover -s tests -p "test_vce_*.py" -v
       - name: Validate patcher syntax
-        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py
+        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py patches/patch_vce_memory_safety.py
       - name: Validate installer shell syntax
         run: bash -n macos/install_video_context_mac.command macos/repair_installed_native_app.command install_patches_to_existing_checkout.command
       - name: Compile native menu bar app
