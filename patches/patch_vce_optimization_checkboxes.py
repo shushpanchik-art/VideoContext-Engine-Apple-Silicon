@@ -631,7 +631,7 @@ def patch_mlx_device_transfers(source: str) -> str:
     model_vars.update(adapter_pattern.findall(route))
 
     assign_pattern = re.compile(
-        r"(?m)^(?P<i>[ \t]*)(?P<var>[A-Za-z_]\w*)\s*=\s*(?P=var)\.to\((?P<args>[^()\n]*)\)[ \t]*$"
+        r"(?m)^(?P<i>[ \t]*)(?:(?P<target>[A-Za-z_]\w*)\s*=\s*)?(?P<var>[A-Za-z_]\w*)\.to\((?P<args>[^()\n]*)\)[ \t]*$"
     )
     lines = route.splitlines(keepends=True)
     offsets = []
@@ -644,7 +644,8 @@ def patch_mlx_device_transfers(source: str) -> str:
     saw_model_to = False
     for match in assign_pattern.finditer(route):
         var = match.group("var")
-        if var not in model_vars:
+        target = match.group("target")
+        if (target and target != var) or var not in model_vars:
             continue
         saw_model_to = True
         line_start = route.rfind("\n", 0, match.start()) + 1
