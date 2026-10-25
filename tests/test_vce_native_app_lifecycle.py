@@ -27,6 +27,9 @@ class NativeAppServerLifecycleTests(unittest.TestCase):
         # Reopening the same page must not blindly reload WKWebView and erase
         # the in-memory queue/progress display. Fresh server startup can reload.
         self.assertIn("self.showMainWindow(url: self.uiURL, forceReload: true)", source)
+        # Reload remains available, but only as a deliberate menu action.
+        self.assertIn('title: "Перезагрузить интерфейс"', source)
+        self.assertIn("private func reloadInterface", source)
 
     def test_repair_script_preserves_active_analysis_and_settings(self):
         source = REPAIR.read_text(encoding="utf-8")
