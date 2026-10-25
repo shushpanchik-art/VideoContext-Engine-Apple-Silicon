@@ -235,7 +235,7 @@ def main() -> int:
 
         # Validate the written outputs. Backups remain available for rollback.
         json.loads(config_path.read_text(encoding="utf-8"))
-        compile(compile(engine_path.read_text(encoding="utf-8"), str(engine_path), "exec"), str(engine_path), "exec")
+        compile(engine_path.read_text(encoding="utf-8"), str(engine_path), "exec")
     except Exception as exc:
         print(f"ERROR: validation/write failed: {exc}", file=sys.stderr)
         for backup in backups:
