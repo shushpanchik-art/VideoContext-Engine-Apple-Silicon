@@ -171,12 +171,14 @@ def optimize_settings(current: dict[str, Any]) -> dict[str, Any]:
     return updated
 
 def atomic_write(path: Path, content: str) -> None:
+    original_mode = path.stat().st_mode
     with tempfile.NamedTemporaryFile(
         mode="w", encoding="utf-8", dir=str(path.parent),
         prefix=f".{path.name}.", suffix=".tmp", delete=False
     ) as temp:
         temp.write(content)
         temp_path = Path(temp.name)
+    temp_path.chmod(original_mode)
     temp_path.replace(path)
 
 def main() -> int:
@@ -197,7 +199,10 @@ def main() -> int:
         original_config = json.loads(config_path.read_text(encoding="utf-8-sig"))
         updated_engine = transform_engine_source(original_engine)
         updated_config = optimize_settings(original_config)
-    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        # Validate in memory before making backups or writing anything.
+        compile(updated_engine, str(engine_path), "exec")
+        json.dumps(updated_config, ensure_ascii=False, indent=2)
+    except (OSError, json.JSONDecodeError, ValueError, SyntaxError) as exc:
         print(f"ERROR: {exc}. No files changed.", file=sys.stderr)
         return 3
 
