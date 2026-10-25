@@ -539,7 +539,10 @@ def patch_mlx_whisper(source: str) -> str:
         raise ValueError("MLX Whisper: вызов транскрибации не был изменён.")
     # Ensure at least one path to the existing loader was redirected so MLX does
     # not load PyTorch eagerly when the option is enabled.
-    if "whisper.load_model(target_whisper)" not in route and "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)" not in route:
+    if "whisper.load_model(target_whisper)" not in route and not re.search(
+        r"_vce_load_whisper_model\(target_whisper\s*,\s*enable_mlx_whisper",
+        route,
+    ):
         # Some source variants use a local helper in the RAM/cache branch.
         if "load_whisper_model(target_whisper" in route:
             raise ValueError("MLX Whisper: существующий helper загрузки не удалось перенаправить.")
