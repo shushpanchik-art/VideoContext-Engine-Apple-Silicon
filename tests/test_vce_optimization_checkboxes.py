@@ -177,11 +177,15 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
     def test_threaded_whisper_and_custom_loader_are_patched(self):
         fixture = ENGINE_FIXTURE.replace(
             "def validate_video_file(path):",
-            "def load_whisper_model(model_name):\n    return whisper.load_model(model_name)\n\ndef validate_video_file(path):",
+            "def load_whisper_model(model_name, acceleration_enabled=True):\n    return whisper.load_model(model_name)\n\ndef validate_video_file(path):",
+            1,
+        ).replace(
+            "enable_ffmpeg_ocr: bool = Form(False),",
+            "enable_ffmpeg_ocr: bool = Form(False),\n    whisper_acceleration: bool = Form(True),",
             1,
         ).replace(
             "w_model = whisper.load_model(target_whisper)",
-            "w_model = load_whisper_model(target_whisper)",
+            "w_model = load_whisper_model(target_whisper, acceleration_enabled=whisper_acceleration)",
         ).replace(
             "audio_res = w_model.transcribe(\n        temp_path,\n",
             "audio_res = await asyncio.to_thread(\n        w_model.transcribe,\n        temp_path,\n",
@@ -194,7 +198,7 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
             updated,
         )
         self.assertIn(
-            "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)",
+            "_vce_load_whisper_model(target_whisper, enable_mlx_whisper, whisper_acceleration)",
             updated,
         )
 
