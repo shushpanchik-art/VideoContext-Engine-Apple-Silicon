@@ -5,6 +5,9 @@ on:
     paths:
       - "patches/patch_vce_speed_profile.py"
       - "patches/patch_vce_defaults.py"
+      - "patches/patch_vce_quality_prompt.py"
+      - "tests/test_vce_quality_prompt.py"
+      - "docs/**"
       - "install_patches_to_existing_checkout.command"
       - "macos/**"
       - "tests/test_vce_speed_profile.py"
@@ -15,6 +18,9 @@ on:
     paths:
       - "patches/patch_vce_speed_profile.py"
       - "patches/patch_vce_defaults.py"
+      - "patches/patch_vce_quality_prompt.py"
+      - "tests/test_vce_quality_prompt.py"
+      - "docs/**"
       - "install_patches_to_existing_checkout.command"
       - "macos/**"
       - "tests/test_vce_speed_profile.py"
