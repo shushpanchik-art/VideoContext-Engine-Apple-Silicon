@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Unattended one-factor-at-a-time VCE benchmark. Does not edit local VCE settings."""
 from __future__ import annotations
-import argparse, datetime as dt, hashlib, json, os, pathlib, re, shutil, subprocess, sys, time, urllib.error, urllib.parse, urllib.request, uuid
+import argparse, datetime as dt, hashlib, json, mimetypes, os, pathlib, re, shutil, subprocess, sys, time, urllib.error, urllib.parse, urllib.request, uuid
 
 VIDEO = pathlib.Path.home() / "Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"
 PROJECT = pathlib.Path.home() / "VideoContext-Engine"
@@ -43,11 +43,25 @@ def sha256_file(path):
 def http_json(url, timeout=10):
     req=urllib.request.Request(url, headers={"Accept":"application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r: return json.loads(r.read().decode("utf-8"))
-def post_form(url, fields, timeout=60):
+def post_form(url, fields, timeout=60, file_path=None, file_field="video_file"):
+    """Send standard multipart form fields and, when supplied, an actual uploaded video file."""
     boundary="----VCE"+uuid.uuid4().hex
     chunks=[]
     for k,v in fields.items():
+        if file_path is not None and k == file_field:
+            continue
         chunks += [f"--{boundary}\r\n".encode(), f'Content-Disposition: form-data; name="{k}"\r\n\r\n'.encode(), str(v).encode("utf-8"), b"\r\n"]
+    if file_path is not None:
+        path = pathlib.Path(file_path)
+        media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        # Use a stable ASCII upload filename to avoid multipart header issues with emoji filenames.
+        chunks += [
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="{file_field}"; filename="benchmark_video{path.suffix.lower()}"\r\n'.encode("ascii"),
+            f"Content-Type: {media_type}\r\n\r\n".encode("ascii"),
+            path.read_bytes(),
+            b"\r\n",
+        ]
     chunks += [f"--{boundary}--\r\n".encode()]
     req=urllib.request.Request(url, data=b"".join(chunks), headers={"Content-Type":f"multipart/form-data; boundary={boundary}", "Accept":"application/json"}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as r: return json.loads(r.read().decode("utf-8"))
@@ -93,9 +107,8 @@ def openapi_fields():
     props=schema.get("properties",{})
     if not props: raise RuntimeError("OpenAPI не раскрывает поля POST /api/v1/analyze; остановка без изменений.")
     if "video_file" not in props: raise RuntimeError("POST /api/v1/analyze не объявляет video_file; локальный путь не будет отправлен.")
-    vf=props["video_file"]
-    if vf.get("format")=="binary" or (vf.get("type")=="array" and vf.get("items",{}).get("format")=="binary"):
-        raise RuntimeError("Локальный API принимает только загрузку бинарного файла, а не путь. Остановка: не буду загружать ролик размером сотни МБ наугад.")
+    # The API expects video_file as a multipart file upload, not a local path string.
+    # Actual upload is implemented by post_form(..., file_path=VIDEO).
     return props
 def apply_prompt_limits(current, props):
     """Use stable compact prompts when a saved prompt exceeds the API's declared limit.
@@ -190,7 +203,7 @@ def run_one(name, overrides, current, props, video, results_dir, index, total, r
     fields={}
     for key in props:
         if key in current: fields[key]=current[key]
-    fields.update({"video_file":str(video),"video_url":"","response_format":"json","generate_txt":"false"})
+    fields.update({"video_url":"","response_format":"json","generate_txt":"false"})
     # Preserve the user's TXT-off preference; never turn TXT on.
     fields["generate_txt"]="false"
     fields.update({k:str(v).lower() if isinstance(v,bool) else str(v) for k,v in overrides.items()})
@@ -199,7 +212,7 @@ def run_one(name, overrides, current, props, video, results_dir, index, total, r
     start=time.monotonic()
     record={"run_id":run_id,"index":index,"total":total,"name":name,"started_at":now(),"overrides":overrides,"settings_snapshot":{k:fields.get(k) for k in overrides}, "video_filename":video.name,"video_size_bytes":video.stat().st_size,"video_sha256":sha256_file(video) if video.stat().st_size<100_000_000 else None}
     try:
-        response=post_form(BASE_URL+"/api/v1/analyze",fields,timeout=60*60*6)
+        response=post_form(BASE_URL+"/api/v1/analyze",fields,timeout=60*60*6,file_path=video,file_field="video_file")
         record["api_response"]=response
         # Some local builds return a job ID and expose progress; poll only when identified.
         job_id=response.get("job_id") or response.get("task_id") or response.get("progress_id") if isinstance(response,dict) else None
