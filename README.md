@@ -74,6 +74,32 @@
 
 Не запускайте `install_patches_to_existing_checkout.command` поверх рабочей копии без резервной копии. Ваш рабочий инстанс может иметь более свежие патчи и пользовательские настройки. Используйте индивидуальный патчер только после проверки его README и бэкапов.
 
+#### Усиление качества технического конспекта
+
+Для существующего проекта есть отдельный патчер промптов. Он усиливает дословное сохранение команд, путей, чисел и читаемого текста с экрана; просит отделять факты от догадок; а также исправляет сборку контекста глобального резюме, чтобы визуальное описание не терялось при наличии тегов. Патчер не меняет модель или режимы анализа и сохраняет прочие параметры.
+
+Сначала скачайте и проверьте его без изменений:
+
+```bash
+PROJECT="$HOME/VideoContext-Engine"
+mkdir -p "$PROJECT/patches"
+curl -fL --retry 3 \
+  "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/fix/vce-speed-profile-and-menubar-20261024/patches/patch_vce_quality_prompt.py" \
+  -o "$PROJECT/patches/patch_vce_quality_prompt.py"
+
+"$PROJECT/.venv/bin/python" "$PROJECT/patches/patch_vce_quality_prompt.py" \
+  --project "$PROJECT" --dry-run
+```
+
+Если dry-run перечисляет ожидаемые изменения, остановите сервер VCE через `Ctrl+C` и примените:
+
+```bash
+"$PROJECT/.venv/bin/python" "$PROJECT/patches/patch_vce_quality_prompt.py" \
+  --project "$PROJECT"
+```
+
+Патчер делает резервные копии `VideoContextEngine_v3.19.py` и `videocontext_settings.json` перед записью. После применения перезапустите сервер; качество всё равно нужно проверить на типичных роликах (слайды, терминал/код, мелкий текст, динамический UI и видео без звука).
+
 ## Выходные файлы
 
 Для видео, выбранного через нативный file picker macOS, TXT и JSON записываются рядом с оригинальным роликом. Это работает потому, что сервис получает реальный локальный путь через локальный API; обычный браузерный `<input type=file>` не раскрывает исходный абсолютный путь.
