@@ -73,10 +73,23 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         self.webView = webView
     }
 
-    private func showMainWindow(url: URL) {
+    private func showMainWindow(url: URL, forceReload: Bool = false) {
         guard let window = window else { return }
         NSApp.setActivationPolicy(.regular)
-        webView?.load(URLRequest(url: url))
+
+        // Closing the red window hides it but does not destroy the WKWebView.
+        // Reopening / selecting "Open interface" must not reload the page: its
+        // queue and live progress state are held in page memory.
+        let currentURL = webView?.url
+        let alreadyShowingRequestedPage =
+            currentURL?.scheme == url.scheme &&
+            currentURL?.host == url.host &&
+            currentURL?.port == url.port &&
+            currentURL?.path == url.path
+
+        if forceReload || !alreadyShowingRequestedPage {
+            webView?.load(URLRequest(url: url))
+        }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -186,7 +199,9 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
                     self.startupTimer = nil
                     self.isStartingServer = false
                     self.setStatus("Сервер работает")
-                    self.showMainWindow(url: self.uiURL)
+                    // We just started the server; force navigation in case the
+                    // WKWebView was left on an error page from an earlier run.
+                    self.showMainWindow(url: self.uiURL, forceReload: true)
                 } else if self.serverProcess == nil && self.startupAttempts >= 3 {
                     timer.invalidate()
                     self.startupTimer = nil
