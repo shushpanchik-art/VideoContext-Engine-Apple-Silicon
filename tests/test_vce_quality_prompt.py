@@ -63,7 +63,7 @@ def make_context(final_segments):
         self.assertEqual(updated["vlm_resolution"], 1280)
         self.assertFalse(updated["skip_visual"])
         self.assertEqual(updated["custom_setting"], {"keep": True})
-        self.assertIn("Дословно", updated["visual_user_prompt"])
+        self.assertIn("дословно", updated["visual_user_prompt"])
         self.assertLessEqual(len(updated["visual_user_prompt"]), 1000)
         self.assertIn("Сохраняй последовательность", updated["summary_user_prompt"])
 
