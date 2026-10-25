@@ -34,6 +34,7 @@ class NativeAppServerLifecycleTests(unittest.TestCase):
     def test_repair_script_preserves_active_analysis_and_settings(self):
         source = REPAIR.read_text(encoding="utf-8")
         self.assertIn('lsof -nP -iTCP:7555 -sTCP:LISTEN', source)
+        self.assertIn("NO_ACTIVE_ANALYSIS", source)
         self.assertIn("Введи INSTALL", source)
         self.assertIn("Настройки VCE, выбор TXT/JSON и результаты анализа не меняются.", source)
         self.assertIn("-framework AppKit -framework WebKit", source)
