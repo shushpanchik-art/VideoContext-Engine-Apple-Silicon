@@ -78,6 +78,10 @@ def openapi_fields():
         if schema: break
     props=schema.get("properties",{})
     if not props: raise RuntimeError("OpenAPI не раскрывает поля POST /api/v1/analyze; остановка без изменений.")
+    if "video_file" not in props: raise RuntimeError("POST /api/v1/analyze не объявляет video_file; локальный путь не будет отправлен.")
+    vf=props["video_file"]
+    if vf.get("format")=="binary" or (vf.get("type")=="array" and vf.get("items",{}).get("format")=="binary"):
+        raise RuntimeError("Локальный API принимает только загрузку бинарного файла, а не путь. Остановка: не буду загружать ролик размером сотни МБ наугад.")
     return props
 def pick_worker_field(props):
     for name,info in props.items():
