@@ -1097,7 +1097,13 @@ def prepare(project: Path):
     originals = {path: path.read_text(encoding="utf-8") for path in paths}
     source = patch_engine(originals[paths[0]])
     ui = patch_ui(originals[paths[2]])
-    settings = patch_settings(originals[paths[1]])
+    # On first installation, apply the chosen benchmark profile. On an upgrade
+    # of an already-patched engine, preserve the user's current config exactly;
+    # a bugfix/UI update must not silently reset hand-tuned resolution/threshold.
+    if MARKER in originals[paths[0]]:
+        settings = originals[paths[1]]
+    else:
+        settings = patch_settings(originals[paths[1]])
     ast.parse(source, filename=str(paths[0]))
     json.loads(settings)
     changes = {}
