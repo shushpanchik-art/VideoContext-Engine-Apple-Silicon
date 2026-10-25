@@ -318,7 +318,7 @@ def patch_engine(source: str) -> str:
     # but the original path selected in Finder must never be unlinked.
     if "await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)" not in source:
         preflight_match = re.search(
-            r"(?m)^(?P<indent>[ \t]*)video_duration = validate_video_file\(temp_path\)\s*$",
+            r"(?m)^(?P<indent>[ \t]*)video_duration = validate_video_file\(temp_path\)[ \t]*$",
             source,
         )
         if not preflight_match:
