@@ -1,6 +1,12 @@
 #!/bin/bash
 set -u
-PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
+if [[ -f "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
+  PROJECT_DIR="$HOME/VideoContext-Engine"
+elif [[ -f "$HOME/Downloads/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
+  PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
+else
+  PROJECT_DIR="$HOME/VideoContext-Engine"
+fi
 ENGINE="$PROJECT_DIR/VideoContextEngine_v3.19.py"
 PYTHON="$PROJECT_DIR/.venv/bin/python"
 
