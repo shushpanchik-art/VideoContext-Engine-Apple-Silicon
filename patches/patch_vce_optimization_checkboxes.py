@@ -335,30 +335,98 @@ def patch_adaptive_keyframes(source: str) -> str:
 
 
 def patch_ocr_cache(source: str) -> str:
-    if "_vce_cached_apple_vision_ocr(keyframes[0][\"image\"])" in source:
+    route_start = source.find("async def analyze_video(")
+    if route_start < 0:
+        raise ValueError("Не найдена сигнатура async def analyze_video().")
+    route = source[route_start:]
+
+    # Idempotence guards cover both the older single-frame integration and the
+    # current multi-keyframe asyncio.to_thread OCR loop.
+    if (
+        "_vce_cached_apple_vision_ocr(keyframes[0]" in route
+        or "asyncio.to_thread((_vce_cached_apple_vision_ocr if enable_ocr_cache else apple_vision_ocr)" in route
+    ):
         return source
+
+    # Older engine variant: one synchronous OCR call on the first frame.
     pattern = re.compile(
         r'(?m)^(?P<i>[ \t]*)scene_ocr_text\s*=\s*apple_vision_ocr\(keyframes\[0\]\["image"\]\)[ \t]*$'
     )
-    matches = list(pattern.finditer(source, source.find("async def analyze_video(")))
-    if len(matches) != 1:
-        raise ValueError(
-            "Не найден единственный scene_ocr_text = apple_vision_ocr(keyframes[0]['image']). "
-            "Этот патч требует уже установленного Apple Vision OCR."
+    matches = list(pattern.finditer(source, route_start))
+    if len(matches) == 1:
+        m = matches[0]
+        i = m.group("i")
+        replacement = (
+            i + "_vce_ocr_started = time.perf_counter()\n"
+            + i + "scene_ocr_text = (\n"
+            + i + "    _vce_cached_apple_vision_ocr(keyframes[0][\"image\"]) if enable_ocr_cache\n"
+            + i + "    else apple_vision_ocr(keyframes[0][\"image\"])\n"
+            + i + ")\n"
+            + i + "apple_ocr_seconds += time.perf_counter() - _vce_ocr_started"
         )
-    m = matches[0]
-    i = m.group("i")
-    replacement = (
-        i + "_vce_ocr_started = time.perf_counter()\n"
-        + i + "scene_ocr_text = (\n"
-        + i + "    _vce_cached_apple_vision_ocr(keyframes[0][\"image\"])\n"
-        + i + "    if enable_ocr_cache\n"
-        + i + "    else apple_vision_ocr(keyframes[0][\"image\"])\n"
-        + i + ")\n"
-        + i + "apple_ocr_seconds += time.perf_counter() - _vce_ocr_started"
-    )
-    return source[:m.start()] + replacement + source[m.end():]
+        return source[:m.start()] + replacement + source[m.end():]
 
+    # Current VCE variant OCRs every keyframe asynchronously and prefers the
+    # original-resolution image. Switch only the callable, preserving image choice,
+    # await/thread behavior, cancellation handling, and OCR aggregation.
+    async_call = re.compile(
+        r'(?m)^(?P<i>[ \t]*)extracted\s*=\s*await\s+asyncio\.to_thread\('
+        r'\s*apple_vision_ocr\s*,\s*kf\.get\("original_image",\s*kf\["image"\]\)\s*\)[ \t]*$'
+    )
+    calls = list(async_call.finditer(source, route_start))
+    if len(calls) != 1:
+        raise ValueError(
+            "Не удалось однозначно найти асинхронный вызов "
+            "asyncio.to_thread(apple_vision_ocr, kf.get('original_image', kf['image'])); "
+            f"найдено {len(calls)}. Файлы не изменены."
+        )
+
+    t_start_pattern = re.compile(r"(?m)^(?P<i>[ \t]*)t_ocr_start\s*=\s*time\.time\(\)[ \t]*$")
+    ocr_elapsed_pattern = re.compile(
+        r"(?m)^(?P<i>[ \t]*)ocr_infer_time\s*\+=\s*time\.time\(\)\s*-\s*t_ocr_start[ \t]*$"
+    )
+    start_matches = list(t_start_pattern.finditer(source, route_start))
+    elapsed_matches = list(ocr_elapsed_pattern.finditer(source, route_start))
+    if len(start_matches) != 1 or len(elapsed_matches) != 1:
+        raise ValueError(
+            "Найдены не все ожидаемые таймеры OCR (t_ocr_start / ocr_infer_time); "
+            "файлы не изменены."
+        )
+
+    m = calls[0]
+    updated_call = m.group(0).replace(
+        "asyncio.to_thread(apple_vision_ocr,",
+        "asyncio.to_thread((_vce_cached_apple_vision_ocr if enable_ocr_cache else apple_vision_ocr),",
+        1,
+    )
+    source = source[:m.start()] + updated_call + source[m.end():]
+
+    # Measure the complete Apple OCR block separately for optional JSON diagnostics.
+    # Re-find anchors after the call replacement because source offsets have changed.
+    start_matches = list(t_start_pattern.finditer(source, route_start))
+    elapsed_matches = list(ocr_elapsed_pattern.finditer(source, route_start))
+    if len(start_matches) != 1 or len(elapsed_matches) != 1:
+        raise ValueError("Не удалось повторно найти таймеры OCR после замены вызова; файлы не изменены.")
+
+    start_match = start_matches[0]
+    indent = start_match.group("i")
+    after_start = (
+        source[start_match.start():start_match.end()]
+        + "\n" + indent + "_vce_ocr_wall_start = time.perf_counter()"
+    )
+    source = source[:start_match.start()] + after_start + source[start_match.end():]
+
+    elapsed_matches = list(ocr_elapsed_pattern.finditer(source, route_start))
+    if len(elapsed_matches) != 1:
+        raise ValueError("Не удалось повторно найти ocr_infer_time; файлы не изменены.")
+    elapsed_match = elapsed_matches[0]
+    indent = elapsed_match.group("i")
+    before_elapsed = (
+        indent + "apple_ocr_seconds += time.perf_counter() - _vce_ocr_wall_start\n"
+        + source[elapsed_match.start():elapsed_match.end()]
+    )
+    source = source[:elapsed_match.start()] + before_elapsed + source[elapsed_match.end():]
+    return source
 
 def patch_mlx_whisper(source: str) -> str:
     route_start = source.find("async def analyze_video(")
@@ -617,6 +685,26 @@ def patch_settings(settings_text: str) -> str:
     settings = json.loads(settings_text)
     if not isinstance(settings, dict):
         raise ValueError("Корень videocontext_settings.json должен быть JSON-объектом.")
+
+    # Benchmark-backed balanced profile, from results/vce-benchmark/20261025_120626/analysis.md.
+    # The report recommends isolating the resolution reduction first and keeping
+    # the baseline scene boundaries/keyframe count/OCR coverage for that check.
+    # Override these values explicitly because the user asked to install this profile.
+    benchmark_profile = {
+        "vlm_resolution": 384,
+        "scene_threshold": 0.15,
+        "min_scene_duration": 1.5,
+        "max_scene_duration": 20,
+        "keyframes_per_scene": 1,
+        "enable_apple_ocr": True,
+        "enable_ffmpeg_ocr": True,
+        "ffmpeg_ocr_interval": 5,
+        "ffmpeg_ocr_workers": 3,
+    }
+    settings.update(benchmark_profile)
+
+    # The five additional switches have no direct benchmark evidence yet.
+    # Leave each opt-in and preserve any deliberate existing boolean choice.
     for key in (
         "enable_stage_timing", "enable_adaptive_keyframes", "enable_ocr_cache",
         "enable_mlx_whisper", "enable_fast_scene_detection",
@@ -624,9 +712,9 @@ def patch_settings(settings_text: str) -> str:
         settings.setdefault(key, False)
         if type(settings[key]) is not bool:
             settings[key] = False
-    # Do not change generate_txt or any existing prompts/settings.
-    return json.dumps(settings, ensure_ascii=False, indent=2) + "\n"
 
+    # Preserve generate_txt and all user prompts without modification.
+    return json.dumps(settings, ensure_ascii=False, indent=2) + "\n"
 
 def prepare(project: Path):
     paths = (project / TARGET, project / CONFIG, project / UI_FILE)
