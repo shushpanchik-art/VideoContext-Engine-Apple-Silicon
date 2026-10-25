@@ -66,7 +66,7 @@ class SpeedProfileTests(unittest.TestCase):
         self.assertEqual(result["keyframes_per_scene"], 2)
         self.assertEqual(result["max_scene_duration"], 10)
         self.assertFalse(result["enable_ffmpeg_ocr"])
-        self.assertEqual(result["ffmpeg_ocr_interval"], 5)
+        self.assertEqual(result["ffmpeg_ocr_interval"], 2)
 
     def test_idempotent_and_non_destructive_to_model_selection(self):
         source = {
