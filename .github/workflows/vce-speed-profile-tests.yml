@@ -16,6 +16,7 @@ on:
       - "tests/test_vce_memory_safety.py"
       - "tests/test_vce_native_app_lifecycle.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
+      - "scripts/**"
   push:
     branches:
       - main
@@ -29,6 +30,7 @@ on:
       - "macos/**"
       - "tests/test_vce_speed_profile.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
+      - "scripts/**"
 
 jobs:
   config-and-bundle-static-checks:
@@ -41,7 +43,7 @@ jobs:
       - name: Test reversible VLM speed profile
         run: python -m unittest discover -s tests -p "test_vce_*.py" -v
       - name: Validate patcher syntax
-        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py patches/patch_vce_memory_safety.py
+        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py patches/patch_vce_memory_safety.py scripts/vce_unattended_benchmark.py
       - name: Validate installer shell syntax
         run: bash -n macos/install_video_context_mac.command macos/repair_installed_native_app.command install_patches_to_existing_checkout.command
       - name: Compile native menu bar app
