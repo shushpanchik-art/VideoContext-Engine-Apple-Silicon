@@ -25,7 +25,10 @@ command -v xcrun >/dev/null 2>&1 || fail "Не найден swiftc. Устано
 command -v curl >/dev/null 2>&1 || fail "Не найден curl."
 
 if /usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN >/dev/null 2>&1; then
-  fail "Сервер ещё слушает порт 7555. Сначала дождись окончания анализа и останови его (Ctrl+C в старом Terminal). Я не буду прерывать задачу."
+  echo "Порт 7555 занят. Этот патч меняет только нативную оболочку и не останавливает сервер."
+  echo "Но при активной обработке закрытие UI сбросит отображение текущей очереди."
+  read -r -p "Если ты точно убедился, что активной обработки сейчас НЕТ, введи NO_ACTIVE_ANALYSIS: " IDLE_CONFIRM
+  [[ "$IDLE_CONFIRM" == "NO_ACTIVE_ANALYSIS" ]] || fail "Порт занят; подтверждение не получено. Ничего не менялось."
 fi
 
 if /usr/bin/pgrep -f '/Applications/VideoContext Engine.app/Contents/MacOS/VideoContextStatusBar' >/dev/null 2>&1; then
