@@ -21,12 +21,16 @@ class NativeAppServerLifecycleTests(unittest.TestCase):
 
     def test_reopening_native_window_preserves_live_ui_state(self):
         source = SWIFT.read_text(encoding="utf-8")
-        self.assertIn("private func showMainWindow(url: URL, forceReload: Bool = false)", source)
+        self.assertIn("private enum MainPage", source)
+        self.assertIn("private func showMainWindow(page: MainPage, forceReload: Bool = false)", source)
+        self.assertNotIn("private let uiURL = URL", source)
+        self.assertNotIn("private let docsURL = URL", source)
         self.assertIn("let alreadyShowingRequestedPage", source)
         self.assertIn("if forceReload || !alreadyShowingRequestedPage", source)
         # Reopening the same page must not blindly reload WKWebView and erase
         # the in-memory queue/progress display. Fresh server startup can reload.
-        self.assertIn("self.showMainWindow(url: self.uiURL, forceReload: true)", source)
+        self.assertIn("self.showMainWindow(page: .ui, forceReload: true)", source)
+        self.assertNotIn("showMainWindow(url:", source)
         # Reload remains available, but only as a deliberate menu action.
         self.assertIn('title: "Перезагрузить интерфейс"', source)
         self.assertIn("private func reloadInterface", source)
