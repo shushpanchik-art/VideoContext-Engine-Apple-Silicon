@@ -37,7 +37,7 @@ jobs:
       - name: Test reversible VLM speed profile
         run: python -m unittest discover -s tests -p "test_vce_*.py" -v
       - name: Validate patcher syntax
-        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py
+        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py
       - name: Validate installer shell syntax
         run: bash -n macos/install_video_context_mac.command install_patches_to_existing_checkout.command
       - name: Compile native menu bar app
