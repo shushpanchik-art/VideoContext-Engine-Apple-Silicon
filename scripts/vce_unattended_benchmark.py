@@ -129,7 +129,9 @@ def setup_results_repo():
     dest=pathlib.Path.home()/ "VideoContext-Engine-Benchmark-Results"
     if not (dest/".git").is_dir():
         if dest.exists(): raise RuntimeError(f"{dest} существует, но это не git checkout; переименуйте её вручную.")
-        subprocess.run(["gh","repo","clone","shushpanchik-art/VideoContext-Engine-Apple-Silicon",str(dest),"--","--branch",BRANCH],check=True)
+        subprocess.run(["gh","repo","clone","shushpanchik-art/VideoContext-Engine-Apple-Silicon",str(dest)],check=True)
+        git("fetch","origin",cwd=dest)
+        git("checkout","-B",BRANCH,"origin/"+BRANCH,cwd=dest)
     else:
         git("fetch","origin",cwd=dest)
         git("checkout",BRANCH,cwd=dest)
@@ -218,6 +220,8 @@ def main():
         # Keep the repo updated after every run so a crash does not lose completed data.
         commit_result(repo_dir,out,f"benchmark: {run_id} run {i:03d} {name}")
         print(f"  -> {record['status']} ({record['duration_seconds']}s); committed {out.name}",flush=True)
+        if i == 1 and record["status"] != "completed":
+            raise RuntimeError("Первый baseline-прогон завершился ошибкой; остановка, чтобы не повторять заведомо нерабочий запрос десятки раз. См. JSON результата и лог.")
     summary={"run_id":run_id,"finished_at":now(),"total_runs":len(plan),"completed":sum(1 for p in results_dir.glob("*.json") if p.name!="manifest.json" and json.loads(p.read_text()).get("status")=="completed"),"errors":sum(1 for p in results_dir.glob("*.json") if p.name!="manifest.json" and json.loads(p.read_text()).get("status")=="error")}
     (results_dir/"summary.json").write_text(json.dumps(summary,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     commit_result(repo_dir,results_dir/"summary.json",f"benchmark: {run_id} final summary")
