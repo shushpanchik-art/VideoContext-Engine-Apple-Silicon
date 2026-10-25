@@ -265,7 +265,7 @@ def patch_engine(source: str) -> str:
     ):
         missing.append("Whisper unload/cache cleanup marker")
     if (
-        "if not skip_visual or generate_summary:\n                    t0 = time.time()" not in source
+        "if not skip_visual or generate_summary:" not in source
         and "release_accelerator_memory('before VLM load')" not in source
     ):
         missing.append("VLM load/cache cleanup marker")
@@ -293,14 +293,18 @@ def patch_engine(source: str) -> str:
     if new_whisper not in source:
         source = replace_once(source, old_whisper, new_whisper, "очистка кэша после Whisper")
 
-    old_load = "                if not skip_visual or generate_summary:\n                    t0 = time.time()"
-    new_load = (
-        "                if not skip_visual or generate_summary:\n"
-        "                    release_accelerator_memory('before VLM load')\n"
-        "                    t0 = time.time()"
-    )
-    if new_load not in source:
-        source = replace_once(source, old_load, new_load, "очистка памяти перед загрузкой VLM")
+    # Insert the memory release at the start of this guarded block, regardless of
+    # whether the configured engine loads VLM directly or via asyncio.to_thread().
+    if "release_accelerator_memory('before VLM load')" not in source:
+        guard = re.search(
+            r"(?m)^(?P<indent>[ \\t]*)if not skip_visual or generate_summary:[ \\t]*$",
+            source,
+        )
+        if not guard:
+            raise ValueError("Не найден блок загрузки VLM после Whisper.")
+        body_indent = guard.group("indent") + "    "
+        insertion = guard.end()
+        source = source[:insertion] + "\\n" + body_indent + "release_accelerator_memory('before VLM load')" + source[insertion:]
 
     # Clean cached buffers after every model unload (including the RAM- post-processing path).
     unload_pattern = re.compile(
