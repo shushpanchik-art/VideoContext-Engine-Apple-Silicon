@@ -365,6 +365,12 @@ def patch_engine(source: str) -> str:
     route = source[route_start:]
 
     # MLX-only model switches must not leave None inside the PyTorch Whisper cache.
+    # Insert the runtime helpers before the API route so all referenced functions are defined.
+    api_anchor = '@app.post("/api/v1/analyze")'
+    if source.count(api_anchor) != 1:
+        raise ValueError("Ожидался ровно один endpoint /api/v1/analyze для вставки helper-функций.")
+    source = replace_once(source, api_anchor, HELPERS + api_anchor, "priority helper insertion point")
+
     source = add_form_fields(source)
     source = patch_scene_detection(source)
     source = patch_adaptive_keyframes(source)
