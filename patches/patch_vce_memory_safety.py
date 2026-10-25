@@ -260,12 +260,12 @@ def patch_engine(source: str) -> str:
     )
     missing = [needle for needle in required if needle not in source]
     if (
-        "del w_model\\n                        gc.collect()" not in source
+        "del w_model\n                        gc.collect()" not in source
         and "release_accelerator_memory('after Whisper inference')" not in source
     ):
         missing.append("Whisper unload/cache cleanup marker")
     if (
-        "if not skip_visual or generate_summary:\\n                    t0 = time.time()" not in source
+        "if not skip_visual or generate_summary:\n                    t0 = time.time()" not in source
         and "release_accelerator_memory('before VLM load')" not in source
     ):
         missing.append("VLM load/cache cleanup marker")
