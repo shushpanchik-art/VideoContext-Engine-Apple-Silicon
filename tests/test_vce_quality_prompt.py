@@ -42,7 +42,7 @@ def make_context(final_segments):
 
 '''
         result = self.patch.transform_engine_source(source)
-        self.assertIn("Technical screen evidence", result)
+        self.assertIn("Если видны слайды", result)
         self.assertIn("дословно сохраняй", result)
         self.assertIn("Visual details: {visual_description}", result)
         self.assertIn("Visual tags: ", result)
