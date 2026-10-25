@@ -264,6 +264,21 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         ):
             self.assertIn(key, once)
 
+    def test_ui_works_without_save_settings_button(self):
+        fixture = UI_FIXTURE.replace('  <button id="save-settings">Save</button>\n', "")
+        updated = patch.patch_ui(fixture)
+        for element in (
+            'id="cfg-stage-timing"',
+            'id="cfg-adaptive-keyframes"',
+            'id="cfg-ocr-cache"',
+            'id="cfg-mlx-whisper"',
+            'id="cfg-fast-scene-detection"',
+        ):
+            self.assertIn(element, updated)
+        self.assertLess(updated.index("id=\"cfg-fast-scene-detection\""), updated.index('id="cfg-apple-ocr"'))
+        self.assertIn("enable_fast_scene_detection:", updated)
+        self.assertIn("'cfg-fast-scene-detection':'enable_fast_scene_detection'", updated)
+
     def test_settings_default_off_and_preserve_txt_and_prompts(self):
         before = {
             "generate_txt": False,
