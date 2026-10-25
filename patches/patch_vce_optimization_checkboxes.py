@@ -584,6 +584,92 @@ SERVER_SHUTDOWN_MARKER = "# VCE_LOCAL_SERVER_SHUTDOWN_ENDPOINT_V1"
 SERVER_SHUTDOWN_UI_MARKER = "VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_V1"
 
 
+
+def patch_mlx_safe_transcription(source: str) -> str:
+    """Upgrade the legacy safe wrapper to dispatch through the selected ASR backend."""
+    old_prefix = (
+        "def _vce_transcribe_audio_safe(model, media_path: str, *args, **kwargs) -> tuple[dict, str]:\n"
+        '    """Transcribe on a worker thread; preserve the engine\'s original Whisper options."""\n'
+        "    try:\n"
+        "        result = model.transcribe(str(media_path), *args, **kwargs)\n"
+    )
+    new_prefix = (
+        "def _vce_transcribe_audio_safe(\n"
+        "    model, media_path: str, *args, model_name=None, use_mlx=False, **kwargs\n"
+        ") -> tuple[dict, str]:\n"
+        '    """Transcribe on a worker thread; preserve the selected Whisper backend."""\n'
+        "    try:\n"
+        "        result = _vce_transcribe_audio(\n"
+        "            str(media_path), model_name, model, use_mlx, *args, **kwargs\n"
+        "        )\n"
+    )
+
+    if old_prefix in source:
+        if source.count(old_prefix) != 1:
+            raise ValueError("Найдено несколько старых _vce_transcribe_audio_safe(); исправление неоднозначно.")
+        source = source.replace(old_prefix, new_prefix, 1)
+    elif "def _vce_transcribe_audio_safe(" in source:
+        helper_start = source.find("def _vce_transcribe_audio_safe(")
+        helper_end = source.find("\ndef ", helper_start + 1)
+        helper_text = source[helper_start:helper_end if helper_end >= 0 else len(source)]
+        already_fixed = (
+            "model_name=None, use_mlx=False" in helper_text
+            and "result = _vce_transcribe_audio(" in helper_text
+        )
+        if not already_fixed:
+            raise ValueError(
+                "Найден _vce_transcribe_audio_safe(), но его структура не совпадает с известной версией. "
+                "Файлы не изменены; нужен отдельный адаптер к этой версии VCE."
+            )
+    else:
+        # VCE variants that directly call _vce_transcribe_audio do not need this bridge.
+        return source
+
+    route_start = source.find("async def analyze_video(")
+    if route_start < 0:
+        raise ValueError("Не найдена analyze_video() для исправления безопасного Whisper-обработчика.")
+    route = source[route_start:]
+    call_pattern = re.compile(r"(?m)^(?P<call_i>[ \t]*)_vce_transcribe_audio_safe,[ \t]*$")
+    call_matches = list(call_pattern.finditer(route))
+    if not call_matches:
+        # The helper exists but is unused by this version's analysis path.
+        return source
+    if len(call_matches) != 1:
+        raise ValueError(
+            f"Найдено несколько вызовов _vce_transcribe_audio_safe() ({len(call_matches)}); "
+            "не удалось однозначно передать режим MLX."
+        )
+
+    call = call_matches[0]
+    close = route.find(")", call.end())
+    call_text = route[call.start():close if close >= 0 else min(len(route), call.start() + 1200)]
+    if "model_name=target_whisper" in call_text and "use_mlx=enable_mlx_whisper" in call_text:
+        return source
+
+    args_pattern = re.compile(
+        r"(?m)^(?P<call_i>[ \t]*)_vce_transcribe_audio_safe,[ \t]*\n"
+        r"(?P<arg_i>[ \t]*)(?P<model>[A-Za-z_]\w*),[ \t]*\n"
+        r"(?P=arg_i)(?P<path>[A-Za-z_]\w*),[ \t]*\n"
+        r"(?P<kw_i>[ \t]*)word_timestamps=word_timestamps,"
+    )
+    args_matches = list(args_pattern.finditer(route))
+    if len(args_matches) != 1:
+        raise ValueError(
+            "Найден вызов _vce_transcribe_audio_safe(), но не распознаны аргументы "
+            "модели/пути/word_timestamps. Файлы не изменены."
+        )
+    match = args_matches[0]
+    replacement = (
+        match.group("call_i") + "_vce_transcribe_audio_safe,\n"
+        + match.group("arg_i") + match.group("model") + ",\n"
+        + match.group("arg_i") + match.group("path") + ",\n"
+        + match.group("kw_i") + "model_name=target_whisper,\n"
+        + match.group("kw_i") + "use_mlx=enable_mlx_whisper,\n"
+        + match.group("kw_i") + "word_timestamps=word_timestamps,"
+    )
+    route = route[:match.start()] + replacement + route[match.end():]
+    return source[:route_start] + route
+
 def patch_mlx_device_transfers(source: str) -> str:
     """Skip torch Module.to(device) when MLX Whisper intentionally has no torch model."""
     route_start = source.find("async def analyze_video(")
@@ -817,6 +903,7 @@ def patch_engine(source: str) -> str:
         missing = [item for item in required if item not in source]
         if missing:
             raise ValueError("Обнаружена неполная установка патча; отсутствуют: " + ", ".join(missing))
+        source = patch_mlx_safe_transcription(source)
         source = patch_mlx_device_transfers(source)
         source = patch_shutdown_server_endpoint(source)
         ast.parse(source, filename=str(TARGET))
@@ -845,6 +932,7 @@ def patch_engine(source: str) -> str:
     source = patch_adaptive_keyframes(source)
     source = patch_ocr_cache(source)
     source = patch_mlx_whisper(source)
+    source = patch_mlx_safe_transcription(source)
     source = patch_mlx_device_transfers(source)
     source = patch_shutdown_server_endpoint(source)
 
