@@ -284,13 +284,15 @@ def patch_scene_detection(source: str) -> str:
     indent = " " * statement.col_offset
 
     def assignment_for(function_name: str) -> str:
+        branch_indent = indent + "    "
+        call_indent = branch_indent + "    "
         if mode == "to_thread":
-            header = f"{indent}{target_name} = await {call_func}(\n{indent}    {function_name},\n"
-            body = "".join(f"{indent}    {arg},\n" for arg in call_args)
-            return header + body + f"{indent})\n"
-        header = f"{indent}{target_name} = {function_name}(\n"
-        body = "".join(f"{indent}    {arg},\n" for arg in call_args)
-        return header + body + f"{indent})\n"
+            header = f"{branch_indent}{target_name} = await {call_func}(\n{call_indent}{function_name},\n"
+            body = "".join(f"{call_indent}{arg},\n" for arg in call_args)
+            return header + body + f"{branch_indent})\n"
+        header = f"{branch_indent}{target_name} = {function_name}(\n"
+        body = "".join(f"{call_indent}{arg},\n" for arg in call_args)
+        return header + body + f"{branch_indent})\n"
 
     replacement = (
         indent + "scene_detection_started = time.perf_counter()\n"
