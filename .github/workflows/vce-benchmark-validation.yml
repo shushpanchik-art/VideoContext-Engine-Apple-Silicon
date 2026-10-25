@@ -20,6 +20,8 @@ jobs:
           python-version: "3.12"
       - name: Compile benchmark runner
         run: python -m py_compile scripts/vce_unattended_benchmark.py
+      - name: Check FFmpeg PATH repair shell syntax
+        run: bash -n scripts/repair_vce_ffmpeg_path.command
       - name: Check compact prompts fit the API limits and do not mutate settings
         run: |
           python - <<'PY'
