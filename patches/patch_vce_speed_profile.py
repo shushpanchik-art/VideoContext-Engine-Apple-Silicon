@@ -29,7 +29,7 @@ def _default_project() -> Path:
         Path.home() / "VideoContext-Engine",
     )
     for candidate in candidates:
-        if (candidate / ENGINE_NAME).is_file():
+        if (candidate / "VideoContextEngine_v3.19.py").is_file():
             return candidate
     return candidates[0]
 
