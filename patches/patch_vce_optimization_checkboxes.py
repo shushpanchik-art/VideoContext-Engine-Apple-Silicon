@@ -56,16 +56,17 @@ def _vce_validate_mlx_whisper_model(model_name):
     return repo
 
 
-def _vce_load_whisper_model(model_name, use_mlx):
+def _vce_load_whisper_model(model_name, use_mlx, acceleration_enabled=None):
     """Avoid PyTorch when MLX is selected; otherwise preserve VCE's configured loader."""
     if use_mlx:
         _vce_validate_mlx_whisper_model(model_name)
         return None
-    # Several VCE versions load Whisper through load_whisper_model() to select
-    # MPS/CUDA. Preserve that existing behavior rather than bypassing it.
+    # Preserve the existing loader and its optional MPS/CUDA selection flag.
     loader = globals().get("load_whisper_model")
     if callable(loader):
-        return loader(model_name)
+        if acceleration_enabled is None:
+            return loader(model_name)
+        return loader(model_name, acceleration_enabled=acceleration_enabled)
     return whisper.load_model(model_name)
 
 
@@ -494,11 +495,21 @@ def patch_mlx_whisper(source: str) -> str:
         "whisper.load_model(target_whisper)",
         "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)",
     )
-    route = re.sub(
-        r"(?<![\w.])load_whisper_model\(target_whisper\)",
-        "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)",
+    if re.search(
+        r"(?<![\w.])load_whisper_model\(target_whisper\s*,\s*acceleration_enabled\s*=\s*whisper_acceleration\)",
         route,
-    )
+    ):
+        route = re.sub(
+            r"(?<![\w.])load_whisper_model\(target_whisper\s*,\s*acceleration_enabled\s*=\s*whisper_acceleration\)",
+            "_vce_load_whisper_model(target_whisper, enable_mlx_whisper, whisper_acceleration)",
+            route,
+        )
+    else:
+        route = re.sub(
+            r"(?<![\w.])load_whisper_model\(target_whisper\)",
+            "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)",
+            route,
+        )
     route = re.sub(
         r"(?m)^(?P<i>[ \t]*)WHISPER_CACHE\[target_whisper\]\s*=\s*w_model\s*$",
         lambda m: m.group("i") + "if not enable_mlx_whisper:\n"
