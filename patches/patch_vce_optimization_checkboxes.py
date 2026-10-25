@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Add five opt-in VCE optimization checkboxes and apply a benchmark-backed balanced profile.
+"""Patch VCE optimization checkboxes, optional MLX Whisper, and a local stop-server control.
 
 The five experimental switches default to False. The installer applies only the
 explicitly requested balanced benchmark settings, preserves user prompts and
@@ -578,6 +578,230 @@ def patch_mlx_whisper(source: str) -> str:
             raise ValueError("MLX Whisper: существующий helper загрузки не удалось перенаправить.")
     return source[:route_start] + route
 
+
+
+SERVER_SHUTDOWN_MARKER = "# VCE_LOCAL_SERVER_SHUTDOWN_ENDPOINT_V1"
+SERVER_SHUTDOWN_UI_MARKER = "VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_V1"
+
+
+def patch_mlx_device_transfers(source: str) -> str:
+    """Skip torch Module.to(device) when MLX Whisper intentionally has no torch model."""
+    route_start = source.find("async def analyze_video(")
+    if route_start < 0:
+        raise ValueError("Не найдена сигнатура async def analyze_video() для проверки MLX device transfer.")
+    route = source[route_start:]
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise ValueError(f"Исходный Python не разбирается перед MLX device-transfer fix: {exc}") from exc
+    analyze = next(
+        (node for node in ast.walk(tree)
+         if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+         and node.name == "analyze_video"),
+        None,
+    )
+    if analyze is None:
+        raise ValueError("AST: не найдена функция analyze_video() для MLX device-transfer fix.")
+
+    model_vars = set()
+    for node in ast.walk(analyze):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        value = node.value
+        if value is None:
+            continue
+        calls_loader = any(
+            isinstance(child, ast.Call)
+            and (
+                (isinstance(child.func, ast.Name) and child.func.id == "_vce_load_whisper_model")
+                or (isinstance(child.func, ast.Attribute) and child.func.attr == "load_model")
+            )
+            for child in ast.walk(value)
+        )
+        if calls_loader:
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            model_vars.update(t.id for t in targets if isinstance(t, ast.Name))
+
+    # Existing installations patched by the earlier version use w_model. Discover
+    # any model variable passed to the new transcription adapter as a fallback.
+    adapter_pattern = re.compile(
+        r"_vce_transcribe_audio\(\s*[^,\n]+,\s*target_whisper,\s*(?P<model>[A-Za-z_]\w*)\s*,\s*enable_mlx_whisper",
+        re.S,
+    )
+    model_vars.update(adapter_pattern.findall(route))
+
+    assign_pattern = re.compile(
+        r"(?m)^(?P<i>[ \t]*)(?P<var>[A-Za-z_]\w*)\s*=\s*(?P=var)\.to\((?P<args>[^()\n]*)\)[ \t]*$"
+    )
+    lines = route.splitlines(keepends=True)
+    offsets = []
+    offset = 0
+    for line in lines:
+        offsets.append(offset)
+        offset += len(line)
+
+    replacements = []
+    saw_model_to = False
+    for match in assign_pattern.finditer(route):
+        var = match.group("var")
+        if var not in model_vars:
+            continue
+        saw_model_to = True
+        line_start = route.rfind("\n", 0, match.start()) + 1
+        previous = route[:line_start].rstrip("\n").splitlines()
+        if previous and previous[-1].strip() == "if not enable_mlx_whisper:":
+            continue
+        indent = match.group("i")
+        original = match.group(0).lstrip(" \t")
+        replacement = indent + "if not enable_mlx_whisper:\n" + indent + "    " + original
+        replacements.append((match.start(), match.end(), replacement))
+
+    for start, end, replacement in reversed(replacements):
+        route = route[:start] + replacement + route[end:]
+
+    if not replacements and saw_model_to:
+        return source
+    if replacements:
+        return source[:route_start] + route
+
+    # If the loaded torch model has a .to(...) call but the source shape is not
+    # the simple self-assignment handled above, fail closed rather than leaving
+    # the reported NoneType error in place without warning.
+    model_to_calls = [
+        child for child in ast.walk(analyze)
+        if isinstance(child, ast.Call)
+        and isinstance(child.func, ast.Attribute)
+        and child.func.attr == "to"
+        and isinstance(child.func.value, ast.Name)
+        and child.func.value.id in model_vars
+    ]
+    already_guarded = re.search(
+        r"(?m)^[ \t]*if not enable_mlx_whisper:[ \t]*\n(?:^[ \t]+.*\n){1,4}^[ \t]*[A-Za-z_]\w*\s*=\s*[A-Za-z_]\w*\.to\(",
+        route,
+    )
+    if model_to_calls and not already_guarded:
+        raise ValueError(
+            "Обнаружен вызов model.to(...) у PyTorch Whisper, но его форма не распознана безопасным патчером. "
+            "Файлы не изменены; требуется адаптация по конкретному фрагменту analyze_video()."
+        )
+    return source
+
+
+def patch_shutdown_server_endpoint(source: str) -> str:
+    """Add a loopback-only endpoint that gracefully stops the local VCE server."""
+    if SERVER_SHUTDOWN_MARKER in source:
+        return source
+    anchor = '@app.post("/api/v1/analyze")'
+    if source.count(anchor) != 1:
+        raise ValueError("Для кнопки остановки сервера ожидался ровно один endpoint /api/v1/analyze.")
+
+    if not re.search(r"(?m)^from fastapi import [^\n]*\bRequest\b", source):
+        one_line_import = re.search(r"(?m)^from fastapi import (?!\()[^\n]+$", source)
+        if one_line_import:
+            line = one_line_import.group(0)
+            source = source[:one_line_import.start()] + line + ", Request" + source[one_line_import.end():]
+        elif "import os\n" in source:
+            source = source.replace("import os\n", "import os\nfrom fastapi import Request\n", 1)
+        else:
+            raise ValueError("Не удалось безопасно добавить импорт Request для локальной кнопки остановки.")
+
+    endpoint = r'''
+# VCE_LOCAL_SERVER_SHUTDOWN_ENDPOINT_V1
+@app.post("/api/v1/server/shutdown")
+async def _vce_shutdown_server(request: Request):
+    # This control is intended only for the local desktop UI, not remote callers.
+    client_host = request.client.host if request.client else ""
+    import ipaddress
+    try:
+        is_loopback = ipaddress.ip_address(client_host).is_loopback
+    except ValueError:
+        is_loopback = client_host == "testclient"
+    if not is_loopback:
+        raise HTTPException(status_code=403, detail="Остановка разрешена только с локального компьютера")
+
+    origin = request.headers.get("origin", "")
+    if origin and not (
+        origin.startswith("http://127.0.0.1:7555")
+        or origin.startswith("http://localhost:7555")
+        or origin.startswith("http://[::1]:7555")
+    ):
+        raise HTTPException(status_code=403, detail="Недопустимый Origin для остановки локального сервера")
+
+    async def _stop_after_response():
+        await asyncio.sleep(0.75)
+        import signal
+        os.kill(os.getpid(), signal.SIGTERM)
+
+    asyncio.create_task(_stop_after_response())
+    return {
+        "status": "stopping",
+        "message": "Команда остановки принята. Для следующего запуска откройте VideoContext Engine.app заново.",
+    }
+
+
+'''
+    source = replace_once(source, anchor, endpoint + anchor, "local server shutdown endpoint")
+    return source
+
+
+def patch_server_shutdown_ui(ui: str) -> str:
+    """Add a confirmable stop-server button and its same-origin POST handler."""
+    if f'id="vce-stop-server"' not in ui:
+        anchor = "<!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->"
+        if anchor not in ui:
+            raise ValueError("Не найден маркер блока настроек для кнопки остановки сервера.")
+        controls = '''
+  <div id="vce-server-controls" style="grid-column:1 / -1; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+    <button type="button" id="vce-stop-server">Остановить сервер VCE</button>
+    <span id="vce-stop-server-status" role="status" aria-live="polite">Для запуска после остановки откройте приложение заново.</span>
+  </div>
+  <!-- VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_V1 -->
+'''
+        ui = ui.replace(anchor, anchor + controls, 1)
+
+    if "VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_HANDLER_V1" not in ui:
+        script_anchor = "const readSettings = () => ({"
+        script_start = ui.find(script_anchor)
+        if script_start < 0:
+            raise ValueError("Не найден JS-блок readSettings() для кнопки остановки сервера.")
+        script_end = ui.find("</script>", script_start)
+        if script_end < 0:
+            raise ValueError("Не найден конец script-блока веб-интерфейса.")
+        handler = r'''
+  // VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_HANDLER_V1
+  const stopServerButton = document.getElementById('vce-stop-server');
+  const stopServerStatus = document.getElementById('vce-stop-server-status');
+  if (stopServerButton) {
+    stopServerButton.addEventListener('click', async () => {
+      const confirmed = window.confirm(
+        'Остановить сервер VideoContext Engine? Текущие запросы прервутся. Для следующего запуска откройте приложение заново.'
+      );
+      if (!confirmed) return;
+      stopServerButton.disabled = true;
+      if (stopServerStatus) stopServerStatus.textContent = 'Отправляется команда остановки сервера...';
+      try {
+        const response = await fetch('/api/v1/server/shutdown', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) {
+          const details = await response.text();
+          throw new Error('HTTP ' + response.status + (details ? ': ' + details : ''));
+        }
+        if (stopServerStatus) {
+          stopServerStatus.textContent = 'Команда принята. Сервер остановится; для нового запуска откройте VideoContext Engine.app.';
+        }
+      } catch (error) {
+        if (stopServerStatus) stopServerStatus.textContent = 'Не удалось подтвердить остановку: ' + error.message;
+        stopServerButton.disabled = false;
+      }
+    });
+  }
+'''
+        ui = ui[:script_end] + handler + "\n" + ui[script_end:]
+    return ui
+
+
 def patch_engine(source: str) -> str:
     if MARKER in source:
         # A complete install contains all five API fields and the execution hooks.
@@ -592,6 +816,9 @@ def patch_engine(source: str) -> str:
         missing = [item for item in required if item not in source]
         if missing:
             raise ValueError("Обнаружена неполная установка патча; отсутствуют: " + ", ".join(missing))
+        source = patch_mlx_device_transfers(source)
+        source = patch_shutdown_server_endpoint(source)
+        ast.parse(source, filename=str(TARGET))
         return source
 
     if "def apple_vision_ocr(" not in source:
@@ -617,6 +844,8 @@ def patch_engine(source: str) -> str:
     source = patch_adaptive_keyframes(source)
     source = patch_ocr_cache(source)
     source = patch_mlx_whisper(source)
+    source = patch_mlx_device_transfers(source)
+    source = patch_shutdown_server_endpoint(source)
 
     # Add diagnostic values to the already-existing timings dictionary.
     tree = ast.parse(source)
@@ -722,7 +951,7 @@ def patch_ui(ui: str) -> str:
         missing = [item for item in required if item not in ui]
         if missing:
             raise ValueError("Неполная UI-установка; отсутствуют: " + ", ".join(missing))
-        return ui
+        return patch_server_shutdown_ui(ui)
 
     controls = '''  <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->
   <div class="setting-checks" id="vce-optimization-checkboxes">
@@ -822,7 +1051,7 @@ def patch_ui(ui: str) -> str:
         "      'cfg-fast-scene-detection':'enable_fast_scene_detection',"
     )
     ui = replace_once(ui, checks_anchor, checks_anchor + checks_entries, "fill priority checkbox values")
-    return ui
+    return patch_server_shutdown_ui(ui)
 
 def patch_settings(settings_text: str) -> str:
     settings = json.loads(settings_text)
