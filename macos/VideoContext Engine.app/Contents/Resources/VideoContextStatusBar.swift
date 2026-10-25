@@ -17,8 +17,17 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private var serverLogHandle: FileHandle?
     private var serverLogURL: URL?
 
-    private let uiURL = URL(string: "http://127.0.0.1:7555/ui")!
-    private let docsURL = URL(string: "http://127.0.0.1:7555/docs")!
+    private enum MainPage {
+        case ui
+        case docs
+
+        var urlString: String {
+            switch self {
+            case .ui: return "http://127.0.0.1:7555/ui"
+            case .docs: return "http://127.0.0.1:7555/docs"
+            }
+        }
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // This must be a regular app so it has a real window and Dock presence.
@@ -32,7 +41,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
 
         if serverAvailable() {
-            showMainWindow(url: uiURL)
+            showMainWindow(page: .ui)
         } else {
             startServerAndOpenUI()
         }
@@ -46,7 +55,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if serverAvailable() {
-            showMainWindow(url: uiURL)
+            showMainWindow(page: .ui)
         } else {
             startServerAndOpenUI()
         }
@@ -73,22 +82,25 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         self.webView = webView
     }
 
-    private func showMainWindow(url: URL, forceReload: Bool = false) {
-        guard let window = window else { return }
+    private func showMainWindow(page: MainPage, forceReload: Bool = false) {
+        guard let window = window,
+              let webView = webView,
+              let targetURL = URL(string: page.urlString) else { return }
         NSApp.setActivationPolicy(.regular)
 
-        // Closing the red window hides it but does not destroy the WKWebView.
-        // Reopening / selecting "Open interface" must not reload the page: its
-        // queue and live progress state are held in page memory.
-        let currentURL = webView?.url
+        // Construct the URL on demand instead of retaining URL objects as
+        // long-lived delegate properties or passing them through timer callbacks.
+        // The crash report from the startup timer entered this method with an
+        // invalid object being retained; a page enum keeps that boundary value-only.
+        let currentURL = webView.url
         let alreadyShowingRequestedPage =
-            currentURL?.scheme == url.scheme &&
-            currentURL?.host == url.host &&
-            currentURL?.port == url.port &&
-            currentURL?.path == url.path
+            currentURL?.scheme == targetURL.scheme &&
+            currentURL?.host == targetURL.host &&
+            currentURL?.port == targetURL.port &&
+            currentURL?.path == targetURL.path
 
         if forceReload || !alreadyShowingRequestedPage {
-            webView?.load(URLRequest(url: url))
+            webView.load(URLRequest(url: targetURL))
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -146,7 +158,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     @objc private func openInterface(_ sender: Any? = nil) {
         if serverAvailable() {
             setStatus("Сервер работает")
-            showMainWindow(url: uiURL)
+            showMainWindow(page: .ui)
         } else {
             startServerAndOpenUI()
         }
@@ -157,7 +169,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
             setStatus("Сервер работает")
             // This action is intentionally explicit: reloading can reset the
             // in-memory file queue and progress held by the page.
-            showMainWindow(url: uiURL, forceReload: true)
+            showMainWindow(page: .ui, forceReload: true)
         } else {
             startServerAndOpenUI()
         }
@@ -165,7 +177,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
 
     @objc private func openSwagger(_ sender: Any? = nil) {
         if serverAvailable() {
-            showMainWindow(url: docsURL)
+            showMainWindow(page: .docs)
         } else {
             startServerAndOpenUI()
         }
@@ -174,7 +186,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     @objc private func startServerAndOpenUI(_ sender: Any? = nil) {
         if serverAvailable() {
             setStatus("Сервер работает")
-            showMainWindow(url: uiURL)
+            showMainWindow(page: .ui)
             return
         }
         guard !isStartingServer else {
@@ -185,7 +197,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         // Avoid starting a second engine if an older process owns the API port but /ui is broken.
         if docsAvailable() {
             setStatus("API отвечает, /ui недоступен")
-            showMainWindow(url: uiURL)
+            showMainWindow(page: .ui)
             showAlert("VideoContext Engine уже отвечает на /docs, но /ui недоступен. Проверь журнал ~/Library/Logs/VideoContext Engine/server.log; новый экземпляр не запускается, чтобы избежать конфликта порта.")
             return
         }
@@ -216,7 +228,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
                     self.setStatus("Сервер работает")
                     // We just started the server; force navigation in case the
                     // WKWebView was left on an error page from an earlier run.
-                    self.showMainWindow(url: self.uiURL, forceReload: true)
+                    self.showMainWindow(page: .ui, forceReload: true)
                 } else if self.serverProcess == nil && self.startupAttempts >= 3 {
                     timer.invalidate()
                     self.startupTimer = nil
@@ -306,7 +318,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private func serverAvailable() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        process.arguments = ["--silent", "--fail", "--max-time", "1", uiURL.absoluteString]
+        process.arguments = ["--silent", "--fail", "--max-time", "1", MainPage.ui.urlString]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -321,7 +333,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private func docsAvailable() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        process.arguments = ["--silent", "--fail", "--max-time", "1", docsURL.absoluteString]
+        process.arguments = ["--silent", "--fail", "--max-time", "1", MainPage.docs.urlString]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
