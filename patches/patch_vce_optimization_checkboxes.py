@@ -57,10 +57,15 @@ def _vce_validate_mlx_whisper_model(model_name):
 
 
 def _vce_load_whisper_model(model_name, use_mlx):
-    """Avoid loading PyTorch Whisper when the optional MLX backend is selected."""
+    """Avoid PyTorch when MLX is selected; otherwise preserve VCE's configured loader."""
     if use_mlx:
         _vce_validate_mlx_whisper_model(model_name)
         return None
+    # Several VCE versions load Whisper through load_whisper_model() to select
+    # MPS/CUDA. Preserve that existing behavior rather than bypassing it.
+    loader = globals().get("load_whisper_model")
+    if callable(loader):
+        return loader(model_name)
     return whisper.load_model(model_name)
 
 
@@ -437,33 +442,62 @@ def patch_mlx_whisper(source: str) -> str:
         raise ValueError("Не найдена сигнатура analyze_video().")
     route = source[route_start:]
 
-    if "_vce_transcribe_audio(" not in route:
-        pattern = re.compile(
+    # Support both the direct call and the currently used asyncio.to_thread
+    # form, while keeping the latter asynchronous for responsive cancellation.
+    if "audio_res = _vce_transcribe_audio(" not in route and (
+        "audio_res = await asyncio.to_thread(\n" in route
+        and "_vce_transcribe_audio," not in route
+    ):
+        async_pattern = re.compile(
+            r"(?m)^(?P<i>[ \t]*)audio_res\s*=\s*await\s+asyncio\.to_thread\(\n"
+            r"(?P<j>[ \t]*)w_model\.transcribe,\n"
+            r"(?P<k>[ \t]*)temp_path,[ \t]*$"
+        )
+        async_matches = list(async_pattern.finditer(route))
+        if len(async_matches) == 1:
+            m = async_matches[0]
+            replacement = (
+                m.group("i") + "audio_res = await asyncio.to_thread(\n"
+                + m.group("j") + "_vce_transcribe_audio,\n"
+                + m.group("k") + "temp_path, target_whisper, w_model, enable_mlx_whisper,"
+            )
+            route = route[:m.start()] + replacement + route[m.end():]
+        elif len(async_matches) > 1:
+            raise ValueError(f"Найдено несколько вызовов Whisper через asyncio.to_thread: {len(async_matches)}.")
+    
+    if "audio_res = _vce_transcribe_audio(" not in route and "_vce_transcribe_audio," not in route:
+        direct_pattern = re.compile(
             r"(?m)^(?P<i>[ \t]*)audio_res\s*=\s*w_model\.transcribe\(\n"
             r"(?P<j>[ \t]*)temp_path,[ \t]*$"
         )
-        if len(list(pattern.finditer(route))) != 1:
+        direct_matches = list(direct_pattern.finditer(route))
+        if len(direct_matches) != 1:
             raise ValueError(
-                "Не найден единственный вызов w_model.transcribe(temp_path, ...); "
-                "не удалось безопасно подключить MLX Whisper."
+                "Не удалось найти однозначный вызов Whisper: ожидается "
+                "audio_res = w_model.transcribe(temp_path, ...) либо "
+                "audio_res = await asyncio.to_thread(w_model.transcribe, temp_path, ...). "
+                f"Найдено подходящих прямых вызовов: {len(direct_matches)}."
             )
-        route = pattern.sub(
-            lambda m: (
-                m.group("i") + "audio_res = _vce_transcribe_audio(\n"
-                + m.group("j") + "temp_path, target_whisper, w_model, enable_mlx_whisper,"
-            ),
-            route,
-            count=1,
+        m = direct_matches[0]
+        replacement = (
+            m.group("i") + "audio_res = _vce_transcribe_audio(\n"
+            + m.group("j") + "temp_path, target_whisper, w_model, enable_mlx_whisper,"
         )
-    if "w_model = None if enable_mlx_whisper else WHISPER_CACHE[target_whisper]" not in route:
-        route = route.replace(
-            "w_model = WHISPER_CACHE[target_whisper]",
-            "w_model = None if enable_mlx_whisper else WHISPER_CACHE[target_whisper]",
-            1,
-        )
+        route = route[:m.start()] + replacement + route[m.end():]
+
+    # Do not route an MLX-selected model through the existing PyTorch cache.
+    route = route.replace(
+        "w_model = WHISPER_CACHE[target_whisper]",
+        "w_model = None if enable_mlx_whisper else WHISPER_CACHE[target_whisper]",
+    )
     route = route.replace(
         "whisper.load_model(target_whisper)",
         "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)",
+    )
+    route = re.sub(
+        r"(?<![\w.])load_whisper_model\(target_whisper\)",
+        "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)",
+        route,
     )
     route = re.sub(
         r"(?m)^(?P<i>[ \t]*)WHISPER_CACHE\[target_whisper\]\s*=\s*w_model\s*$",
@@ -471,6 +505,7 @@ def patch_mlx_whisper(source: str) -> str:
         + m.group("i") + "    WHISPER_CACHE[target_whisper] = w_model",
         route,
     )
+
     # Fail before long analysis if the optional backend is selected but unavailable.
     validation_anchor = "video_duration = validate_video_file(temp_path)"
     validation_pattern = re.compile(
@@ -488,10 +523,16 @@ def patch_mlx_whisper(source: str) -> str:
             + indent + validation_anchor
         )
         route = route[:match.start()] + replacement + route[match.end():]
-    if "audio_res = _vce_transcribe_audio(" not in route:
-        raise ValueError("MLX Whisper: вызов транскрибации не был изменён.")
-    return source[:route_start] + route
 
+    if "_vce_transcribe_audio(" not in route and "_vce_transcribe_audio," not in route:
+        raise ValueError("MLX Whisper: вызов транскрибации не был изменён.")
+    # Ensure at least one path to the existing loader was redirected so MLX does
+    # not load PyTorch eagerly when the option is enabled.
+    if "whisper.load_model(target_whisper)" not in route and "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)" not in route:
+        # Some source variants use a local helper in the RAM/cache branch.
+        if "load_whisper_model(target_whisper" in route:
+            raise ValueError("MLX Whisper: существующий helper загрузки не удалось перенаправить.")
+    return source[:route_start] + route
 
 def patch_engine(source: str) -> str:
     if MARKER in source:
