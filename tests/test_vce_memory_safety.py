@@ -133,7 +133,7 @@ class MemorySafetyPatchTests(unittest.TestCase):
         )
         patched = self.patch.patch_engine(custom_fixture)
         ast.parse(patched)
-        self.assertIn("if run_vlm:\\n                    release_accelerator_memory('before VLM load')", patched)
+        self.assertRegex(patched, r"if run_vlm:\n\s+release_accelerator_memory\('before VLM load'\)")
         self.assertIn("await asyncio.to_thread(vlm_engine.load_model, target_vlm)", patched)
 
     def test_engine_patch_is_idempotent(self):
