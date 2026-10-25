@@ -40,9 +40,18 @@ MEMORY_HELPERS = r'''def release_accelerator_memory(stage: str = "") -> None:
         print(f"⚠️ Не удалось очистить кэш PyTorch MPS ({stage}): {exc}")
     try:
         import mlx.core as mx
-        mx.metal.clear_cache()
+        clear_cache = getattr(mx, "clear_cache", None)
+        if callable(clear_cache):
+            clear_cache()
+        else:
+            # Compatibility fallback for versions exposing this only under mx.metal.
+            metal_api = getattr(mx, "metal", None)
+            metal_clear_cache = getattr(metal_api, "clear_cache", None)
+            if callable(metal_clear_cache):
+                metal_clear_cache()
+            else:
+                raise RuntimeError("В этой версии MLX нет доступного clear_cache API")
     except Exception as exc:
-        # Keep this helper compatible with MLX versions without metal.clear_cache().
         print(f"⚠️ Не удалось очистить кэш MLX ({stage}): {exc}")
     gc.collect()
 
@@ -329,9 +338,10 @@ def patch_engine(source: str) -> str:
             raise ValueError("Не найден вызов validate_video_file(temp_path) для предварительной проверки.")
         indent = preflight_match.group("indent")
         preflight_lines = [
-            f"{indent}original_input_path = temp_path",
-            f"{indent}prepared_path = await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)",
-            f"{indent}if prepared_path != original_input_path:",
+            f"{indent}original_input_path = str(Path(temp_path).expanduser().resolve())",
+            f"{indent}temp_path = original_input_path",
+            f"{indent}prepared_path = await asyncio.to_thread(ensure_opencv_compatible_video, original_input_path)",
+            f"{indent}if Path(prepared_path).expanduser().resolve() != Path(original_input_path).resolve():",
             f"{indent}    if owns_temp_path and os.path.exists(original_input_path):",
             f"{indent}        try:",
             f"{indent}            os.remove(original_input_path)",
@@ -339,6 +349,8 @@ def patch_engine(source: str) -> str:
             f"{indent}            pass",
             f"{indent}    temp_path = prepared_path",
             f"{indent}    owns_temp_path = True",
+            f"{indent}else:",
+            f"{indent}    temp_path = prepared_path",
             f"{indent}video_duration = validate_video_file(temp_path)",
         ]
         source = (
@@ -367,11 +379,9 @@ def safe_profile(current: dict[str, Any]) -> dict[str, Any]:
         resolution = 768
     updated["vlm_resolution"] = min(max(128, resolution), 768)
 
-    try:
-        frames = int(updated.get("keyframes_per_scene", 1))
-    except (TypeError, ValueError):
-        frames = 1
-    updated["keyframes_per_scene"] = min(max(1, frames), 2)
+    # OOM has already been observed with the 8B VLM. One image per scene
+    # is the safest default for this recovery profile; OCR keeps its own source frames.
+    updated["keyframes_per_scene"] = 1
 
     updated["ram_mode"] = "ram-"
     # Never set generate_txt here: the user's current selection must be preserved.
@@ -413,7 +423,7 @@ def main() -> int:
     print("Проверка кода: OK")
     print(f"MLX модель сохранена: {config_updated.get('vlm_model', '(текущее значение)')}")
     print(f"VLM resolution: {config_original.get('vlm_resolution', '(default)')} -> {config_updated['vlm_resolution']}")
-    print(f"Кадров на сцену: {config_original.get('keyframes_per_scene', '(default)')} -> {config_updated['keyframes_per_scene']}")
+    print(f"Кадров на сцену: {config_original.get('keyframes_per_scene', '(default)')} -> {config_updated['keyframes_per_scene']} (профиль восстановления памяти)")
     print(f"RAM mode: {config_original.get('ram_mode', '(default)')} -> {config_updated['ram_mode']}")
     print(f"TXT setting preserved: generate_txt={config_updated.get('generate_txt', '(not present)')}")
     if args.dry_run:
