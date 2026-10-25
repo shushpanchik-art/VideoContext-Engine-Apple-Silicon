@@ -275,6 +275,7 @@ def patch_engine(source: str) -> str:
         missing.append("Whisper unload/cache cleanup marker")
     if (
         "if not skip_visual or generate_summary:" not in source
+        and "if run_vlm:" not in source
         and "release_accelerator_memory('before VLM load')" not in source
     ):
         missing.append("VLM load/cache cleanup marker")
@@ -306,7 +307,7 @@ def patch_engine(source: str) -> str:
     # whether the configured engine loads VLM directly or via asyncio.to_thread().
     if "release_accelerator_memory('before VLM load')" not in source:
         guard = re.search(
-            r"(?m)^(?P<indent>[ \t]*)if not skip_visual or generate_summary:[ \t]*$",
+            r"(?m)^(?P<indent>[ \\t]*)if (?:not skip_visual or generate_summary|run_vlm):[ \\t]*$",
             source,
         )
         if not guard:
