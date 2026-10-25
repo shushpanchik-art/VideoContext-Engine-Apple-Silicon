@@ -32,6 +32,7 @@ def _vce_start_bounded_keyframe_prefetch(
     base_res: int,
     max_frames: int,
     queue_size: int = 2,
+    max_frames_by_scene=None,
 ):
     """Prepare upcoming scene keyframes in a bounded queue on a single CPU worker."""
     import queue
@@ -39,6 +40,7 @@ def _vce_start_bounded_keyframe_prefetch(
 
     result_queue = queue.Queue(maxsize=max(1, min(int(queue_size), 2)))
     stop_event = threading.Event()
+    stats = {"worker_seconds": 0.0, "wait_seconds": 0.0, "fallback_count": 0}
 
     def put_item(item):
         while not stop_event.is_set():
@@ -56,18 +58,24 @@ def _vce_start_bounded_keyframe_prefetch(
             for scene_index, scene in enumerate(scenes):
                 if stop_event.is_set():
                     break
+                scene_started = time.perf_counter()
                 try:
                     if capture is None or not capture.isOpened():
                         raise RuntimeError("Prefetch VideoCapture could not open the temporary video")
+                    scene_max_frames = max_frames
+                    if max_frames_by_scene is not None and scene_index < len(max_frames_by_scene):
+                        scene_max_frames = max(1, min(5, int(max_frames_by_scene[scene_index])))
                     keyframes = sample_keyframes_for_scene(
                         capture,
                         scene,
                         base_res=base_res,
-                        max_frames=max_frames,
+                        max_frames=scene_max_frames,
                     )
                     item = (scene_index, keyframes or [], None)
                 except Exception as exc:
                     item = (scene_index, [], str(exc)[:300])
+                finally:
+                    stats["worker_seconds"] += time.perf_counter() - scene_started
                 if not put_item(item):
                     break
         except Exception as exc:
@@ -88,7 +96,7 @@ def _vce_start_bounded_keyframe_prefetch(
         daemon=True,
     )
     worker.start()
-    return result_queue, stop_event, worker
+    return result_queue, stop_event, worker, stats
 
 
 '''
@@ -133,16 +141,19 @@ def patch_scene_loop(source: str) -> str:
         indent + "_vce_frame_prefetch_queue = None\n"
         + indent + "_vce_frame_prefetch_stop = None\n"
         + indent + "_vce_frame_prefetch_thread = None\n"
+        + indent + "_vce_frame_prefetch_stats = {\"worker_seconds\": 0.0, \"wait_seconds\": 0.0, \"fallback_count\": 0}\n"
         + indent + "if not skip_visual and run_vlm:\n"
         + child + "(\n"
         + child + "    _vce_frame_prefetch_queue,\n"
         + child + "    _vce_frame_prefetch_stop,\n"
         + child + "    _vce_frame_prefetch_thread,\n"
+        + child + "    _vce_frame_prefetch_stats,\n"
         + child + ") = _vce_start_bounded_keyframe_prefetch(\n"
         + child + "    temp_path,\n"
         + child + "    scenes_raw,\n"
         + child + "    base_res=vlm_resolution,\n"
         + child + "    max_frames=keyframes_per_scene,\n"
+        + child + "    max_frames_by_scene=[_vce_adaptive_keyframe_limit(s, keyframes_per_scene) if enable_adaptive_keyframes else keyframes_per_scene for s in scenes_raw],\n"
         + child + "    queue_size=2,\n"
         + child + ")\n"
         + "\n"
@@ -154,7 +165,7 @@ def patch_scene_loop(source: str) -> str:
         r"(?P<j>[ \t]*)cap,\s*\n"
         r"(?P=j)scene,\s*\n"
         r"(?P=j)base_res=vlm_resolution,\s*\n"
-        r"(?P=j)max_frames=keyframes_per_scene,\s*\n"
+        r"(?P=j)max_frames=(?P<maxexpr>keyframes_per_scene|effective_keyframes),\s*\n"
         r"(?P=i)\)[ \t]*$"
     )
     call_matches = list(call_pattern.finditer(source))
@@ -166,17 +177,21 @@ def patch_scene_loop(source: str) -> str:
     call = call_matches[0]
     i = call.group("i")
     j = call.group("j")
+    maxexpr = call.group("maxexpr")
     replacement = (
         i + "if _vce_frame_prefetch_queue is not None:\n"
+        + j + "_vce_pf_wait_started = time.perf_counter()\n"
         + j + "_vce_pf_scene_index, _vce_pf_keyframes, _vce_pf_error = _vce_frame_prefetch_queue.get()\n"
+        + j + "_vce_frame_prefetch_stats[\"wait_seconds\"] += time.perf_counter() - _vce_pf_wait_started\n"
         + j + "if _vce_pf_scene_index is None:\n"
         + j + "    # Producer ended early; fall back synchronously for this and subsequent scenes.\n"
+        + j + "    _vce_frame_prefetch_stats[\"fallback_count\"] += 1\n"
         + j + "    _vce_frame_prefetch_queue = None\n"
         + j + "    keyframes = sample_keyframes_for_scene(\n"
         + j + "        cap,\n"
         + j + "        scene,\n"
         + j + "        base_res=vlm_resolution,\n"
-        + j + "        max_frames=keyframes_per_scene,\n"
+        + j + f"        max_frames={maxexpr},\n"
         + j + "    )\n"
         + j + "elif _vce_pf_scene_index != idx:\n"
         + j + "    raise RuntimeError(\n"
@@ -184,22 +199,23 @@ def patch_scene_loop(source: str) -> str:
         + j + "        f\"received scene {_vce_pf_scene_index}\"\n"
         + j + "    )\n"
         + j + "elif _vce_pf_error is not None:\n"
+        + j + "    _vce_frame_prefetch_stats[\"fallback_count\"] += 1\n"
         + j + "    print(\"⚠️ [Frame prefetch] Синхронный fallback: \" + str(_vce_pf_error)[:300])\n"
         + j + "    keyframes = sample_keyframes_for_scene(\n"
         + j + "        cap,\n"
         + j + "        scene,\n"
         + j + "        base_res=vlm_resolution,\n"
-        + j + "        max_frames=keyframes_per_scene,\n"
+        + j + f"        max_frames={maxexpr},\n"
         + j + "    )\n"
         + j + "else:\n"
         + j + "    keyframes = _vce_pf_keyframes or []\n"
         + i + "else:\n"
-        + j + "keyframes = sample_keyframes_for_scene(\n"
-        + j + "    cap,\n"
-        + j + "    scene,\n"
-        + j + "    base_res=vlm_resolution,\n"
-        + j + "    max_frames=keyframes_per_scene,\n"
-        + j + ")"
+        + j + "    keyframes = sample_keyframes_for_scene(\n"
+        + j + "        cap,\n"
+        + j + "        scene,\n"
+        + j + "        base_res=vlm_resolution,\n"
+        + j + f"        max_frames={maxexpr},\n"
+        + j + "    )"
     )
     return source[:call.start()] + replacement + source[call.end():]
 
@@ -218,6 +234,22 @@ def patch_cleanup(source: str) -> str:
         "            _vce_pf_worker.join()\n"
     )
     return replace_once(source, marker, cleanup + marker, "parallel ASR cleanup marker")
+
+
+
+
+def patch_diagnostics(source: str) -> str:
+    if "frame_prefetch_worker_seconds" in source:
+        return source
+    metric = (
+        '                "ffmpeg_ocr_seconds": round(float(locals().get("ffmpeg_ocr_infer_time", 0.0) or 0.0), 3),\n'
+    )
+    addition = (
+        '                "frame_prefetch_worker_seconds": round(float((locals().get("_vce_frame_prefetch_stats") or {}).get("worker_seconds", 0.0) or 0.0), 3),\n'
+        '                "frame_prefetch_wait_seconds": round(float((locals().get("_vce_frame_prefetch_stats") or {}).get("wait_seconds", 0.0) or 0.0), 3),\n'
+        '                "frame_prefetch_fallback_count": int((locals().get("_vce_frame_prefetch_stats") or {}).get("fallback_count", 0) or 0),\n'
+    )
+    return replace_once(source, metric, metric + addition, "stage timing diagnostics")
 
 
 def patch_engine(source: str) -> str:
@@ -243,6 +275,7 @@ def patch_engine(source: str) -> str:
     source = patch_helper(source)
     source = patch_scene_loop(source)
     source = patch_cleanup(source)
+    source = patch_diagnostics(source)
     ast.parse(source, filename=ENGINE_NAME)
     return source
 
