@@ -43,7 +43,7 @@ def make_context(final_segments):
 '''
         result = self.patch.transform_engine_source(source)
         self.assertIn("Если видны слайды", result)
-        self.assertIn("дословно сохраняй", result)
+        self.assertIn("цитируй точно", result)
         self.assertIn("Visual details: {visual_description}", result)
         self.assertIn("Visual tags: ", result)
         self.assertNotIn('elif s.get("visual_description")', result)
@@ -63,8 +63,8 @@ def make_context(final_segments):
         self.assertEqual(updated["vlm_resolution"], 1280)
         self.assertFalse(updated["skip_visual"])
         self.assertEqual(updated["custom_setting"], {"keep": True})
-        self.assertIn("дословно", updated["visual_user_prompt"])
-        self.assertIn("хронологию", updated["summary_user_prompt"])
+        self.assertIn("Дословно", updated["visual_user_prompt"])
+        self.assertIn("Сохраняй последовательность", updated["summary_user_prompt"])
 
 
 if __name__ == "__main__":
