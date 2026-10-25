@@ -46,7 +46,7 @@ def make_context(final_segments):
         self.assertIn("дословно сохраняй", result)
         self.assertIn("Visual details: {visual_description}", result)
         self.assertIn("Visual tags: ", result)
-        self.assertNotIn("elif s.get(\\"visual_description\\")", result)
+        self.assertNotIn('elif s.get("visual_description")', result)
         self.assertEqual(self.patch.transform_engine_source(result), result)
 
     def test_settings_only_replace_prompts_and_preserve_other_keys(self):
