@@ -443,48 +443,79 @@ def patch_mlx_whisper(source: str) -> str:
         raise ValueError("Не найдена сигнатура analyze_video().")
     route = source[route_start:]
 
-    # Support both the direct call and the currently used asyncio.to_thread
-    # form, while keeping the latter asynchronous for responsive cancellation.
-    if "audio_res = _vce_transcribe_audio(" not in route and (
-        "audio_res = await asyncio.to_thread(\n" in route
-        and "_vce_transcribe_audio," not in route
-    ):
-        async_pattern = re.compile(
-            r"(?m)^(?P<i>[ \t]*)audio_res\s*=\s*await\s+asyncio\.to_thread\(\n"
-            r"(?P<j>[ \t]*)w_model\.transcribe,\n"
-            r"(?P<k>[ \t]*)temp_path,[ \t]*$"
-        )
-        async_matches = list(async_pattern.finditer(route))
-        if len(async_matches) == 1:
-            m = async_matches[0]
+    # Support VCE variants where the result variable, model variable, or path
+    # expression differs, as long as the transcribe call is direct or threaded.
+    if "_vce_transcribe_audio" not in route:
+        async_patterns = [
+            re.compile(
+                r"(?m)^(?P<i>[ \t]*)(?P<result>[A-Za-z_]\w*)\s*=\s*await\s+asyncio\.to_thread\(\s*\n"
+                r"(?P<j>[ \t]*)(?P<model>[A-Za-z_]\w*)\.transcribe,\s*\n"
+                r"(?P<k>[ \t]*)(?P<path>[^,\n]+),[ \t]*$"
+            ),
+            re.compile(
+                r"(?m)^(?P<i>[ \t]*)(?P<result>[A-Za-z_]\w*)\s*=\s*await\s+asyncio\.to_thread\("
+                r"(?P<model>[A-Za-z_]\w*)\.transcribe,\s*(?P<path>[^,\n]+),"
+            ),
+        ]
+        async_matches = [(pattern, list(pattern.finditer(route))) for pattern in async_patterns]
+        matches = [(pattern, match) for pattern, found in async_matches for match in found]
+        if len(matches) > 1:
+            raise ValueError(f"Найдено несколько кандидатов транскрибации Whisper через asyncio.to_thread: {len(matches)}.")
+        if len(matches) == 1:
+            pattern, match = matches[0]
+            path_expr = match.group("path").strip()
             replacement = (
-                m.group("i") + "audio_res = await asyncio.to_thread(\n"
-                + m.group("j") + "_vce_transcribe_audio,\n"
-                + m.group("k") + "temp_path, target_whisper, w_model, enable_mlx_whisper,"
+                match.group("i") + match.group("result") + " = await asyncio.to_thread(\n"
+                + match.group("j") + "_vce_transcribe_audio,\n"
+                + match.group("k") + path_expr + ", target_whisper, "
+                + match.group("model") + ", enable_mlx_whisper,"
             )
-            route = route[:m.start()] + replacement + route[m.end():]
-        elif len(async_matches) > 1:
-            raise ValueError(f"Найдено несколько вызовов Whisper через asyncio.to_thread: {len(async_matches)}.")
-    
-    if "audio_res = _vce_transcribe_audio(" not in route and "_vce_transcribe_audio," not in route:
-        direct_pattern = re.compile(
-            r"(?m)^(?P<i>[ \t]*)audio_res\s*=\s*w_model\.transcribe\(\n"
-            r"(?P<j>[ \t]*)temp_path,[ \t]*$"
-        )
-        direct_matches = list(direct_pattern.finditer(route))
-        if len(direct_matches) != 1:
-            raise ValueError(
-                "Не удалось найти однозначный вызов Whisper: ожидается "
-                "audio_res = w_model.transcribe(temp_path, ...) либо "
-                "audio_res = await asyncio.to_thread(w_model.transcribe, temp_path, ...). "
-                f"Найдено подходящих прямых вызовов: {len(direct_matches)}."
+            route = route[:match.start()] + replacement + route[match.end():]
+        else:
+            direct_patterns = [
+                re.compile(
+                    r"(?m)^(?P<i>[ \t]*)(?P<result>[A-Za-z_]\w*)\s*=\s*(?P<model>[A-Za-z_]\w*)\.transcribe\(\s*\n"
+                    r"(?P<j>[ \t]*)(?P<path>[^,\n]+),[ \t]*$"
+                ),
+                re.compile(
+                    r"(?m)^(?P<i>[ \t]*)(?P<result>[A-Za-z_]\w*)\s*=\s*(?P<model>[A-Za-z_]\w*)\.transcribe\("
+                    r"(?P<path>[^,\n]+),"
+                ),
+            ]
+            direct_matches = [(pattern, match) for pattern in direct_patterns for match in pattern.finditer(route)]
+            if len(direct_matches) != 1:
+                # Emit discovered calls in the error so a future source variant can be
+                # adapted from concrete evidence rather than guessed at.
+                try:
+                    tree = ast.parse(source)
+                    analyze_node = next(
+                        node for node in ast.walk(tree)
+                        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                        and node.name == "analyze_video"
+                    )
+                    diagnostics = []
+                    for node in ast.walk(analyze_node):
+                        if isinstance(node, ast.Call):
+                            callee = ast.unparse(node.func)
+                            if "transcrib" in callee.lower() or "whisper" in callee.lower():
+                                diagnostics.append(f"{callee} (строка {node.lineno})")
+                    observed = "; ".join(diagnostics[:12]) or "вызовы transcribe/whisper не найдены"
+                except Exception:
+                    observed = "не удалось разобрать AST"
+                raise ValueError(
+                    "Не удалось найти однозначный вызов Whisper: ожидается метод *.transcribe(...) "
+                    "или await asyncio.to_thread(*.transcribe, ...). "
+                    f"Подходящих прямых вызовов найдено: {len(direct_matches)}. "
+                    f"Обнаружено в analyze_video(): {observed}. Файлы не изменены."
+                )
+            pattern, match = direct_matches[0]
+            path_expr = match.group("path").strip()
+            replacement = (
+                match.group("i") + match.group("result") + " = _vce_transcribe_audio(\n"
+                + match.group("j") + path_expr + ", target_whisper, "
+                + match.group("model") + ", enable_mlx_whisper,"
             )
-        m = direct_matches[0]
-        replacement = (
-            m.group("i") + "audio_res = _vce_transcribe_audio(\n"
-            + m.group("j") + "temp_path, target_whisper, w_model, enable_mlx_whisper,"
-        )
-        route = route[:m.start()] + replacement + route[m.end():]
+            route = route[:match.start()] + replacement + route[match.end():]
 
     # Do not route an MLX-selected model through the existing PyTorch cache.
     route = route.replace(
@@ -535,7 +566,7 @@ def patch_mlx_whisper(source: str) -> str:
         )
         route = route[:match.start()] + replacement + route[match.end():]
 
-    if "_vce_transcribe_audio(" not in route and "_vce_transcribe_audio," not in route:
+    if "_vce_transcribe_audio" not in route:
         raise ValueError("MLX Whisper: вызов транскрибации не был изменён.")
     # Ensure at least one path to the existing loader was redirected so MLX does
     # not load PyTorch eagerly when the option is enabled.
@@ -543,7 +574,6 @@ def patch_mlx_whisper(source: str) -> str:
         r"_vce_load_whisper_model\(target_whisper\s*,\s*enable_mlx_whisper",
         route,
     ):
-        # Some source variants use a local helper in the RAM/cache branch.
         if "load_whisper_model(target_whisper" in route:
             raise ValueError("MLX Whisper: существующий helper загрузки не удалось перенаправить.")
     return source[:route_start] + route
