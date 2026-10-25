@@ -256,11 +256,19 @@ def patch_engine(source: str) -> str:
         "def validate_video_file(file_path: str) -> float:",
         "video_duration = validate_video_file(temp_path)",
         "owns_temp_path = False",
-        "del w_model\n                        gc.collect()",
-        "if not skip_visual or generate_summary:\n                    t0 = time.time()",
         "def analyze_video(",
     )
     missing = [needle for needle in required if needle not in source]
+    if (
+        "del w_model\\n                        gc.collect()" not in source
+        and "release_accelerator_memory('after Whisper inference')" not in source
+    ):
+        missing.append("Whisper unload/cache cleanup marker")
+    if (
+        "if not skip_visual or generate_summary:\\n                    t0 = time.time()" not in source
+        and "release_accelerator_memory('before VLM load')" not in source
+    ):
+        missing.append("VLM load/cache cleanup marker")
     if missing:
         raise ValueError(
             "Версия движка не совпадает с ожидаемой или нужные патчи ещё не установлены. "
@@ -319,7 +327,7 @@ def patch_engine(source: str) -> str:
             temp_path = prepared_path
             owns_temp_path = True
         video_duration = validate_video_file(temp_path)'''
-    if preflight not in source:
+    if "await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)" not in source:
         source = replace_once(
             source,
             "        video_duration = validate_video_file(temp_path)",
