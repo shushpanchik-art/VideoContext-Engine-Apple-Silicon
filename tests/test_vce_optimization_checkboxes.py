@@ -146,6 +146,76 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         self.assertIn("_vce_transcribe_audio(", updated)
         self.assertIn('timings["stage_diagnostics"]', updated)
 
+    def test_mlx_safe_wrapper_dispatches_and_upgrade_repairs_legacy_install(self):
+        legacy_helper = (
+            "def _vce_transcribe_audio_safe(model, media_path: str, *args, **kwargs) -> tuple[dict, str]:\n"
+            '    """Transcribe on a worker thread; preserve the engine\'s original Whisper options."""\n'
+            "    try:\n"
+            "        result = model.transcribe(str(media_path), *args, **kwargs)\n"
+            "        if not isinstance(result, dict):\n"
+            "            raise TypeError('bad result')\n"
+            '        return result, ""\n'
+            "    except Exception as exc:\n"
+            "        if not _vce_is_audio_decode_failure(exc):\n"
+            "            raise\n"
+            '        return {"segments": []}, str(exc)\n\n'
+        )
+        fixture = ENGINE_FIXTURE.replace(
+            "def validate_video_file(path):",
+            legacy_helper + "def validate_video_file(path):",
+            1,
+        )
+        fixture = fixture.replace(
+            "    audio_res = w_model.transcribe(\n"
+            "        temp_path,\n"
+            "        condition_on_previous_text=False,\n"
+            "        temperature=0.0,\n"
+            "        compression_ratio_threshold=1.8,\n"
+            "    )",
+            "    audio_res, whisper_audio_error = await asyncio.to_thread(\n"
+            "        _vce_transcribe_audio_safe,\n"
+            "        w_model,\n"
+            "        temp_path,\n"
+            "        word_timestamps=word_timestamps,\n"
+            "        condition_on_previous_text=False,\n"
+            "        temperature=0.0,\n"
+            "        compression_ratio_threshold=1.8,\n"
+            "    )",
+            1,
+        )
+
+        installed = patch.patch_engine(fixture)
+        ast.parse(installed)
+        self.assertIn("result = _vce_transcribe_audio(", installed)
+        self.assertIn("model_name=target_whisper,", installed)
+        self.assertIn("use_mlx=enable_mlx_whisper,", installed)
+
+        new_prefix = (
+            "def _vce_transcribe_audio_safe(\n"
+            "    model, media_path: str, *args, model_name=None, use_mlx=False, **kwargs\n"
+            ") -> tuple[dict, str]:\n"
+            '    """Transcribe on a worker thread; preserve the selected Whisper backend."""\n'
+            "    try:\n"
+            "        result = _vce_transcribe_audio(\n"
+            "            str(media_path), model_name, model, use_mlx, *args, **kwargs\n"
+            "        )\n"
+        )
+        self.assertEqual(installed.count(new_prefix), 1)
+        legacy_installed = installed.replace(new_prefix, legacy_helper.split("        if not isinstance")[0], 1)
+        legacy_installed = legacy_installed.replace(
+            "        model_name=target_whisper,\n"
+            "        use_mlx=enable_mlx_whisper,\n",
+            "",
+            1,
+        )
+
+        repaired = patch.patch_engine(legacy_installed)
+        ast.parse(repaired)
+        self.assertIn("result = _vce_transcribe_audio(", repaired)
+        self.assertIn("model_name=target_whisper,", repaired)
+        self.assertIn("use_mlx=enable_mlx_whisper,", repaired)
+        self.assertEqual(patch.patch_engine(repaired), repaired)
+
     def test_engine_patch_is_idempotent(self):
         once = patch.patch_engine(ENGINE_FIXTURE)
         twice = patch.patch_engine(once)
