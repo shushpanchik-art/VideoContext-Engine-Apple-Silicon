@@ -38,5 +38,6 @@ jobs:
         run: |
           xcrun swiftc -O "macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift" \
             -framework AppKit \
+            -framework WebKit \
             -o /tmp/VideoContextStatusBar
           file /tmp/VideoContextStatusBar
