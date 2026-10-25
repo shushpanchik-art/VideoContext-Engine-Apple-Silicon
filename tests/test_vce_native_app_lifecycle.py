@@ -19,6 +19,15 @@ class NativeAppServerLifecycleTests(unittest.TestCase):
         self.assertNotIn("launchServerInTerminal", source)
         self.assertNotIn('tell application "Terminal"', source)
 
+    def test_reopening_native_window_preserves_live_ui_state(self):
+        source = SWIFT.read_text(encoding="utf-8")
+        self.assertIn("private func showMainWindow(url: URL, forceReload: Bool = false)", source)
+        self.assertIn("let alreadyShowingRequestedPage", source)
+        self.assertIn("if forceReload || !alreadyShowingRequestedPage", source)
+        # Reopening the same page must not blindly reload WKWebView and erase
+        # the in-memory queue/progress display. Fresh server startup can reload.
+        self.assertIn("self.showMainWindow(url: self.uiURL, forceReload: true)", source)
+
     def test_repair_script_preserves_active_analysis_and_settings(self):
         source = REPAIR.read_text(encoding="utf-8")
         self.assertIn('lsof -nP -iTCP:7555 -sTCP:LISTEN', source)
