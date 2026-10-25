@@ -6,11 +6,12 @@
   "started_at": "2026-10-25T11:40:10-03:00",
   "overrides": {},
   "settings_snapshot": {},
-  "video_path": "/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4",
   "video_size_bytes": 18257432,
   "video_sha256": "66d6b95e69e2c1c151942a7f35540444a88bda50bf6b8d63ca81d22588ae515d",
   "status": "error",
   "error": "<HTTPError 422: 'Unprocessable Content'>",
   "duration_seconds": 0.04,
-  "finished_at": "2026-10-25T11:40:10-03:00"
+  "finished_at": "2026-10-25T11:40:10-03:00",
+  "video_filename": "🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4",
+  "note": "Baseline request rejected by API validation (HTTP 422); video analysis did not start."
 }
