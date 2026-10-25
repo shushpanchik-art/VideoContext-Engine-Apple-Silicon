@@ -163,6 +163,17 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         self.assertIn("scene_candidates = _vce_detect_scenes_fast(", updated)
         self.assertIn("scene_candidates = detect_scenes(", updated)
 
+    def test_scene_detector_supports_asyncio_to_thread(self):
+        fixture = ENGINE_FIXTURE.replace(
+            "scenes_raw = detect_scenes(\n",
+            "scenes_raw = await asyncio.to_thread(\n        detect_scenes,\n",
+            1,
+        )
+        updated = patch.patch_engine(fixture)
+        ast.parse(updated)
+        self.assertIn("scenes_raw = await asyncio.to_thread(\n        _vce_detect_scenes_fast,", updated)
+        self.assertIn("scenes_raw = await asyncio.to_thread(\n        detect_scenes,", updated)
+
     def test_ui_has_five_persisted_checkboxes_and_is_idempotent(self):
         once = patch.patch_ui(UI_FIXTURE)
         twice = patch.patch_ui(once)
