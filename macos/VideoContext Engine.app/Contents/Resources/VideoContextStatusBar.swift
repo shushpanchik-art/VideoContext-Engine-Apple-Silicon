@@ -122,6 +122,10 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         openUI.target = self
         menu.addItem(openUI)
 
+        let reloadUI = NSMenuItem(title: "Перезагрузить интерфейс", action: #selector(reloadInterface(_:)), keyEquivalent: "")
+        reloadUI.target = self
+        menu.addItem(reloadUI)
+
         let start = NSMenuItem(title: "Запустить / проверить сервер", action: #selector(startServerAndOpenUI(_:)), keyEquivalent: "")
         start.target = self
         menu.addItem(start)
@@ -143,6 +147,17 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         if serverAvailable() {
             setStatus("Сервер работает")
             showMainWindow(url: uiURL)
+        } else {
+            startServerAndOpenUI()
+        }
+    }
+
+    @objc private func reloadInterface(_ sender: Any? = nil) {
+        if serverAvailable() {
+            setStatus("Сервер работает")
+            // This action is intentionally explicit: reloading can reset the
+            // in-memory file queue and progress held by the page.
+            showMainWindow(url: uiURL, forceReload: true)
         } else {
             startServerAndOpenUI()
         }
