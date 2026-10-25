@@ -20,6 +20,13 @@ fail() { echo "ОШИБКА: $*"; echo "Проверьте сообщение в
 [[ -f "$STATUS_SOURCE" ]] || fail "Не найден исходник значка меню macOS: $STATUS_SOURCE. Обнови пакет патчей."
 command -v xcrun >/dev/null 2>&1 || fail "Не найден xcrun/swiftc. Установи Xcode Command Line Tools: xcode-select --install."
 
+echo "Важно: перед установкой закончи текущий анализ и останови сервер VCE сочетанием Ctrl+C в его Terminal-окне."
+read -r -p "Если сервер остановлен, введи STOP для продолжения: " STOP_CONFIRM </dev/tty
+if [[ "$STOP_CONFIRM" != "STOP" ]]; then
+  echo "Установка отменена. Никакие файлы не менялись."
+  exit 0
+fi
+
 printf '\n[1/4] Исправление Whisper/MPS и добавление кнопки остановки…\n'
 "$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/patch_vce_stop_and_mps.py" || fail "Патч не прошёл проверку. Приложение не устанавливалось."
 
@@ -91,6 +98,6 @@ then
   /bin/ln -s "/Applications/VideoContext Engine.app" "$DESKTOP_LINK"
 fi
 
-printf '\nГОТОВО.\nПриложение: /Applications/VideoContext Engine.app\nЗначок меню: панель меню macOS рядом с системными значками\nЯрлык: рабочий стол → VideoContext Engine\nИнтерфейс: http://127.0.0.1:7555/ui\nSwagger: http://127.0.0.1:7555/docs\n\nПеред первым запуском обновлённого приложения остановите старый сервер в Terminal сочетанием Ctrl+C.\nНажмите Enter для закрытия этого установщика.\n'
+printf '\nГОТОВО.\nПриложение: /Applications/VideoContext Engine.app\nЗначок меню: панель меню macOS рядом с системными значками\nЯрлык: рабочий стол → VideoContext Engine\nИнтерфейс: http://127.0.0.1:7555/ui\nSwagger: http://127.0.0.1:7555/docs\n\nЗначок меню откроется автоматически; сервер будет запущен в Terminal, если он ещё не работает.\nНажмите Enter для закрытия этого установщика.\n'
 read -r || true
 /usr/bin/open "$APP_TARGET" || true
