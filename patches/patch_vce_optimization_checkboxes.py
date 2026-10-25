@@ -726,7 +726,7 @@ def patch_ui(ui: str) -> str:
 
     controls = '''  <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->
   <div class="setting-checks" id="vce-optimization-checkboxes">
-    <strong>Экспериментальные оптимизации (все выключены по умолчанию)</strong>
+    <strong style="grid-column:1 / -1">Экспериментальные оптимизации (все выключены по умолчанию)</strong>
     <label><input id="cfg-stage-timing" type="checkbox"> Подробные тайминги этапов в JSON</label>
     <label><input id="cfg-adaptive-keyframes" type="checkbox"> Адаптивное число кадров на сцену (настройка количества кадров — верхний предел)</label>
     <label><input id="cfg-ocr-cache" type="checkbox"> Кэш OCR Apple Vision для повторяющихся кадров</label>
@@ -734,13 +734,69 @@ def patch_ui(ui: str) -> str:
     <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропускать короткие переходы</label>
   </div>
 '''
-    # Put the controls inside the settings panel, before its Save button.
+
+    def apply_indent(block: str, indent: str) -> str:
+        return "".join(indent + line if line.strip() else line
+                       for line in block.splitlines(keepends=True))
+
+    # Prefer the canonical location used by the settings-button UI, when present.
     save_match = re.search(r'(?m)^(?P<i>[ \t]*)<button[^>]*id="save-settings"', ui)
-    if not save_match:
-        raise ValueError("Не найдена кнопка save-settings в веб-интерфейсе.")
-    controls = "".join(save_match.group("i") + line if line.strip() else line
-                       for line in controls.splitlines(keepends=True))
-    ui = ui[:save_match.start()] + controls + ui[save_match.start():]
+    if save_match:
+        controls = apply_indent(controls, save_match.group("i"))
+        ui = ui[:save_match.start()] + controls + ui[save_match.start():]
+    else:
+        # Some customized builds have readSettings()/fillSettings() but their
+        # save button has a different ID or no separate save button. Anchor
+        # beside the existing Apple OCR checkbox, which is a member of the
+        # settings control group, instead of failing on an irrelevant ID.
+        apple_pos = ui.find('id="cfg-apple-ocr"')
+        if apple_pos < 0:
+            visible_ids = re.findall(r'<input\b[^>]*\bid="([^"]+)"', ui)
+            buttons = re.findall(r'<button\b[^>]*\bid="([^"]+)"', ui)
+            raise ValueError(
+                "Не найдена кнопка save-settings и не найден существующий чекбокс cfg-apple-ocr. "
+                "Автоматически определить контейнер настроек небезопасно. "
+                f"Обнаруженные input id: {visible_ids[:20]}; button id: {buttons[:20]}. Файлы не изменены."
+            )
+        label_start = ui.rfind("<label", 0, apple_pos)
+        label_end = ui.find("</label>", apple_pos)
+        if label_start < 0 or label_end < 0:
+            raise ValueError("Найден cfg-apple-ocr, но не удалось определить его label; файлы не изменены.")
+
+        # If the Apple OCR control is inside the existing .setting-checks grid,
+        # add the new labels to that same grid (no nested grid). Otherwise add
+        # a self-contained grid immediately before the Apple OCR label.
+        grid_start = ui.rfind('<div class="setting-checks"', 0, label_start)
+        section_start = ui.rfind("<section", 0, label_start)
+        grid_close = ui.find("</div>", grid_start) if grid_start >= 0 else -1
+        if (
+            grid_start >= 0
+            and grid_start > section_start
+            and grid_close > label_start
+        ):
+            inner = (
+                '    <strong id="vce-optimization-title" style="grid-column:1 / -1">'
+                'Экспериментальные оптимизации (все выключены по умолчанию)</strong>\n'
+                '    <label><input id="cfg-stage-timing" type="checkbox"> Подробные тайминги этапов в JSON</label>\n'
+                '    <label><input id="cfg-adaptive-keyframes" type="checkbox"> Адаптивное число кадров на сцену (настройка количества кадров — верхний предел)</label>\n'
+                '    <label><input id="cfg-ocr-cache" type="checkbox"> Кэш OCR Apple Vision для повторяющихся кадров</label>\n'
+                '    <label><input id="cfg-mlx-whisper" type="checkbox"> MLX Whisper вместо PyTorch Whisper (нужен пакет mlx-whisper и совместимая MLX-модель)</label>\n'
+                '    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропускать короткие переходы</label>\n'
+                '    <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->\n'
+            )
+            indent_match = re.match(r"(?m)^([ \t]*)", ui[grid_start:label_start])
+            indent = indent_match.group(1) if indent_match else "  "
+            inner = "".join(indent + line if line.strip() else line
+                            for line in inner.splitlines(keepends=True))
+            ui = ui[:label_start] + inner + ui[label_start:]
+        else:
+            # Keep a complete accessible block near the existing checkbox even
+            # when this build has no identifiable settings grid.
+            line_start = ui.rfind("\n", 0, label_start) + 1
+            indent_match = re.match(r"[ \t]*", ui[line_start:label_start])
+            indent = indent_match.group(0) if indent_match else "  "
+            controls = apply_indent(controls, indent)
+            ui = ui[:line_start] + controls + ui[line_start:]
 
     # Persist the values with the existing settings object; analysis submits the same object as FormData.
     read_anchor = "  const readSettings = () => ({\n"
@@ -767,7 +823,6 @@ def patch_ui(ui: str) -> str:
     )
     ui = replace_once(ui, checks_anchor, checks_anchor + checks_entries, "fill priority checkbox values")
     return ui
-
 
 def patch_settings(settings_text: str) -> str:
     settings = json.loads(settings_text)
