@@ -107,6 +107,6 @@ then
   /bin/ln -s "/Applications/VideoContext Engine.app" "$DESKTOP_LINK"
 fi
 
-printf '\nГОТОВО.\nПриложение: /Applications/VideoContext Engine.app\nЗначок меню: панель меню macOS рядом с системными значками\nЯрлык: рабочий стол → VideoContext Engine\nИнтерфейс: http://127.0.0.1:7555/ui\nSwagger: http://127.0.0.1:7555/docs\n\nЗначок меню откроется автоматически; сервер будет запущен в Terminal, если он ещё не работает.\nНажмите Enter для закрытия этого установщика.\n'
+printf '\nГОТОВО.\nПриложение: /Applications/VideoContext Engine.app\nЗначок меню: панель меню macOS рядом с системными значками\nЯрлык: рабочий стол → VideoContext Engine\nИнтерфейс: http://127.0.0.1:7555/ui\nSwagger: http://127.0.0.1:7555/docs\n\nЗначок меню откроется автоматически; сервер запускается без отдельного окна Terminal и продолжает работать после закрытия приложения.\nНажмите Enter для закрытия этого установщика.\n'
 read -r || true
 /usr/bin/open "$APP_TARGET" || true
