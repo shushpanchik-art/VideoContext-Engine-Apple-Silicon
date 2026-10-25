@@ -1,0 +1,58 @@
+name: VCE unattended benchmark validation
+
+on:
+  push:
+    paths:
+      - "scripts/vce_unattended_benchmark.py"
+      - ".github/workflows/vce-benchmark-validation.yml"
+  pull_request:
+    paths:
+      - "scripts/vce_unattended_benchmark.py"
+      - ".github/workflows/vce-benchmark-validation.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile benchmark runner
+        run: python -m py_compile scripts/vce_unattended_benchmark.py
+      - name: Check compact prompts fit the API limits and do not mutate settings
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          path = Path("scripts/vce_unattended_benchmark.py")
+          spec = importlib.util.spec_from_file_location("vce_benchmark", path)
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+
+          for key, fallback in module.PROMPT_FALLBACKS.items():
+              assert len(fallback) <= module.PROMPT_LIMITS[key], (
+                  key, len(fallback), module.PROMPT_LIMITS[key]
+              )
+
+          original = {
+              "visual_user_prompt": "v" * 1001,
+              "summary_user_prompt": "s" * 2001,
+              "generate_txt": False,
+          }
+          effective, adjustments = module.apply_prompt_limits(
+              original,
+              {
+                  "visual_user_prompt": {"maxLength": 1000},
+                  "summary_user_prompt": {"maxLength": 2000},
+              },
+          )
+          assert len(effective["visual_user_prompt"]) <= 1000
+          assert len(effective["summary_user_prompt"]) <= 2000
+          assert original["visual_user_prompt"] == "v" * 1001
+          assert original["summary_user_prompt"] == "s" * 2001
+          assert original["generate_txt"] is False
+          assert set(adjustments) == {"visual_user_prompt", "summary_user_prompt"}
+          print("Prompt-limit tests passed; original settings untouched.")
+          PY
