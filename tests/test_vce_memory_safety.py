@@ -126,6 +126,16 @@ class MemorySafetyPatchTests(unittest.TestCase):
         self.assertIn("release_accelerator_memory('before VLM load')", patched)
         self.assertIn("release_accelerator_memory('after Whisper inference')", patched)
 
+    def test_engine_patch_supports_custom_run_vlm_guard(self):
+        custom_fixture = FIXTURE.replace(
+            "if not skip_visual or generate_summary:",
+            "if run_vlm:",
+        )
+        patched = self.patch.patch_engine(custom_fixture)
+        ast.parse(patched)
+        self.assertIn("if run_vlm:\\n                    release_accelerator_memory('before VLM load')", patched)
+        self.assertIn("await asyncio.to_thread(vlm_engine.load_model, target_vlm)", patched)
+
     def test_engine_patch_is_idempotent(self):
         once = self.patch.patch_engine(FIXTURE)
         twice = self.patch.patch_engine(once)
