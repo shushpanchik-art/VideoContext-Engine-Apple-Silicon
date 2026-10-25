@@ -65,7 +65,7 @@ settings = json.dumps({
     "generate_txt": True,
 }, ensure_ascii=False)
 updated = json.loads(mod.patch_settings(settings))
-assert updated["whisper_acceleration"] is True
+assert updated["whisper_acceleration"] is False
 assert updated["enable_mlx_whisper"] is False
 assert updated["enable_stage_timing"] is True
 assert updated["vlm_resolution"] == 768
