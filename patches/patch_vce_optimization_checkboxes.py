@@ -196,37 +196,88 @@ def add_form_fields(source: str) -> str:
 
 
 def patch_scene_detection(source: str) -> str:
-    if "_vce_detect_scenes_fast(" in source[source.find("async def analyze_video("):]:
-        return source
     route_start = source.find("async def analyze_video(")
-    pattern = re.compile(
-        r"(?ms)^(?P<i>[ \t]*)scenes_raw\s*=\s*detect_scenes\(\n"
-        r"(?P<args>.*?)^(?P=i)\)[ \t]*$"
+    if route_start < 0:
+        raise ValueError("Не найдена сигнатура async def analyze_video().")
+    if "_vce_detect_scenes_fast(" in source[route_start:]:
+        return source
+
+    # Match via Python AST rather than hard-coding the local variable name or
+    # whether the source writes the function call on one or several lines.
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:
+        raise ValueError(f"Исходный Python не разбирается до патча: {exc}") from exc
+    analyze_node = next(
+        (node for node in ast.walk(tree)
+         if isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+         and node.name == "analyze_video"),
+        None,
     )
-    matches = list(pattern.finditer(source, route_start))
-    if len(matches) != 1:
-        raise ValueError(f"Ожидался один вызов scenes_raw = detect_scenes(...), найдено {len(matches)}.")
-    m = matches[0]
-    indent = m.group("i")
-    args = [line.strip() for line in m.group("args").splitlines() if line.strip()]
-    if not args or not any("max_duration=" in line for line in args):
-        raise ValueError("Вызов detect_scenes имеет неожиданную структуру.")
-    inner = indent + "        "
-    args_text = "".join(inner + line + "\n" for line in args)
+    if analyze_node is None:
+        raise ValueError("AST: не найдена функция analyze_video().")
+
+    candidates = []
+    all_scene_calls = []
+    for node in ast.walk(analyze_node):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        func_name = func.id if isinstance(func, ast.Name) else (
+            func.attr if isinstance(func, ast.Attribute) else ""
+        )
+        if "scene" in func_name.lower() or "detect" in func_name.lower():
+            all_scene_calls.append(f"{func_name} (строка {node.lineno})")
+        if func_name != "detect_scenes":
+            continue
+        parent_assign = next(
+            (parent for parent in ast.walk(analyze_node)
+             if isinstance(parent, (ast.Assign, ast.AnnAssign))
+             and getattr(parent, "value", None) is node),
+            None,
+        )
+        if parent_assign is None:
+            continue
+        targets = parent_assign.targets if isinstance(parent_assign, ast.Assign) else [parent_assign.target]
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            continue
+        candidates.append((parent_assign, targets[0].id, node))
+
+    if len(candidates) != 1:
+        observed = "; ".join(all_scene_calls[:12]) or "вызовы detect/scene не найдены"
+        raise ValueError(
+            "Не удалось однозначно найти присваивание результата detect_scenes(...) внутри analyze_video(). "
+            f"Найдено подходящих вызовов: {len(candidates)}. Обнаруженные кандидаты: {observed}. "
+            "Локальная версия движка отличается от шаблона. Файлы не изменены; нужен фрагмент analyze_video() "
+            "вокруг детекции сцен для адаптации патчера."
+        )
+
+    statement, target_name, call_node = candidates[0]
+    if not any(keyword.arg == "max_duration" for keyword in call_node.keywords):
+        raise ValueError(
+            "Вызов detect_scenes(...) не содержит ожидаемого аргумента max_duration; файлы не изменены."
+        )
+
+    arguments = [ast.unparse(arg) for arg in call_node.args]
+    for keyword in call_node.keywords:
+        if keyword.arg is None:
+            arguments.append("**" + ast.unparse(keyword.value))
+        else:
+            arguments.append(keyword.arg + "=" + ast.unparse(keyword.value))
+    arg_text = ", ".join(arguments)
+    indent = " " * statement.col_offset
     replacement = (
         indent + "scene_detection_started = time.perf_counter()\n"
         + indent + "apple_ocr_seconds = 0.0\n"
         + indent + "if enable_fast_scene_detection:\n"
-        + indent + "    scenes_raw = _vce_detect_scenes_fast(\n"
-        + args_text
-        + indent + "    )\n"
+        + indent + "    " + target_name + " = _vce_detect_scenes_fast(" + arg_text + ")\n"
         + indent + "else:\n"
-        + indent + "    scenes_raw = detect_scenes(\n"
-        + args_text
-        + indent + "    )\n"
-        + indent + "scene_detection_seconds = time.perf_counter() - scene_detection_started"
+        + indent + "    " + target_name + " = detect_scenes(" + arg_text + ")\n"
+        + indent + "scene_detection_seconds = time.perf_counter() - scene_detection_started\n"
     )
-    return source[:m.start()] + replacement + source[m.end():]
+    lines = source.splitlines(keepends=True)
+    lines[statement.lineno - 1:statement.end_lineno] = [replacement]
+    return "".join(lines)
 
 
 def patch_adaptive_keyframes(source: str) -> str:
