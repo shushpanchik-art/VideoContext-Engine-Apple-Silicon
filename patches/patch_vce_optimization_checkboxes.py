@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Add five independent, opt-in optimization checkboxes to a patched VCE v3.19.
+"""Add five opt-in VCE optimization checkboxes and apply a benchmark-backed balanced profile.
 
-The patch is intentionally conservative: all five new options default to False,
-existing user settings/prompts are preserved, files are backed up, and the
-installer refuses to write if its expected integration points do not match.
+The five experimental switches default to False. The installer applies only the
+explicitly requested balanced benchmark settings, preserves user prompts and
+generate_txt, makes backups, and refuses to write on integration mismatches.
 """
 from __future__ import annotations
 
