@@ -23,7 +23,7 @@ class NativeAppServerLifecycleTests(unittest.TestCase):
         source = REPAIR.read_text(encoding="utf-8")
         self.assertIn('lsof -nP -iTCP:7555 -sTCP:LISTEN', source)
         self.assertIn("Введи INSTALL", source)
-        self.assertIn("без сброса", source)
+        self.assertIn("Настройки VCE, выбор TXT/JSON и результаты анализа не меняются.", source)
         self.assertIn("-framework AppKit -framework WebKit", source)
         self.assertIn("codesign --force --deep --sign -", source)
 
