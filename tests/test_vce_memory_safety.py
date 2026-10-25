@@ -127,6 +127,11 @@ class MemorySafetyPatchTests(unittest.TestCase):
         twice = self.patch.patch_engine(once)
         self.assertEqual(once, twice)
 
+    def test_video_preflight_pattern_is_line_bounded(self):
+        source = PATCH.read_text(encoding="utf-8")
+        self.assertIn(r"video_duration = validate_video_file\\(temp_path\\)[ \\t]*$", source)
+        self.assertNotIn(r"video_duration = validate_video_file\\(temp_path\\)\\s*$", source)
+
     def test_source_patch_file_is_valid_python(self):
         ast.parse(PATCH.read_text(encoding="utf-8"))
 
