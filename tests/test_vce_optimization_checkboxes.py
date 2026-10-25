@@ -1,6 +1,7 @@
 import ast
 import importlib.util
 import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -310,6 +311,32 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         self.assertLess(updated.index("id=\"cfg-fast-scene-detection\""), updated.index('id="cfg-apple-ocr"'))
         self.assertIn("enable_fast_scene_detection:", updated)
         self.assertIn("'cfg-fast-scene-detection':'enable_fast_scene_detection'", updated)
+
+    def test_upgrade_preserves_existing_user_settings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            # Simulate an engine/UI that already has the previous checkbox patch.
+            engine = patch.patch_engine(ENGINE_FIXTURE)
+            ui = patch.patch_ui(UI_FIXTURE)
+            settings = {
+                "vlm_resolution": 768,
+                "scene_threshold": 0.172,
+                "generate_txt": False,
+                "visual_user_prompt": "custom visual prompt",
+                "summary_user_prompt": "custom summary prompt",
+                "enable_mlx_whisper": True,
+            }
+            (project / "VideoContextEngine_v3.19.py").write_text(engine, encoding="utf-8")
+            (project / "videocontext_web_ui.html").write_text(ui, encoding="utf-8")
+            settings_path = project / "videocontext_settings.json"
+            settings_path.write_text(json.dumps(settings), encoding="utf-8")
+
+            changes, originals = patch.prepare(project)
+
+            self.assertEqual(settings_path.read_text(encoding="utf-8"), originals[settings_path])
+            self.assertNotIn(settings_path, changes)
+            self.assertEqual(json.loads(settings_path.read_text(encoding="utf-8"))["vlm_resolution"], 768)
+            self.assertEqual(json.loads(settings_path.read_text(encoding="utf-8"))["scene_threshold"], 0.172)
 
     def test_settings_default_off_and_preserve_txt_and_prompts(self):
         before = {
