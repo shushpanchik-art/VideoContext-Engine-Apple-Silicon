@@ -1,11 +1,14 @@
 import AppKit
 import Foundation
+import WebKit
 
-/// Persistent menu-bar companion for VideoContext Engine.
-/// The Python/FastAPI engine continues to run in Terminal; quitting this icon does not stop it.
+/// Standalone VideoContext Engine window plus a persistent menu-bar companion.
+/// The Python/FastAPI server runs in Terminal and is not stopped when this app quits.
 final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var statusTextItem: NSMenuItem?
+    private var window: NSWindow?
+    private var webView: WKWebView?
     private var refreshTimer: Timer?
     private var startupTimer: Timer?
     private var startupAttempts = 0
@@ -15,7 +18,9 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private let docsURL = URL(string: "http://127.0.0.1:7555/docs")!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.accessory)
+        // This must be a regular app so it has a real window and Dock presence.
+        NSApp.setActivationPolicy(.regular)
+        createMainWindow()
         installStatusItem()
         refreshServerStatus()
 
@@ -23,10 +28,8 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
             self?.refreshServerStatus()
         }
 
-        // Match the previous launcher behavior: opening the app opens the UI,
-        // and starts the server in Terminal if it isn't already reachable.
         if serverAvailable() {
-            NSWorkspace.shared.open(uiURL)
+            showMainWindow(url: uiURL)
         } else {
             startServerAndOpenUI()
         }
@@ -36,6 +39,43 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         refreshTimer?.invalidate()
         startupTimer?.invalidate()
         // Do not terminate the separately running Python server.
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if serverAvailable() {
+            showMainWindow(url: uiURL)
+        } else {
+            startServerAndOpenUI()
+        }
+        return true
+    }
+
+    private func createMainWindow() {
+        let frame = NSRect(x: 0, y: 0, width: 1180, height: 800)
+        let window = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "VideoContext Engine"
+        window.minSize = NSSize(width: 760, height: 540)
+        window.center()
+
+        let webView = WKWebView(frame: frame)
+        webView.autoresizingMask = [.width, .height]
+        window.contentView = webView
+
+        self.window = window
+        self.webView = webView
+    }
+
+    private func showMainWindow(url: URL) {
+        guard let window = window else { return }
+        NSApp.setActivationPolicy(.regular)
+        webView?.load(URLRequest(url: url))
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func installStatusItem() {
@@ -62,7 +102,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         statusTextItem = status
         menu.addItem(NSMenuItem.separator())
 
-        let openUI = NSMenuItem(title: "Открыть интерфейс", action: #selector(openInterface(_:)), keyEquivalent: "")
+        let openUI = NSMenuItem(title: "Открыть VideoContext Engine", action: #selector(openInterface(_:)), keyEquivalent: "")
         openUI.target = self
         menu.addItem(openUI)
 
@@ -75,7 +115,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         menu.addItem(docs)
 
         menu.addItem(NSMenuItem.separator())
-        let quitIcon = NSMenuItem(title: "Убрать значок (сервер продолжит работать)", action: #selector(quitStatusBar(_:)), keyEquivalent: "")
+        let quitIcon = NSMenuItem(title: "Закрыть приложение (сервер продолжит работать)", action: #selector(quitStatusBar(_:)), keyEquivalent: "")
         quitIcon.target = self
         menu.addItem(quitIcon)
 
@@ -85,8 +125,8 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
 
     @objc private func openInterface(_ sender: Any? = nil) {
         if serverAvailable() {
-            NSWorkspace.shared.open(uiURL)
             setStatus("Сервер работает")
+            showMainWindow(url: uiURL)
         } else {
             startServerAndOpenUI()
         }
@@ -94,7 +134,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
 
     @objc private func openSwagger(_ sender: Any? = nil) {
         if serverAvailable() {
-            NSWorkspace.shared.open(docsURL)
+            showMainWindow(url: docsURL)
         } else {
             startServerAndOpenUI()
         }
@@ -103,7 +143,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     @objc private func startServerAndOpenUI(_ sender: Any? = nil) {
         if serverAvailable() {
             setStatus("Сервер работает")
-            NSWorkspace.shared.open(uiURL)
+            showMainWindow(url: uiURL)
             return
         }
         guard !isStartingServer else {
@@ -114,14 +154,14 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         // Avoid starting a second engine if an older process owns the API port but /ui is broken.
         if docsAvailable() {
             setStatus("API отвечает, /ui недоступен")
+            showMainWindow(url: uiURL)
             showAlert("VideoContext Engine уже отвечает на /docs, но /ui недоступен. Проверь старый сервер в Terminal; новый экземпляр не запускается, чтобы избежать конфликта порта.")
-            NSWorkspace.shared.open(uiURL)
             return
         }
 
         guard let startScript = Bundle.main.resourceURL?.appendingPathComponent("start_server.command"),
               FileManager.default.fileExists(atPath: startScript.path) else {
-            showAlert("Не найден start_server.command внутри приложения. Переустанови VideoContext Engine.")
+            showAlert("Не найден start_server.command внутри приложения.")
             setStatus("Не найден скрипт запуска")
             return
         }
@@ -143,7 +183,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
                     self.startupTimer = nil
                     self.isStartingServer = false
                     self.setStatus("Сервер работает")
-                    NSWorkspace.shared.open(self.uiURL)
+                    self.showMainWindow(url: self.uiURL)
                 } else if self.startupAttempts >= 120 {
                     timer.invalidate()
                     self.startupTimer = nil
