@@ -101,7 +101,7 @@ class SpeedProfileTests(unittest.TestCase):
         swift = (plist_path.parent / "Resources" / "VideoContextStatusBar.swift").read_text(encoding="utf-8")
         self.assertIn("NSStatusBar.system.statusItem", swift)
         self.assertIn("start_server.command", swift)
-        self.assertIn("skip_visual", self.patch.__doc__ or "")
+        self.assertIn('updated["skip_visual"] = False', PATCH.read_text(encoding="utf-8"))
 
 if __name__ == "__main__":
     unittest.main()
