@@ -174,6 +174,34 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         self.assertIn("scenes_raw = await asyncio.to_thread(\n            _vce_detect_scenes_fast,", updated)
         self.assertIn("scenes_raw = await asyncio.to_thread(\n            detect_scenes,", updated)
 
+    def test_async_multi_keyframe_ocr_loop_is_patched(self):
+        fixture = ENGINE_FIXTURE.replace(
+            "whisper_infer_time = 0.2\n",
+            "whisper_infer_time = 0.2\n    ocr_infer_time = 0.0\n",
+            1,
+        ).replace(
+            '            scene_ocr_text = apple_vision_ocr(keyframes[0]["image"])',
+            r'''            t_ocr_start = time.time()
+            ocr_parts = []
+            for kf in keyframes:
+                extracted = await asyncio.to_thread(apple_vision_ocr, kf.get("original_image", kf["image"]))
+                if extracted:
+                    ocr_parts.append(extracted)
+            scene_ocr_text = "\\n\\n".join(ocr_parts)
+            ocr_infer_time += time.time() - t_ocr_start''',
+            1,
+        )
+        updated = patch.patch_engine(fixture)
+        ast.parse(updated)
+        self.assertIn(
+            "asyncio.to_thread((_vce_cached_apple_vision_ocr if enable_ocr_cache else apple_vision_ocr),",
+            updated,
+        )
+        self.assertIn(
+            "apple_ocr_seconds += time.perf_counter() - _vce_ocr_wall_start",
+            updated,
+        )
+
     def test_ui_has_five_persisted_checkboxes_and_is_idempotent(self):
         once = patch.patch_ui(UI_FIXTURE)
         twice = patch.patch_ui(once)
@@ -200,11 +228,24 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
             "generate_txt": False,
             "visual_user_prompt": "keep this",
             "summary_user_prompt": "also keep this",
+            "vlm_resolution": 1280,
+            "scene_threshold": 0.27,
+            "ffmpeg_ocr_workers": 6,
+            "enable_ffmpeg_ocr": False,
         }
         after = json.loads(patch.patch_settings(json.dumps(before)))
         self.assertFalse(after["generate_txt"])
         self.assertEqual(after["visual_user_prompt"], "keep this")
         self.assertEqual(after["summary_user_prompt"], "also keep this")
+        self.assertEqual(after["vlm_resolution"], 384)
+        self.assertEqual(after["scene_threshold"], 0.15)
+        self.assertEqual(after["min_scene_duration"], 1.5)
+        self.assertEqual(after["max_scene_duration"], 20)
+        self.assertEqual(after["keyframes_per_scene"], 1)
+        self.assertTrue(after["enable_apple_ocr"])
+        self.assertTrue(after["enable_ffmpeg_ocr"])
+        self.assertEqual(after["ffmpeg_ocr_interval"], 5)
+        self.assertEqual(after["ffmpeg_ocr_workers"], 3)
         for key in (
             "enable_stage_timing",
             "enable_adaptive_keyframes",
