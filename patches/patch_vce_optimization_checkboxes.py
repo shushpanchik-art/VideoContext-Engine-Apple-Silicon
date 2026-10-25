@@ -324,14 +324,21 @@ def patch_mlx_whisper(source: str) -> str:
     )
     # Fail before long analysis if the optional backend is selected but unavailable.
     validation_anchor = "video_duration = validate_video_file(temp_path)"
-    if "if enable_mlx_whisper:\n" not in route and validation_anchor in route:
-        route = route.replace(
-            validation_anchor,
-            "if enable_mlx_whisper:\n"
-            "            _vce_validate_mlx_whisper_model(target_whisper)\n"
-            + validation_anchor,
-            1,
+    validation_pattern = re.compile(
+        r"(?m)^(?P<i>[ \t]*)video_duration = validate_video_file\(temp_path\)[ \t]*$"
+    )
+    validation_matches = list(validation_pattern.finditer(route))
+    if not any("_vce_validate_mlx_whisper_model(target_whisper)" in line for line in route.splitlines()):
+        if len(validation_matches) != 1:
+            raise ValueError("Не найден единственный video_duration = validate_video_file(temp_path) для MLX-проверки.")
+        match = validation_matches[0]
+        indent = match.group("i")
+        replacement = (
+            indent + "if enable_mlx_whisper:\n"
+            + indent + "    _vce_validate_mlx_whisper_model(target_whisper)\n"
+            + indent + validation_anchor
         )
+        route = route[:match.start()] + replacement + route[match.end():]
     if "audio_res = _vce_transcribe_audio(" not in route:
         raise ValueError("MLX Whisper: вызов транскрибации не был изменён.")
     return source[:route_start] + route
@@ -473,7 +480,7 @@ def patch_settings_api(source: str) -> str:
 
 
 def patch_ui(ui: str) -> str:
-    if MARKER in ui:
+    if "VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1" in ui:
         required = (
             'id="cfg-stage-timing"', 'id="cfg-adaptive-keyframes"', 'id="cfg-ocr-cache"',
             'id="cfg-mlx-whisper"', 'id="cfg-fast-scene-detection"',
