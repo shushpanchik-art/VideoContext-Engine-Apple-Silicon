@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 /// Standalone VideoContext Engine window plus a persistent menu-bar companion.
-/// The Python/FastAPI server runs in Terminal and is not stopped when this app quits.
+/// The Python/FastAPI server runs without Terminal, with stdout/stderr appended to a log file.
 final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var statusTextItem: NSMenuItem?
@@ -13,6 +13,9 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private var startupTimer: Timer?
     private var startupAttempts = 0
     private var isStartingServer = false
+    private var serverProcess: Process?
+    private var serverLogHandle: FileHandle?
+    private var serverLogURL: URL?
 
     private let uiURL = URL(string: "http://127.0.0.1:7555/ui")!
     private let docsURL = URL(string: "http://127.0.0.1:7555/docs")!
@@ -155,7 +158,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         if docsAvailable() {
             setStatus("API отвечает, /ui недоступен")
             showMainWindow(url: uiURL)
-            showAlert("VideoContext Engine уже отвечает на /docs, но /ui недоступен. Проверь старый сервер в Terminal; новый экземпляр не запускается, чтобы избежать конфликта порта.")
+            showAlert("VideoContext Engine уже отвечает на /docs, но /ui недоступен. Проверь журнал ~/Library/Logs/VideoContext Engine/server.log; новый экземпляр не запускается, чтобы избежать конфликта порта.")
             return
         }
 
@@ -167,7 +170,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
 
         do {
-            try launchServerInTerminal(scriptPath: startScript.path)
+            try launchServerInBackground(scriptPath: startScript.path)
             isStartingServer = true
             startupAttempts = 0
             setStatus("Запуск сервера…")
@@ -189,7 +192,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
                     self.startupTimer = nil
                     self.isStartingServer = false
                     self.setStatus("Сервер не ответил")
-                    self.showAlert("Сервер не ответил за 120 секунд. Проверь ошибки в окне Terminal.")
+                    self.showAlert("Сервер не ответил за 120 секунд. Посмотри журнал сервера: ~/Library/Logs/VideoContext Engine/server.log")
                 }
             }
         } catch {
@@ -203,37 +206,65 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         NSApp.terminate(nil)
     }
 
-    private func launchServerInTerminal(scriptPath: String) throws {
-        let appleScript = """
-        on run argv
-            set scriptPath to item 1 of argv
-            tell application "Terminal"
-                activate
-                do script "bash " & quoted form of scriptPath
-            end tell
-        end run
-        """
-
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-", scriptPath]
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-
-        let input = Pipe()
-        process.standardInput = input
-        try process.run()
-        try input.fileHandleForWriting.write(contentsOf: Data(appleScript.utf8))
-        try input.fileHandleForWriting.close()
-        process.waitUntilExit()
-
-        guard process.terminationStatus == 0 else {
+    /// Launch the local engine directly from the app, without opening Terminal.
+    /// The server is deliberately independent of the WebKit window and may keep running
+    /// when the user closes/quits this UI app; reopening the app reconnects to port 7555.
+    private func launchServerInBackground(scriptPath: String) throws {
+        let logDirectory = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Logs/VideoContext Engine", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: logDirectory,
+            withIntermediateDirectories: true
+        )
+        let logURL = logDirectory.appendingPathComponent("server.log")
+        if !FileManager.default.fileExists(atPath: logURL.path) {
+            guard FileManager.default.createFile(atPath: logURL.path, contents: Data()) else {
+                throw NSError(
+                    domain: "VideoContextStatusBar",
+                    code: 10,
+                    userInfo: [NSLocalizedDescriptionKey: "Не удалось создать журнал: \(logURL.path)"]
+                )
+            }
+        }
+        guard let logHandle = FileHandle(forWritingAtPath: logURL.path) else {
             throw NSError(
                 domain: "VideoContextStatusBar",
-                code: Int(process.terminationStatus),
-                userInfo: [NSLocalizedDescriptionKey: "osascript завершился с кодом \(process.terminationStatus)"]
+                code: 11,
+                userInfo: [NSLocalizedDescriptionKey: "Не удалось открыть журнал: \(logURL.path)"]
             )
         }
+        try logHandle.seekToEnd()
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/bash")
+        process.arguments = [scriptPath]
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = logHandle
+        process.standardError = logHandle
+        process.environment = ProcessInfo.processInfo.environment.merging([
+            "PYTHONUNBUFFERED": "1"
+        ]) { _, new in new }
+
+        process.terminationHandler = { [weak self] child in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if self.serverProcess === child {
+                    self.serverProcess = nil
+                    try? self.serverLogHandle?.close()
+                    self.serverLogHandle = nil
+                    self.isStartingServer = false
+                    self.refreshServerStatus()
+                    if child.terminationStatus != 0 {
+                        self.setStatus("сервер завершился с кодом \(child.terminationStatus)")
+                    }
+                }
+            }
+        }
+
+        try process.run()
+        self.serverProcess = process
+        self.serverLogHandle = logHandle
+        self.serverLogURL = logURL
     }
 
     private func serverAvailable() -> Bool {
