@@ -1,7 +1,17 @@
 #!/bin/bash
 set -Eeuo pipefail
-PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
-APP_SOURCE="$PROJECT_DIR/VideoContext Engine.app"
+if [[ -f "$HOME/Downloads/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
+  PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
+elif [[ -f "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
+  PROJECT_DIR="$HOME/VideoContext-Engine"
+else
+  PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
+fi
+if [[ -d "$PROJECT_DIR/macos/VideoContext Engine.app/Contents" ]]; then
+  APP_SOURCE="$PROJECT_DIR/macos/VideoContext Engine.app"
+else
+  APP_SOURCE="$PROJECT_DIR/VideoContext Engine.app"
+fi
 APP_TARGET="/Applications/VideoContext Engine.app"
 DESKTOP_ALIAS="$HOME/Desktop/VideoContext Engine"
 DESKTOP_LINK="$HOME/Desktop/VideoContext Engine.app"
