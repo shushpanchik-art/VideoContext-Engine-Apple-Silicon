@@ -285,21 +285,21 @@ def patch_scene_detection(source: str) -> str:
 
     def assignment_for(function_name: str) -> str:
         if mode == "to_thread":
-            header = f"{indent}{target_name} = await {call_func}(\\n{indent}    {function_name},\\n"
-            body = "".join(f"{indent}    {arg},\\n" for arg in call_args)
-            return header + body + f"{indent})\\n"
-        header = f"{indent}{target_name} = {function_name}(\\n"
-        body = "".join(f"{indent}    {arg},\\n" for arg in call_args)
-        return header + body + f"{indent})\\n"
+            header = f"{indent}{target_name} = await {call_func}(\n{indent}    {function_name},\n"
+            body = "".join(f"{indent}    {arg},\n" for arg in call_args)
+            return header + body + f"{indent})\n"
+        header = f"{indent}{target_name} = {function_name}(\n"
+        body = "".join(f"{indent}    {arg},\n" for arg in call_args)
+        return header + body + f"{indent})\n"
 
     replacement = (
-        indent + "scene_detection_started = time.perf_counter()\\n"
-        + indent + "apple_ocr_seconds = 0.0\\n"
-        + indent + "if enable_fast_scene_detection:\\n"
+        indent + "scene_detection_started = time.perf_counter()\n"
+        + indent + "apple_ocr_seconds = 0.0\n"
+        + indent + "if enable_fast_scene_detection:\n"
         + assignment_for("_vce_detect_scenes_fast")
-        + indent + "else:\\n"
+        + indent + "else:\n"
         + assignment_for("detect_scenes")
-        + indent + "scene_detection_seconds = time.perf_counter() - scene_detection_started\\n"
+        + indent + "scene_detection_seconds = time.perf_counter() - scene_detection_started\n"
     )
     lines = source.splitlines(keepends=True)
     lines[statement.lineno - 1:statement.end_lineno] = [replacement]
