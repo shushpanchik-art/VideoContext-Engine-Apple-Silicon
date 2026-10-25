@@ -174,6 +174,30 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         self.assertIn("scenes_raw = await asyncio.to_thread(\n            _vce_detect_scenes_fast,", updated)
         self.assertIn("scenes_raw = await asyncio.to_thread(\n            detect_scenes,", updated)
 
+    def test_threaded_whisper_and_custom_loader_are_patched(self):
+        fixture = ENGINE_FIXTURE.replace(
+            "def validate_video_file(path):",
+            "def load_whisper_model(model_name):\n    return whisper.load_model(model_name)\n\ndef validate_video_file(path):",
+            1,
+        ).replace(
+            "w_model = whisper.load_model(target_whisper)",
+            "w_model = load_whisper_model(target_whisper)",
+        ).replace(
+            "audio_res = w_model.transcribe(\n        temp_path,\n",
+            "audio_res = await asyncio.to_thread(\n        w_model.transcribe,\n        temp_path,\n",
+            1,
+        )
+        updated = patch.patch_engine(fixture)
+        ast.parse(updated)
+        self.assertIn(
+            "audio_res = await asyncio.to_thread(\n        _vce_transcribe_audio,\n        temp_path, target_whisper, w_model, enable_mlx_whisper,",
+            updated,
+        )
+        self.assertIn(
+            "_vce_load_whisper_model(target_whisper, enable_mlx_whisper)",
+            updated,
+        )
+
     def test_async_multi_keyframe_ocr_loop_is_patched(self):
         fixture = ENGINE_FIXTURE.replace(
             "whisper_infer_time = 0.2\n",
