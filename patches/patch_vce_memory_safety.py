@@ -297,14 +297,14 @@ def patch_engine(source: str) -> str:
     # whether the configured engine loads VLM directly or via asyncio.to_thread().
     if "release_accelerator_memory('before VLM load')" not in source:
         guard = re.search(
-            r"(?m)^(?P<indent>[ \\t]*)if not skip_visual or generate_summary:[ \\t]*$",
+            r"(?m)^(?P<indent>[ \t]*)if not skip_visual or generate_summary:[ \t]*$",
             source,
         )
         if not guard:
             raise ValueError("Не найден блок загрузки VLM после Whisper.")
         body_indent = guard.group("indent") + "    "
         insertion = guard.end()
-        source = source[:insertion] + "\\n" + body_indent + "release_accelerator_memory('before VLM load')" + source[insertion:]
+        source = source[:insertion] + "\n" + body_indent + "release_accelerator_memory('before VLM load')" + source[insertion:]
 
     # Clean cached buffers after every model unload (including the RAM- post-processing path).
     unload_pattern = re.compile(
