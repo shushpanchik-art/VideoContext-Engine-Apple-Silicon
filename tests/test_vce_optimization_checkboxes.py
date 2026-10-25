@@ -202,6 +202,19 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
             updated,
         )
 
+    def test_whisper_transcription_result_variable_can_differ(self):
+        fixture = ENGINE_FIXTURE.replace(
+            "audio_res = w_model.transcribe(\n        temp_path,\n",
+            "speech_result = await asyncio.to_thread(\n        w_model.transcribe,\n        temp_path,\n",
+            1,
+        )
+        updated = patch.patch_engine(fixture)
+        ast.parse(updated)
+        self.assertIn(
+            "speech_result = await asyncio.to_thread(\n        _vce_transcribe_audio,\n        temp_path, target_whisper, w_model, enable_mlx_whisper,",
+            updated,
+        )
+
     def test_async_multi_keyframe_ocr_loop_is_patched(self):
         fixture = ENGINE_FIXTURE.replace(
             "whisper_infer_time = 0.2\n",
