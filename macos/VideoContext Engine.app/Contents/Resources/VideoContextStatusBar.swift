@@ -111,6 +111,14 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
             return
         }
 
+        // Avoid starting a second engine if an older process owns the API port but /ui is broken.
+        if docsAvailable() {
+            setStatus("API отвечает, /ui недоступен")
+            showAlert("VideoContext Engine уже отвечает на /docs, но /ui недоступен. Проверь старый сервер в Terminal; новый экземпляр не запускается, чтобы избежать конфликта порта.")
+            NSWorkspace.shared.open(uiURL)
+            return
+        }
+
         guard let startScript = Bundle.main.resourceURL?.appendingPathComponent("start_server.command"),
               FileManager.default.fileExists(atPath: startScript.path) else {
             showAlert("Не найден start_server.command внутри приложения. Переустанови VideoContext Engine.")
@@ -203,8 +211,29 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func docsAvailable() -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
+        process.arguments = ["--silent", "--fail", "--max-time", "1", docsURL.absoluteString]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
     private func refreshServerStatus() {
-        setStatus(serverAvailable() ? "Сервер работает" : "Сервер не запущен")
+        if serverAvailable() {
+            setStatus("Сервер работает")
+        } else if docsAvailable() {
+            setStatus("API работает, /ui недоступен")
+        } else {
+            setStatus("Сервер не запущен")
+        }
     }
 
     private func setStatus(_ text: String) {
