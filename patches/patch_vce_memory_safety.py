@@ -316,17 +316,33 @@ def patch_engine(source: str) -> str:
 
     # Validate the local chooser/cleanup patch is present: converted proxies must be removed,
     # but the original path selected in Finder must never be unlinked.
-    preflight = '''        original_input_path = temp_path
-        prepared_path = await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)
-        if prepared_path != original_input_path:
-            if owns_temp_path and os.path.exists(original_input_path):
-                try:
-                    os.remove(original_input_path)
-                except OSError:
-                    pass
-            temp_path = prepared_path
-            owns_temp_path = True
-        video_duration = validate_video_file(temp_path)'''
+    if "await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)" not in source:
+        preflight_match = re.search(
+            r"(?m)^(?P<indent>[ \\t]*)video_duration = validate_video_file\\(temp_path\\)\\s*$",
+            source,
+        )
+        if not preflight_match:
+            raise ValueError("Не найден вызов validate_video_file(temp_path) для предварительной проверки.")
+        indent = preflight_match.group("indent")
+        preflight_lines = [
+            f"{indent}original_input_path = temp_path",
+            f"{indent}prepared_path = await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)",
+            f"{indent}if prepared_path != original_input_path:",
+            f"{indent}    if owns_temp_path and os.path.exists(original_input_path):",
+            f"{indent}        try:",
+            f"{indent}            os.remove(original_input_path)",
+            f"{indent}        except OSError:",
+            f"{indent}            pass",
+            f"{indent}    temp_path = prepared_path",
+            f"{indent}    owns_temp_path = True",
+            f"{indent}video_duration = validate_video_file(temp_path)",
+        ]
+        source = (
+            source[:preflight_match.start()]
+            + "\\n".join(preflight_lines)
+            + source[preflight_match.end():]
+        )
+
     if "await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)" not in source:
         source = replace_once(
             source,
