@@ -62,20 +62,20 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         statusTextItem = status
         menu.addItem(NSMenuItem.separator())
 
-        let openUI = NSMenuItem(title: "Открыть интерфейс", action: #selector(openInterface), keyEquivalent: "")
+        let openUI = NSMenuItem(title: "Открыть интерфейс", action: #selector(openInterface(_:)), keyEquivalent: "")
         openUI.target = self
         menu.addItem(openUI)
 
-        let start = NSMenuItem(title: "Запустить / проверить сервер", action: #selector(startServerAndOpenUI), keyEquivalent: "")
+        let start = NSMenuItem(title: "Запустить / проверить сервер", action: #selector(startServerAndOpenUI(_:)), keyEquivalent: "")
         start.target = self
         menu.addItem(start)
 
-        let docs = NSMenuItem(title: "Открыть API / Swagger", action: #selector(openSwagger), keyEquivalent: "")
+        let docs = NSMenuItem(title: "Открыть API / Swagger", action: #selector(openSwagger(_:)), keyEquivalent: "")
         docs.target = self
         menu.addItem(docs)
 
         menu.addItem(NSMenuItem.separator())
-        let quitIcon = NSMenuItem(title: "Убрать значок (сервер продолжит работать)", action: #selector(quitStatusBar), keyEquivalent: "")
+        let quitIcon = NSMenuItem(title: "Убрать значок (сервер продолжит работать)", action: #selector(quitStatusBar(_:)), keyEquivalent: "")
         quitIcon.target = self
         menu.addItem(quitIcon)
 
@@ -83,7 +83,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         statusItem = item
     }
 
-    @objc private func openInterface() {
+    @objc private func openInterface(_ sender: Any? = nil) {
         if serverAvailable() {
             NSWorkspace.shared.open(uiURL)
             setStatus("Сервер работает")
@@ -92,7 +92,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func openSwagger() {
+    @objc private func openSwagger(_ sender: Any? = nil) {
         if serverAvailable() {
             NSWorkspace.shared.open(docsURL)
         } else {
@@ -100,7 +100,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func startServerAndOpenUI() {
+    @objc private func startServerAndOpenUI(_ sender: Any? = nil) {
         if serverAvailable() {
             setStatus("Сервер работает")
             NSWorkspace.shared.open(uiURL)
@@ -151,7 +151,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func quitStatusBar() {
+    @objc private func quitStatusBar(_ sender: Any? = nil) {
         NSApp.terminate(nil)
     }
 
