@@ -171,8 +171,8 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         )
         updated = patch.patch_engine(fixture)
         ast.parse(updated)
-        self.assertIn("scenes_raw = await asyncio.to_thread(\n        _vce_detect_scenes_fast,", updated)
-        self.assertIn("scenes_raw = await asyncio.to_thread(\n        detect_scenes,", updated)
+        self.assertIn("scenes_raw = await asyncio.to_thread(\n            _vce_detect_scenes_fast,", updated)
+        self.assertIn("scenes_raw = await asyncio.to_thread(\n            detect_scenes,", updated)
 
     def test_ui_has_five_persisted_checkboxes_and_is_idempotent(self):
         once = patch.patch_ui(UI_FIXTURE)
