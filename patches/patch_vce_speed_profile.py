@@ -82,7 +82,8 @@ def optimize_settings(current: dict[str, Any], profile: str = "fast-vlm") -> dic
     # OCR remains available. The extra FFmpeg/Tesseract pass is expensive at 1 fps;
     # move it to at least 5 seconds when enabled, without turning it off.
     interval = _positive_number(updated.get("ffmpeg_ocr_interval", 5), 5, 1, 60)
-    updated["ffmpeg_ocr_interval"] = max(5, interval)
+    minimum_interval = 5 if profile == "fast-vlm" else 2
+    updated["ffmpeg_ocr_interval"] = max(minimum_interval, interval)
     updated["enable_apple_ocr"] = True
     updated["whisper_acceleration"] = True
 
