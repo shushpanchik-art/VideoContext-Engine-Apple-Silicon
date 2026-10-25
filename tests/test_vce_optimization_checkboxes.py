@@ -150,6 +150,19 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         twice = patch.patch_engine(once)
         self.assertEqual(once, twice)
 
+    def test_scene_detector_supports_custom_variable_and_single_line_call(self):
+        fixture = ENGINE_FIXTURE.replace(
+            "scenes_raw",
+            "scene_candidates",
+        ).replace(
+            "scenes_raw = detect_scenes(\n        temp_path,\n        threshold=scene_threshold,\n        min_duration=min_scene_duration,\n        max_duration=max_scene_duration,\n    )",
+            "scene_candidates = detect_scenes(temp_path, threshold=scene_threshold, min_duration=min_scene_duration, max_duration=max_scene_duration)",
+        )
+        updated = patch.patch_engine(fixture)
+        ast.parse(updated)
+        self.assertIn("scene_candidates = _vce_detect_scenes_fast(", updated)
+        self.assertIn("scene_candidates = detect_scenes(", updated)
+
     def test_ui_has_five_persisted_checkboxes_and_is_idempotent(self):
         once = patch.patch_ui(UI_FIXTURE)
         twice = patch.patch_ui(once)
