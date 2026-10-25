@@ -22,7 +22,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-DEFAULT_PROJECT = Path.home() / "Downloads" / "VideoContext-Engine"
+def _default_project() -> Path:
+    """Find the common local checkout locations without assuming Downloads."""
+    candidates = (
+        Path.home() / "Downloads" / "VideoContext-Engine",
+        Path.home() / "VideoContext-Engine",
+    )
+    for candidate in candidates:
+        if (candidate / ENGINE_NAME).is_file():
+            return candidate
+    return candidates[0]
+
+
+DEFAULT_PROJECT = _default_project()
 ENGINE_NAME = "VideoContextEngine_v3.19.py"
 CONFIG_NAME = "videocontext_settings.json"
 DEFAULT_VLM = "mlx-community/Qwen3-VL-8B-Instruct-4bit"
