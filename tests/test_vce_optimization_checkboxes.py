@@ -150,6 +150,22 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         twice = patch.patch_engine(once)
         self.assertEqual(once, twice)
 
+    def test_mlx_selected_skips_torch_model_device_transfer(self):
+        fixture = ENGINE_FIXTURE.replace(
+            "    audio_res = w_model.transcribe(\\n",
+            '    w_model = w_model.to("mps")\\n    audio_res = w_model.transcribe(\\n',
+            1,
+        )
+        updated = patch.patch_engine(fixture)
+        ast.parse(updated)
+        self.assertIn(
+            '    if not enable_mlx_whisper:\\n        w_model = w_model.to("mps")',
+            updated,
+        )
+        self.assertIn("VCE_LOCAL_SERVER_SHUTDOWN_ENDPOINT_V1", updated)
+        self.assertIn('@app.post("/api/v1/server/shutdown")', updated)
+
+
     def test_scene_detector_supports_custom_variable_and_single_line_call(self):
         fixture = ENGINE_FIXTURE.replace(
             "scenes_raw",
@@ -263,6 +279,9 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
             "enable_fast_scene_detection",
         ):
             self.assertIn(key, once)
+        self.assertIn('id="vce-stop-server"', once)
+        self.assertIn("VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_HANDLER_V1", once)
+        self.assertIn("fetch('/api/v1/server/shutdown'", once)
 
     def test_ui_works_without_save_settings_button(self):
         fixture = UI_FIXTURE.replace('  <button id="save-settings">Save</button>\n', "")
