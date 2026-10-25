@@ -307,7 +307,7 @@ def patch_engine(source: str) -> str:
     # whether the configured engine loads VLM directly or via asyncio.to_thread().
     if "release_accelerator_memory('before VLM load')" not in source:
         guard = re.search(
-            r"(?m)^(?P<indent>[ \\t]*)if (?:not skip_visual or generate_summary|run_vlm):[ \\t]*$",
+            r"(?m)^(?P<indent>[ \t]*)if (?:not skip_visual or generate_summary|run_vlm):[ \t]*$",
             source,
         )
         if not guard:
