@@ -39,7 +39,7 @@ jobs:
       - name: Validate patcher syntax
         run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py
       - name: Validate installer shell syntax
-        run: bash -n macos/install_video_context_mac.command install_patches_to_existing_checkout.command
+        run: bash -n macos/install_video_context_mac.command macos/repair_installed_native_app.command install_patches_to_existing_checkout.command
       - name: Compile native menu bar app
         run: |
           xcrun swiftc -O "macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift" \
