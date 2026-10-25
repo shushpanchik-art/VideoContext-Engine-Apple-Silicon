@@ -21,6 +21,11 @@ PARAMS = {
 }
 # OCR worker field is detected from the local API's OpenAPI schema; names are not guessed.
 def now(): return dt.datetime.now().astimezone().isoformat(timespec="seconds")
+def sha256_file(path):
+    h=hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(4*1024*1024), b""): h.update(chunk)
+    return h.hexdigest()
 def http_json(url, timeout=10):
     req=urllib.request.Request(url, headers={"Accept":"application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as r: return json.loads(r.read().decode("utf-8"))
@@ -146,7 +151,7 @@ def run_one(name, overrides, current, props, video, results_dir, index, total, r
     # If exposed, request JSON only and keep the user's audio/summary preferences.
     if "generate_summary" in props: fields["generate_summary"]="true"
     start=time.monotonic()
-    record={"run_id":run_id,"index":index,"total":total,"name":name,"started_at":now(),"overrides":overrides,"settings_snapshot":{k:fields.get(k) for k in overrides}, "video_path":str(video),"video_size_bytes":video.stat().st_size,"video_sha256":hashlib.sha256(video.read_bytes()).hexdigest() if video.stat().st_size<100_000_000 else None}
+    record={"run_id":run_id,"index":index,"total":total,"name":name,"started_at":now(),"overrides":overrides,"settings_snapshot":{k:fields.get(k) for k in overrides}, "video_path":str(video),"video_size_bytes":video.stat().st_size,"video_sha256":sha256_file(video) if video.stat().st_size<100_000_000 else None}
     try:
         response=post_form(BASE_URL+"/api/v1/analyze",fields,timeout=60*60*6)
         record["api_response"]=response
@@ -178,15 +183,20 @@ def main():
     if not VIDEO.is_file(): raise RuntimeError(f"Видео не найдено: {VIDEO}")
     if not (PROJECT/"VideoContextEngine_v3.19.py").is_file(): raise RuntimeError(f"Движок не найден: {PROJECT}")
     if not (PROJECT/".venv/bin/python").exists(): print("WARN: .venv не обнаружено; API будет использовать уже запущенный сервер.",file=sys.stderr)
-    # Never interfere with an existing run.
+    # Never interfere with an existing run. Inspect recent job IDs in the server log.
     try:
-        progress=http_json(BASE_URL+"/api/v1/progress",timeout=5)
-        if isinstance(progress,dict) and progress.get("status")=="running":
-            raise RuntimeError("VCE сообщает об активном анализе; benchmark не запущен.")
-    except urllib.error.HTTPError as e:
-        if e.code not in (404,405): raise
-    except urllib.error.URLError as e:
+        http_json(BASE_URL+"/openapi.json",timeout=5)
+    except Exception as e:
         raise RuntimeError(f"VCE API недоступен на {BASE_URL}; запустите VideoContext Engine и повторите команду.") from e
+    log_path=pathlib.Path.home()/"Library/Logs/VideoContext Engine/server.log"
+    if log_path.is_file():
+        tail=log_path.read_text(encoding="utf-8",errors="replace")[-2_000_000:]
+        job_ids=list(dict.fromkeys(re.findall(r"/api/v1/progress/(ui_[A-Za-z0-9_-]+)",tail)))[-20:]
+        for jid in reversed(job_ids):
+            try: p=http_json(BASE_URL+"/api/v1/progress/"+urllib.parse.quote(jid,safe=""),timeout=5)
+            except Exception: continue
+            if p.get("status")=="running":
+                raise RuntimeError(f"VCE уже выполняет задание {jid} ({p.get('message','без описания')}); benchmark не запущен.")
     current=get_current()
     props=openapi_fields()
     worker=pick_worker_field(props)
@@ -199,7 +209,7 @@ def main():
     run_id=dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir=pathlib.Path(args.results_dir).expanduser() if args.results_dir else repo_dir/"results"/"vce-benchmark"/run_id
     results_dir.mkdir(parents=True,exist_ok=True)
-    manifest={"run_id":run_id,"created_at":now(),"video":VIDEO.name,"video_size_bytes":VIDEO.stat().st_size,"video_sha256":hashlib.sha256(VIDEO.read_bytes()).hexdigest(),"base_settings":current,"plan":[{"name":n,"overrides":o} for n,o in plan],"note":"Public GitHub repository: JSON reports may contain extracted video text. User explicitly requested publishing benchmark results."}
+    manifest={"run_id":run_id,"created_at":now(),"video":VIDEO.name,"video_size_bytes":VIDEO.stat().st_size,"video_sha256":sha256_file(VIDEO),"base_settings":current,"plan":[{"name":n,"overrides":o} for n,o in plan],"note":"Public GitHub repository: JSON reports may contain extracted video text. User explicitly requested publishing benchmark results."}
     (results_dir/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     commit_result(repo_dir,results_dir/"manifest.json",f"benchmark: start {run_id} manifest")
     for i,(name,overrides) in enumerate(plan,1):
