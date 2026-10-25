@@ -20,7 +20,7 @@ fail() { echo "ОШИБКА: $*"; echo "Проверьте сообщение в
 [[ -f "$STATUS_SOURCE" ]] || fail "Не найден исходник значка меню macOS: $STATUS_SOURCE. Обнови пакет патчей."
 command -v xcrun >/dev/null 2>&1 || fail "Не найден xcrun/swiftc. Установи Xcode Command Line Tools: xcode-select --install."
 
-printf '\n[1/3] Исправление Whisper/MPS и добавление кнопки остановки…\n'
+printf '\n[1/4] Исправление Whisper/MPS и добавление кнопки остановки…\n'
 "$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/patch_vce_stop_and_mps.py" || fail "Патч не прошёл проверку. Приложение не устанавливалось."
 
 printf '\n[2/4] Сохранение фирменной иконки и сборка значка меню…\n'
@@ -71,7 +71,6 @@ LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchS
 /usr/bin/env "$LSREGISTER" -f "$APP_TARGET" >/dev/null 2>&1 || true
 
 printf '\n[4/4] Создание ярлыка на рабочем столе…\n'
-printf '\n[3/3] Создание ярлыка на рабочем столе…\n'
 # Remove an older alias or symlink with this name only; do not touch the project.
 if [[ -e "$DESKTOP_ALIAS" || -L "$DESKTOP_ALIAS" ]]; then
   /bin/rm -rf "$DESKTOP_ALIAS"
