@@ -96,7 +96,7 @@ class SpeedProfileTests(unittest.TestCase):
         with plist_path.open("rb") as stream:
             plist = plistlib.load(stream)
         self.assertEqual(plist["CFBundleExecutable"], "VideoContextStatusBar")
-        self.assertTrue(plist["LSUIElement"])
+        self.assertFalse(plist["LSUIElement"])
         self.assertEqual(plist["CFBundleIconFile"], "VideoContextEngine")
         swift = (plist_path.parent / "Resources" / "VideoContextStatusBar.swift").read_text(encoding="utf-8")
         self.assertIn("NSStatusBar.system.statusItem", swift)
