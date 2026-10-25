@@ -28,7 +28,7 @@ if /usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN >/dev/null 2>&1; then
   fail "Сервер ещё слушает порт 7555. Сначала дождись окончания анализа и останови его (Ctrl+C в старом Terminal). Я не буду прерывать задачу."
 fi
 
-if /usr/bin/pgrep -x VideoContextStatusBar >/dev/null 2>&1; then
+if /usr/bin/pgrep -f '/Applications/VideoContext Engine.app/Contents/MacOS/VideoContextStatusBar' >/dev/null 2>&1; then
   fail "Сначала полностью закрой VideoContext Engine.app (Cmd+Q), затем повтори установку."
 fi
 
