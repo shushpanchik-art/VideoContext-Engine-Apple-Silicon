@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import importlib.util
 import unittest
 from pathlib import Path
@@ -62,7 +63,7 @@ async def analyze_video():
                         gc.collect()
                 if not skip_visual or generate_summary:
                     t0 = time.time()
-                    vlm_engine.load_model(target_vlm)
+                    await asyncio.to_thread(vlm_engine.load_model, target_vlm)
 '''
 
 
@@ -126,6 +127,12 @@ class MemorySafetyPatchTests(unittest.TestCase):
         once = self.patch.patch_engine(FIXTURE)
         twice = self.patch.patch_engine(once)
         self.assertEqual(once, twice)
+
+    def test_engine_patch_supports_async_vlm_load(self):
+        patched = self.patch.patch_engine(FIXTURE)
+        ast.parse(patched)
+        self.assertIn("await asyncio.to_thread(vlm_engine.load_model, target_vlm)", patched)
+        self.assertIn("release_accelerator_memory('before VLM load')", patched)
 
     def test_video_preflight_pattern_is_line_bounded(self):
         source = PATCH.read_text(encoding="utf-8")
