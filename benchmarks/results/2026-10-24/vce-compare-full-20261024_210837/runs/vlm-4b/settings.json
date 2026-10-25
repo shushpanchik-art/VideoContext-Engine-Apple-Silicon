@@ -1,0 +1,36 @@
+{
+  "profile": "vlm-4b",
+  "source_settings": "http://127.0.0.1:7555/api/v1/ui-settings",
+  "submitted_form_fields": {
+    "analysis_mode": "full",
+    "enable_ffmpeg_ocr": "true",
+    "ffmpeg_ocr_interval": "1",
+    "ffmpeg_ocr_workers": "3",
+    "vlm_model": "mlx-community/Qwen3-VL-4B-Instruct-4bit",
+    "whisper_model": "large",
+    "vlm_resolution": "1280",
+    "scene_threshold": "0.15",
+    "min_scene_duration": "1.5",
+    "max_scene_duration": "20.0",
+    "keyframes_per_scene": "2",
+    "vlm_max_tokens_scene": "1024",
+    "vlm_max_tokens_summary": "2048",
+    "enable_apple_ocr": "true",
+    "whisper_acceleration": "true",
+    "enable_audio_features": "true",
+    "generate_summary": "true",
+    "generate_txt": "false",
+    "generate_json": "false",
+    "word_timestamps": "true",
+    "text_llm_enabled": "true",
+    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "text_llm_max_tokens": "4096",
+    "skip_audio": "false",
+    "skip_visual": "false",
+    "response_format": "json"
+  },
+  "profile_overrides": {
+    "vlm_model": "mlx-community/Qwen3-VL-4B-Instruct-4bit"
+  },
+  "video": "/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"
+}
