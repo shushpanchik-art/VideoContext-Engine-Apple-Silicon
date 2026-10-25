@@ -152,14 +152,14 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
 
     def test_mlx_selected_skips_torch_model_device_transfer(self):
         fixture = ENGINE_FIXTURE.replace(
-            "    audio_res = w_model.transcribe(\\n",
-            '    w_model = w_model.to("mps")\\n    audio_res = w_model.transcribe(\\n',
+            "    audio_res = w_model.transcribe(\n",
+            '    w_model = w_model.to("mps")\n    audio_res = w_model.transcribe(\n',
             1,
         )
         updated = patch.patch_engine(fixture)
         ast.parse(updated)
         self.assertIn(
-            '    if not enable_mlx_whisper:\\n        w_model = w_model.to("mps")',
+            '    if not enable_mlx_whisper:\n        w_model = w_model.to("mps")',
             updated,
         )
         self.assertIn("VCE_LOCAL_SERVER_SHUTDOWN_ENDPOINT_V1", updated)
