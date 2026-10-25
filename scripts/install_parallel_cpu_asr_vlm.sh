@@ -6,13 +6,13 @@ set -euo pipefail
 #   bash install_parallel_cpu_asr_vlm.sh --dry-run
 #   bash install_parallel_cpu_asr_vlm.sh --apply
 
-MODE="\${1:---dry-run}"
+MODE="${1:---dry-run}"
 case "$MODE" in
   --dry-run|--apply) ;;
   *) echo "Usage: $0 [--dry-run|--apply]" >&2; exit 2 ;;
 esac
 
-PROJECT="\${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
+PROJECT="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
 PYTHON="$PROJECT/.venv/bin/python"
 ENGINE="$PROJECT/VideoContextEngine_v3.19.py"
 SETTINGS="$PROJECT/videocontext_settings.json"
