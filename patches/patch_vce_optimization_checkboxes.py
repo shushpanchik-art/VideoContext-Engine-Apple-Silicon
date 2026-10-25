@@ -394,11 +394,14 @@ def patch_ocr_cache(source: str) -> str:
         )
 
     m = calls[0]
-    updated_call = m.group(0).replace(
-        "asyncio.to_thread(apple_vision_ocr,",
+    updated_call, n_subs = re.subn(
+        r"asyncio\.to_thread\(\s*apple_vision_ocr\s*,",
         "asyncio.to_thread((_vce_cached_apple_vision_ocr if enable_ocr_cache else apple_vision_ocr),",
-        1,
+        m.group(0),
+        count=1,
     )
+    if n_subs != 1:
+        raise ValueError("Не удалось заменить callable в асинхронном OCR; файлы не изменены.")
     source = source[:m.start()] + updated_call + source[m.end():]
 
     # Measure the complete Apple OCR block separately for optional JSON diagnostics.
