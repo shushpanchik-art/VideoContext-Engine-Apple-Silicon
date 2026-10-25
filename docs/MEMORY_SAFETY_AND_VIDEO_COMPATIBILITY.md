@@ -9,7 +9,7 @@ curl -fL --retry 3 "https://raw.githubusercontent.com/shushpanchik-art/VideoCont
 "$HOME/VideoContext-Engine/.venv/bin/python" "$HOME/VideoContext-Engine/patch_vce_memory_safety.py" --project "$HOME/VideoContext-Engine" --dry-run
 ```
 
-If the dry run lists the expected memory-safety changes, run the same command without `--dry-run` after confirming no analysis is active. The patcher makes timestamped backups of the Python engine and settings JSON.
+If the dry run lists the expected memory-safety changes, run the same command without `--dry-run` after confirming no analysis is active. The patcher makes timestamped backups of the Python engine and settings JSON. It deliberately forces one keyframe per scene in this recovery profile; for technical text, Apple Vision OCR runs against the source frame independently of the VLM input resize.
 
 ## What it changes
 
