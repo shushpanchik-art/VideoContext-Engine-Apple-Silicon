@@ -69,7 +69,7 @@ fi
 STATUS_BINARY="$APP_SOURCE/Contents/MacOS/VideoContextStatusBar"
 /usr/bin/xcrun swiftc -O "$STATUS_SOURCE" -framework AppKit -o "$STATUS_BINARY" || fail "Не удалось собрать значок меню. Проверь Xcode Command Line Tools."
 /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable VideoContextStatusBar" "$APP_SOURCE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :LSUIElement true" "$APP_SOURCE/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :LSUIElement false" "$APP_SOURCE/Contents/Info.plist"
 if [[ -f "$APP_ICON" ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile VideoContextEngine" "$APP_SOURCE/Contents/Info.plist"
 fi
