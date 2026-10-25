@@ -166,6 +166,19 @@ class TestOptimizationCheckboxPatch(unittest.TestCase):
         self.assertIn('@app.post("/api/v1/server/shutdown")', updated)
 
 
+    def test_mlx_selected_skips_standalone_torch_model_device_transfer(self):
+        fixture = ENGINE_FIXTURE.replace(
+            "    audio_res = w_model.transcribe(\n",
+            '    w_model.to("mps")\n    audio_res = w_model.transcribe(\n',
+            1,
+        )
+        updated = patch.patch_engine(fixture)
+        ast.parse(updated)
+        self.assertIn(
+            '    if not enable_mlx_whisper:\n        w_model.to("mps")',
+            updated,
+        )
+
     def test_scene_detector_supports_custom_variable_and_single_line_call(self):
         fixture = ENGINE_FIXTURE.replace(
             "scenes_raw",
