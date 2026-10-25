@@ -35,6 +35,9 @@ if [[ "$STOP_CONFIRM" != "STOP" ]]; then
   echo "Установка отменена. Никакие файлы не менялись."
   exit 0
 fi
+if /usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN >/dev/null 2>&1; then
+  fail "Порт 7555 ещё занят. Дождитесь окончания анализа и остановите сервер, чтобы не оборвать задачу."
+fi
 
 printf '\n[1/4] Исправление Whisper/MPS и добавление кнопки остановки…\n'
 "$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/patch_vce_stop_and_mps.py" || fail "Патч не прошёл проверку. Приложение не устанавливалось."
