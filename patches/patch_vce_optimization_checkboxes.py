@@ -202,8 +202,10 @@ def patch_scene_detection(source: str) -> str:
     if "_vce_detect_scenes_fast(" in source[route_start:]:
         return source
 
-    # Match via Python AST rather than hard-coding the local variable name or
-    # whether the source writes the function call on one or several lines.
+    # The engine has appeared in two forms:
+    #   scenes = detect_scenes(...)
+    #   scenes = await asyncio.to_thread(detect_scenes, ...)
+    # Inspect the assignment AST and preserve the threading wrapper when present.
     try:
         tree = ast.parse(source)
     except SyntaxError as exc:
@@ -218,67 +220,90 @@ def patch_scene_detection(source: str) -> str:
         raise ValueError("AST: не найдена функция analyze_video().")
 
     candidates = []
-    all_scene_calls = []
-    for node in ast.walk(analyze_node):
-        if not isinstance(node, ast.Call):
+    observed = []
+    for statement in ast.walk(analyze_node):
+        if not isinstance(statement, (ast.Assign, ast.AnnAssign)):
             continue
-        func = node.func
+        targets = statement.targets if isinstance(statement, ast.Assign) else [statement.target]
+        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
+            continue
+
+        value = statement.value
+        awaited = isinstance(value, ast.Await)
+        call = value.value if awaited else value
+        if not isinstance(call, ast.Call):
+            continue
+
+        func = call.func
         func_name = func.id if isinstance(func, ast.Name) else (
             func.attr if isinstance(func, ast.Attribute) else ""
         )
-        if "scene" in func_name.lower() or "detect" in func_name.lower():
-            all_scene_calls.append(f"{func_name} (строка {node.lineno})")
-        if func_name != "detect_scenes":
-            continue
-        parent_assign = next(
-            (parent for parent in ast.walk(analyze_node)
-             if isinstance(parent, (ast.Assign, ast.AnnAssign))
-             and getattr(parent, "value", None) is node),
-            None,
-        )
-        if parent_assign is None:
-            continue
-        targets = parent_assign.targets if isinstance(parent_assign, ast.Assign) else [parent_assign.target]
-        if len(targets) != 1 or not isinstance(targets[0], ast.Name):
-            continue
-        candidates.append((parent_assign, targets[0].id, node))
+
+        if func_name == "detect_scenes":
+            observed.append(f"detect_scenes direct (строка {call.lineno})")
+            candidates.append((statement, targets[0].id, "direct", call))
+        elif (
+            func_name == "to_thread"
+            and call.args
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == "detect_scenes"
+        ):
+            observed.append(f"asyncio.to_thread(detect_scenes, ...) (строка {call.lineno})")
+            candidates.append((statement, targets[0].id, "to_thread", call))
 
     if len(candidates) != 1:
-        observed = "; ".join(all_scene_calls[:12]) or "вызовы detect/scene не найдены"
+        details = "; ".join(observed[:12]) or "присваивание результата detect_scenes не найдено"
         raise ValueError(
             "Не удалось однозначно найти присваивание результата detect_scenes(...) внутри analyze_video(). "
-            f"Найдено подходящих вызовов: {len(candidates)}. Обнаруженные кандидаты: {observed}. "
-            "Локальная версия движка отличается от шаблона. Файлы не изменены; нужен фрагмент analyze_video() "
-            "вокруг детекции сцен для адаптации патчера."
+            f"Найдено подходящих вызовов: {len(candidates)}. Обнаруженные кандидаты: {details}. "
+            "Локальная версия движка отличается от ожидаемых вариантов. Файлы не изменены."
         )
 
-    statement, target_name, call_node = candidates[0]
-    if not any(keyword.arg == "max_duration" for keyword in call_node.keywords):
+    statement, target_name, mode, call_node = candidates[0]
+    if mode == "to_thread":
+        call_kwargs = call_node.keywords
+        args = list(call_node.args[1:])
+        call_func = ast.unparse(call_node.func)
+    else:
+        call_kwargs = call_node.keywords
+        args = list(call_node.args)
+        call_func = ""
+
+    if not any(keyword.arg == "max_duration" for keyword in call_kwargs):
         raise ValueError(
             "Вызов detect_scenes(...) не содержит ожидаемого аргумента max_duration; файлы не изменены."
         )
 
-    arguments = [ast.unparse(arg) for arg in call_node.args]
-    for keyword in call_node.keywords:
+    call_args = [ast.unparse(arg) for arg in args]
+    for keyword in call_kwargs:
         if keyword.arg is None:
-            arguments.append("**" + ast.unparse(keyword.value))
+            call_args.append("**" + ast.unparse(keyword.value))
         else:
-            arguments.append(keyword.arg + "=" + ast.unparse(keyword.value))
-    arg_text = ", ".join(arguments)
+            call_args.append(keyword.arg + "=" + ast.unparse(keyword.value))
+
     indent = " " * statement.col_offset
+
+    def assignment_for(function_name: str) -> str:
+        if mode == "to_thread":
+            header = f"{indent}{target_name} = await {call_func}(\\n{indent}    {function_name},\\n"
+            body = "".join(f"{indent}    {arg},\\n" for arg in call_args)
+            return header + body + f"{indent})\\n"
+        header = f"{indent}{target_name} = {function_name}(\\n"
+        body = "".join(f"{indent}    {arg},\\n" for arg in call_args)
+        return header + body + f"{indent})\\n"
+
     replacement = (
-        indent + "scene_detection_started = time.perf_counter()\n"
-        + indent + "apple_ocr_seconds = 0.0\n"
-        + indent + "if enable_fast_scene_detection:\n"
-        + indent + "    " + target_name + " = _vce_detect_scenes_fast(" + arg_text + ")\n"
-        + indent + "else:\n"
-        + indent + "    " + target_name + " = detect_scenes(" + arg_text + ")\n"
-        + indent + "scene_detection_seconds = time.perf_counter() - scene_detection_started\n"
+        indent + "scene_detection_started = time.perf_counter()\\n"
+        + indent + "apple_ocr_seconds = 0.0\\n"
+        + indent + "if enable_fast_scene_detection:\\n"
+        + assignment_for("_vce_detect_scenes_fast")
+        + indent + "else:\\n"
+        + assignment_for("detect_scenes")
+        + indent + "scene_detection_seconds = time.perf_counter() - scene_detection_started\\n"
     )
     lines = source.splitlines(keepends=True)
     lines[statement.lineno - 1:statement.end_lineno] = [replacement]
     return "".join(lines)
-
 
 def patch_adaptive_keyframes(source: str) -> str:
     route_start = source.find("async def analyze_video(")
