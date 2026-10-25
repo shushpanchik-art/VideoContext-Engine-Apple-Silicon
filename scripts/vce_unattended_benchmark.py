@@ -19,6 +19,20 @@ PARAMS = {
     "vlm_max_tokens_summary": (16, 2048, [128, 256, 512, 1024, 1536]),
     "ffmpeg_ocr_interval": (1, 60, [1, 2, 5, 10, 20]),
 }
+PROMPT_FALLBACKS = {
+    "visual_user_prompt": "Анализируй каждую сцену технического видео на русском языке в 1–3 коротких предложениях. Описывай только видимое: интерфейс, объект, действие, важные состояния, читаемые заголовки, числа, формулы, команды, ошибки и результаты. Используй OCR для точного написания видимых названий продуктов, стандартов, файлов и чисел, но учитывай ошибки OCR: при неразборчивом или противоречивом тексте не угадывай. Пересказывай смысл экрана; дословно цитируй только короткие точные подписи и критичные значения. Не вставляй целиком OCR-блоки, временные заголовки [Кадр ...] или длинные перечни элементов интерфейса. Не начинай с «Визуально:» и не смешивай описание с речью диктора. Не делай вывод о результате операции по названию окна или кнопки. Различай наблюдение и предположение; для похожих экранов отмечай конкретные изменения и новые функции. Если показана заставка THE END/КОНЕЦ, опиши только заставку.",
+    "summary_user_prompt": "Составь точный и краткий технический конспект на русском по сценам, аудио, OCR и визуальным описаниям. Выдели цель видео, основные этапы, технические детали, нормативы и параметры, решения и фактический итог. Сохраняй точные названия продуктов, стандартов, команд, файлов и числовые значения. Используй OCR для написания чётких видимых подписей; сопоставляй OCR с ASR по контексту и времени, учитывая возможные ошибки OCR. Если подпись однозначно читается и относится к той же сущности, используй её каноническое написание (например, BuildChat вместо фонетического «Белчат»), но не переписывай исходные audio_transcript и ocr_text. Различай сказанное диктором, написанное на экране и непосредственно видимое. Если вывод озвучен, но на кадре только заставка, укажи, что вывод был в аудио, а не на изображении. Название окна не доказывает успешный результат операции. Не выдумывай причинно-следственные связи, нарушения или результаты, не подтверждённые источниками. Не создавай неопределённость, когда источники дополняют друг друга; сомнения отмечай при реальном расхождении или плохой читаемости. Избегай общих фраз и повторов. Заверши краткой сводкой, ключевыми выводами и практическими действиями, если они есть в видео.",
+}
+PROMPT_LIMITS = {"visual_user_prompt": 1000, "summary_user_prompt": 2000}
+PUBLIC_SETTING_KEYS = {
+    "vlm_resolution", "scene_threshold", "min_scene_duration", "max_scene_duration",
+    "keyframes_per_scene", "vlm_max_tokens_scene", "vlm_max_tokens_summary",
+    "ffmpeg_ocr_interval", "ffmpeg_ocr_workers", "enable_ffmpeg_ocr",
+    "vlm_model", "whisper_model", "whisper_acceleration", "analysis_mode",
+    "skip_audio", "skip_visual", "enable_apple_ocr", "enable_audio_features",
+    "generate_summary", "text_llm_enabled", "text_llm_model",
+    "text_llm_max_tokens", "generate_json", "generate_txt",
+}
 # OCR worker field is detected from the local API's OpenAPI schema; names are not guessed.
 def now(): return dt.datetime.now().astimezone().isoformat(timespec="seconds")
 def sha256_file(path):
@@ -83,6 +97,32 @@ def openapi_fields():
     if vf.get("format")=="binary" or (vf.get("type")=="array" and vf.get("items",{}).get("format")=="binary"):
         raise RuntimeError("Локальный API принимает только загрузку бинарного файла, а не путь. Остановка: не буду загружать ролик размером сотни МБ наугад.")
     return props
+def apply_prompt_limits(current, props):
+    """Use stable compact prompts when a saved prompt exceeds the API's declared limit.
+    This only changes the in-memory benchmark request; it never edits videocontext_settings.json.
+    """
+    effective = dict(current)
+    adjustments = {}
+    for key, fallback in PROMPT_FALLBACKS.items():
+        value = effective.get(key)
+        if not isinstance(value, str):
+            continue
+        info = props.get(key, {})
+        limit = info.get("maxLength")
+        if not isinstance(limit, int):
+            limit = PROMPT_LIMITS[key]
+        if len(value) > limit:
+            if len(fallback) > limit:
+                raise RuntimeError(f"Встроенный сокращённый промпт {key!r} тоже превышает лимит API: {len(fallback)} > {limit}.")
+            effective[key] = fallback
+            adjustments[key] = {
+                "original_characters": len(value),
+                "api_max_characters": limit,
+                "effective_characters": len(fallback),
+                "method": "replaced in benchmark request with a concise equivalent; local settings file unchanged",
+            }
+    return effective, adjustments
+
 def pick_worker_field(props):
     for name,info in props.items():
         text=(name+" "+str(info.get("description",""))).lower()
@@ -157,7 +197,7 @@ def run_one(name, overrides, current, props, video, results_dir, index, total, r
     # If exposed, request JSON only and keep the user's audio/summary preferences.
     if "generate_summary" in props: fields["generate_summary"]="true"
     start=time.monotonic()
-    record={"run_id":run_id,"index":index,"total":total,"name":name,"started_at":now(),"overrides":overrides,"settings_snapshot":{k:fields.get(k) for k in overrides}, "video_path":str(video),"video_size_bytes":video.stat().st_size,"video_sha256":sha256_file(video) if video.stat().st_size<100_000_000 else None}
+    record={"run_id":run_id,"index":index,"total":total,"name":name,"started_at":now(),"overrides":overrides,"settings_snapshot":{k:fields.get(k) for k in overrides}, "video_filename":video.name,"video_size_bytes":video.stat().st_size,"video_sha256":sha256_file(video) if video.stat().st_size<100_000_000 else None}
     try:
         response=post_form(BASE_URL+"/api/v1/analyze",fields,timeout=60*60*6)
         record["api_response"]=response
@@ -174,6 +214,15 @@ def run_one(name, overrides, current, props, video, results_dir, index, total, r
                 time.sleep(10)
             else: raise TimeoutError("Истекли 6 часов ожидания завершения задания")
         record["status"]="completed"
+    except urllib.error.HTTPError as exc:
+        try:
+            response_body = exc.read().decode("utf-8", "replace")
+        except Exception:
+            response_body = ""
+        record["status"] = "error"
+        record["http_status"] = exc.code
+        record["http_response_body"] = response_body[:10000]
+        record["error"] = f"HTTP {exc.code} {exc.reason}"
     except Exception as exc:
         record["status"]="error"; record["error"]=repr(exc)
     record["duration_seconds"]=round(time.monotonic()-start,2)
@@ -205,6 +254,9 @@ def main():
                 raise RuntimeError(f"VCE уже выполняет задание {jid} ({p.get('message','без описания')}); benchmark не запущен.")
     current=get_current()
     props=openapi_fields()
+    current, prompt_adjustments = apply_prompt_limits(current, props)
+    for key, adjustment in prompt_adjustments.items():
+        print(f"WARN: {key} был длиннее лимита API ({adjustment['original_characters']} > {adjustment['api_max_characters']}); для всех прогонов будет использован сокращённый промпт ({adjustment['effective_characters']} символов). Локальные настройки не меняются.", file=sys.stderr)
     worker=pick_worker_field(props)
     plan,ocr_field=make_plan(current,worker,props)
     print(f"Preflight OK. План: {len(plan)} прогонов; файл {VIDEO.name}; OCR toggle={ocr_field}; workers={worker}.")
@@ -215,7 +267,18 @@ def main():
     run_id=dt.datetime.now().strftime("%Y%m%d_%H%M%S")
     results_dir=pathlib.Path(args.results_dir).expanduser() if args.results_dir else repo_dir/"results"/"vce-benchmark"/run_id
     results_dir.mkdir(parents=True,exist_ok=True)
-    manifest={"run_id":run_id,"created_at":now(),"video":VIDEO.name,"video_size_bytes":VIDEO.stat().st_size,"video_sha256":sha256_file(VIDEO),"base_settings":current,"plan":[{"name":n,"overrides":o} for n,o in plan],"note":"Public GitHub repository: JSON reports may contain extracted video text. User explicitly requested publishing benchmark results."}
+    public_settings={k:current[k] for k in sorted(PUBLIC_SETTING_KEYS) if k in current}
+    manifest={
+        "run_id":run_id,
+        "created_at":now(),
+        "video_filename":VIDEO.name,
+        "video_size_bytes":VIDEO.stat().st_size,
+        "video_sha256":sha256_file(VIDEO),
+        "base_settings":public_settings,
+        "prompt_adjustments":prompt_adjustments,
+        "plan":[{"name":n,"overrides":o} for n,o in plan],
+        "note":"JSON reports may contain extracted video text. Absolute local paths and full user prompt text are omitted from published metadata.",
+    }
     (results_dir/"manifest.json").write_text(json.dumps(manifest,ensure_ascii=False,indent=2)+"\n",encoding="utf-8")
     commit_result(repo_dir,results_dir/"manifest.json",f"benchmark: start {run_id} manifest")
     for i,(name,overrides) in enumerate(plan,1):
