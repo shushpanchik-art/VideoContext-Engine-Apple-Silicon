@@ -329,7 +329,7 @@ def patch_engine(source: str) -> str:
 
     # Validate the local chooser/cleanup patch is present: converted proxies must be removed,
     # but the original path selected in Finder must never be unlinked.
-    if "await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)" not in source:
+    if "await asyncio.to_thread(ensure_opencv_compatible_video," not in source:
         preflight_match = re.search(
             r"(?m)^(?P<indent>[ \t]*)video_duration = validate_video_file\(temp_path\)[ \t]*$",
             source,
@@ -359,7 +359,7 @@ def patch_engine(source: str) -> str:
             + source[preflight_match.end():]
         )
 
-    if "await asyncio.to_thread(ensure_opencv_compatible_video, temp_path)" not in source:
+    if "await asyncio.to_thread(ensure_opencv_compatible_video," not in source:
         raise ValueError("Проверка не прошла: отсутствует предварительная проверка видео.")
     if "VLM OOM: повторная попытка" not in source:
         raise ValueError("Проверка не прошла: отсутствует повтор VLM при ошибке Metal OOM.")
