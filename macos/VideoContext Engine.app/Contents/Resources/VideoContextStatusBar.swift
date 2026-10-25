@@ -187,6 +187,12 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
                     self.isStartingServer = false
                     self.setStatus("Сервер работает")
                     self.showMainWindow(url: self.uiURL)
+                } else if self.serverProcess == nil && self.startupAttempts >= 3 {
+                    timer.invalidate()
+                    self.startupTimer = nil
+                    self.isStartingServer = false
+                    self.setStatus("Процесс сервера завершился")
+                    self.showAlert("Сервер завершился до запуска интерфейса. Проверь журнал: ~/Library/Logs/VideoContext Engine/server.log")
                 } else if self.startupAttempts >= 120 {
                     timer.invalidate()
                     self.startupTimer = nil
@@ -198,7 +204,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         } catch {
             isStartingServer = false
             setStatus("Не удалось запустить сервер")
-            showAlert("Не удалось открыть сервер в Terminal: \(error.localizedDescription)")
+            showAlert("Не удалось запустить локальный сервер: \(error.localizedDescription)")
         }
     }
 
