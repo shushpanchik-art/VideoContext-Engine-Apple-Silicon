@@ -109,3 +109,12 @@ The verifier fails when MLX GPU is unavailable and reports package presence. Run
 
 - Latest corrected pipeline benchmark: results/vce-benchmark/20261026_085101/.
 - Structural-index A/B: results/vce-summary-structural-ab/20261026_105858/. That experiment increased token count by 77.82% and generation time by about 41%; do not combine it with the MLX/Metal runtime change.
+
+
+## Backup-safe source integration
+
+The implementation script `scripts/apply_vce_mlx_metal_patch.py` targets the customized engine in `~/VideoContext-Engine`. It defaults to a dry run, verifies the expected code anchors, compiles the candidate source in memory, and refuses to write when the source version differs. Applying it creates timestamped backups of both the engine and settings.
+
+The patch forces Whisper to CPU, starts its asynchronous transcription while VLM scene processing runs, restores transcript/audio-feature fields to each scene before the final summary, explicitly configures MLX GPU/Metal for VLM and text analysis, and records runtime diagnostics and measured overlap in the timing JSON. Settings are adjusted to CPU Whisper and Metal for MLX.
+
+GitHub Actions verifies the helper and patcher with hardware-independent tests. The actual source apply, service restart, and benchmark must run on the target Apple Silicon Mac, where the local project and model cache exist.
