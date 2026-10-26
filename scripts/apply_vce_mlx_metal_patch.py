@@ -98,6 +98,19 @@ class _VCEWhisperMLXCPU:
         )
         return result
 
+    def release(self) -> None:
+        """Release mlx-whisper's private global model cache in RAM- mode."""
+        import gc
+        import importlib
+
+        with _VCE_MLX_WHISPER_LOCK:
+            module = importlib.import_module("mlx_whisper.transcribe")
+            holder = getattr(module, "ModelHolder", None)
+            if holder is not None and getattr(holder, "model_path", None) == self.model_path:
+                holder.model = None
+                holder.model_path = None
+            gc.collect()
+
 
 def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     """Select the MLX GPU on native Apple Silicon and fail closed without Metal."""
@@ -299,6 +312,8 @@ def patch_engine_text(text: str) -> str:
                         )
                         print(f"[VCE Whisper] CPU inference: {whisper_infer_time:.2f}s")
                         if RAM_MODE == "ram-":
+                            if hasattr(w_model, "release"):
+                                await asyncio.to_thread(w_model.release)
                             del w_model
                             gc.collect()
                         return result
@@ -412,7 +427,9 @@ def patch_engine_text(text: str) -> str:
         '                "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {}),\n'
         '            },\n'
         '            "parallelism": {\n'
+        '                "whisper_backend": "mlx-whisper",\n'
         '                "whisper_device": "cpu",\n'
+        '                "whisper_runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),\n'
         '                "whisper_vlm_overlap_seconds": round(_vce_overlap_seconds, 3) if "_vce_overlap_seconds" in locals() else 0.0,\n'
         '            },'
     )
