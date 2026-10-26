@@ -80,6 +80,41 @@ class VCECompareRunsTests(unittest.TestCase):
         self.assertEqual(base["generate_txt"], True)
         self.assertEqual(form["whisper_model"], "large")
 
+    def test_saved_prompts_are_not_resent_when_profile_does_not_override_them(self):
+        base = {
+            "visual_user_prompt": "v" * 1420,
+            "summary_user_prompt": "s" * 2138,
+            "whisper_model": "large",
+        }
+        form = COMPARE.effective_settings(base, {})
+        self.assertNotIn("visual_user_prompt", form)
+        self.assertNotIn("summary_user_prompt", form)
+        self.assertEqual(form["whisper_model"], "large")
+
+    def test_explicit_prompt_overrides_are_sent_when_within_api_limits(self):
+        base = {"visual_user_prompt": "long saved prompt", "summary_user_prompt": "long saved summary"}
+        form = COMPARE.effective_settings(base, {
+            "visual_user_prompt": "Опиши только видимые детали.",
+            "summary_user_prompt": "Сделай краткий итог.",
+        })
+        self.assertEqual(form["visual_user_prompt"], "Опиши только видимые детали.")
+        self.assertEqual(form["summary_user_prompt"], "Сделай краткий итог.")
+
+    def test_explicit_overlong_prompt_is_rejected_before_upload(self):
+        for field, limit in (("visual_user_prompt", 1000), ("summary_user_prompt", 2000)):
+            with self.subTest(field=field):
+                with self.assertRaisesRegex(ValueError, str(limit)):
+                    COMPARE.effective_settings({}, {field: "x" * (limit + 1)})
+
+    def test_profile_loader_rejects_non_string_prompt_override(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "profiles.json"
+            path.write_text(json.dumps({
+                "profiles": [{"name": "bad-prompt", "settings": {"visual_user_prompt": 42}}]
+            }), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "должен быть строкой"):
+                COMPARE.load_profiles(path)
+
     def test_cpu_ocr_and_text_postprocessing_settings_are_passed_per_run(self):
         base = {
             "ffmpeg_ocr_workers": 2,
