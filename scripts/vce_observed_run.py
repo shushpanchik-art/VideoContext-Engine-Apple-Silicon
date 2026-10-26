@@ -36,6 +36,9 @@ LOG_CANDIDATES = [
     Path.home() / "Library/Logs/VideoContext Engine/server.log",
 ]
 FORM_EXCLUDE = {"video_file", "local_video_token", "video_url", "job_id"}
+# The analyze endpoint's Form max_length limits can be shorter than saved prompts.
+# The local compare runner omits unchanged prompt fields and lets VCE use its persisted prompts.
+PERSISTED_PROMPT_FIELDS = {"visual_user_prompt", "summary_user_prompt"}
 SAFETY_OVERRIDES = {
     "analysis_mode": "full",
     "skip_audio": False,
@@ -145,14 +148,17 @@ def resolve_form_fields(settings: dict[str, Any], properties: dict[str, Any]) ->
     fields: dict[str, Any] = {}
     origins: dict[str, str] = {}
     for name, definition in properties.items():
-        if name in FORM_EXCLUDE:
+        if name in FORM_EXCLUDE or name in PERSISTED_PROMPT_FIELDS:
             continue
         if name in settings:
             fields[name] = settings[name]
-            origins[name] = "videocontext_settings.json"
+            origins[name] = "active VCE settings from /api/v1/ui-settings"
         elif isinstance(definition, dict) and "default" in definition:
             fields[name] = definition["default"]
             origins[name] = "OpenAPI default"
+    for name in PERSISTED_PROMPT_FIELDS:
+        if name in properties:
+            origins[name] = "omitted from multipart; use running VCE's persisted prompt"
     for name, value in SAFETY_OVERRIDES.items():
         if name in properties:
             fields[name] = value
@@ -402,11 +408,51 @@ def main() -> int:
         api_status, openapi = request_json(args.api_url.rstrip("/") + "/openapi.json")
         if api_status != 200 or not isinstance(openapi, dict):
             raise RuntimeError(f"OpenAPI HTTP {api_status}")
+        active_status, active_settings = request_json(args.api_url.rstrip("/") + "/api/v1/ui-settings")
+        if active_status != 200 or not isinstance(active_settings, dict):
+            raise RuntimeError(
+                f"Не удалось получить активные настройки VCE: GET /api/v1/ui-settings вернул HTTP {active_status}. "
+                "Останавливаюсь, чтобы не запускать тест с неподтверждёнными настройками."
+            )
+
+        # Save both sources locally for audit; neither file is uploaded to GitHub.
+        write_json(run_dir / "local_settings_snapshot.json", settings)
+        write_json(run_dir / "active_server_settings_snapshot.json", active_settings)
+        prompt_keys = PERSISTED_PROMPT_FIELDS
+        common_keys = sorted((set(settings) & set(active_settings)) - prompt_keys)
+        differences = {
+            key: {"local_file": settings[key], "active_server": active_settings[key]}
+            for key in common_keys if settings[key] != active_settings[key]
+        }
+        write_json(run_dir / "settings_comparison.json", {
+            "local_settings_path": str(settings_path),
+            "active_settings_endpoint": args.api_url.rstrip("/") + "/api/v1/ui-settings",
+            "non_prompt_differences": differences,
+            "prompt_lengths": {
+                key: {
+                    "local_file_chars": len(settings.get(key, "")) if isinstance(settings.get(key), str) else None,
+                    "active_server_chars": len(active_settings.get(key, "")) if isinstance(active_settings.get(key), str) else None,
+                    "api_maxLength": openapi.get("components", {}).get("schemas", {}).get(
+                        next((ref.rsplit("/", 1)[-1] for ref in get_form_schema(openapi)[0].values() if isinstance(ref, dict) and "$ref" in ref), ""),
+                        {}
+                    ).get("maxLength")
+                } for key in prompt_keys
+            },
+        })
+        if differences:
+            keys = ", ".join(list(differences)[:30])
+            raise RuntimeError(
+                "Локальный videocontext_settings.json отличается от активных настроек сервера "
+                f"по полям: {keys}. Видео не отправлялось; проверь settings_comparison.json."
+            )
+
         properties, progress_template = get_form_schema(openapi)
-        fields, origins = resolve_form_fields(settings, properties)
+        # Use the running VCE settings as authority. Long persisted prompts are deliberately
+        # omitted from multipart so the API can use its persisted values without truncation.
+        fields, origins = resolve_form_fields(active_settings, properties)
         problems = validate_prompt_limits(fields, properties)
         if problems:
-            raise RuntimeError("Промпты превышают лимиты API: " + "; ".join(problems))
+            raise RuntimeError("Передаваемые поля превышают ограничения API: " + "; ".join(problems))
     except Exception as exc:
         write_json(run_dir / "preflight_error.json", {"error": str(exc), "at": now_iso()})
         print("STOP: предварительная проверка не прошла:", str(exc))
@@ -418,7 +464,7 @@ def main() -> int:
         fields["job_id"] = job_id
     fields["video_file"] = "(attached)"
     write_json(run_dir / "request_settings.json", {
-        "note": "Локальная копия фактически отправленных полей. Настройки на диске не менялись.",
+        "note": "Локальная копия фактически отправленных полей. Настройки на диске не менялись. Длинные persisted prompt-поля не отправляются, чтобы не обходить лимиты API; активные значения сохранены в active_server_settings_snapshot.json.",
         "settings_file": str(settings_path),
         "settings_sha256": sha256_file(settings_path),
         "field_origins": origins,
@@ -447,6 +493,9 @@ def main() -> int:
         "video_duration_seconds_ffprobe": video_duration,
         "settings_path": str(settings_path),
         "settings_sha256": sha256_file(settings_path),
+        "active_settings_source": args.api_url.rstrip("/") + "/api/v1/ui-settings",
+        "active_settings_snapshot_path": str(run_dir / "active_server_settings_snapshot.json"),
+        "active_settings_sha256": sha256_file(run_dir / "active_server_settings_snapshot.json"),
         "api_url": args.api_url,
         "job_id": job_id,
         "server_pids_at_start": pids,
@@ -504,6 +553,8 @@ def main() -> int:
     print(f"Size: {metadata['video_mib']} MiB; duration: {video_duration if video_duration is not None else 'unknown'} s")
     print(f"Server PID(s): {pids or 'not found by lsof'}")
     print(f"Server log: {log_path or 'not found; progress/resource monitoring still enabled'}")
+    print("Настройки отправки сверены с активным GET /api/v1/ui-settings.")
+    print("Длинные visual_user_prompt/summary_user_prompt не отправляются повторно; VCE использует активные сохранённые промпты.")
     print(f"Job ID: {job_id}")
     print("Full audio + visual analysis and summary requested; this may take several minutes.")
     print("Do not restart the server or start another analysis while this run is active.\n")
