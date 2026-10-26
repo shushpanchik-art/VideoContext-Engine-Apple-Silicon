@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -15,6 +16,21 @@ import benchmark_vce_summary_prefilter as exp  # noqa: E402
 
 
 class SummaryPrefilterTests(unittest.TestCase):
+    def test_worker_python_normalization_preserves_venv_symlink(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            base_python = root / "base-python"
+            base_python.write_text("", encoding="utf-8")
+            venv_bin = root / "venv" / "bin"
+            venv_bin.mkdir(parents=True)
+            venv_python = venv_bin / "python"
+            venv_python.symlink_to(base_python)
+
+            normalized = exp.normalize_worker_python(str(venv_python))
+
+            self.assertEqual(normalized, str(venv_python))
+            self.assertNotEqual(normalized, str(venv_python.resolve()))
+
     @patch.object(exp.subprocess, "run")
     def test_worker_environment_probe_reports_missing_mlx_lm(self, mocked_run):
         mocked_run.return_value = type("Probe", (), {
