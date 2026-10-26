@@ -165,29 +165,29 @@ class PatchTests(unittest.TestCase):
 
     def test_existing_bounded_prefetch_is_preserved(self):
         variant = FIXTURE.replace(
-            "                cap = cv2.VideoCapture(temp_path)\\n"
+            "                cap = cv2.VideoCapture(temp_path)\n"
             "                for idx, scene in enumerate(scenes_raw):",
-            "                cap = cv2.VideoCapture(temp_path)\\n"
-            "                _vce_frame_prefetch_queue = None\\n"
-            "                _vce_frame_prefetch_stats = dict(worker_seconds=0.1)\\n"
-            "                # _vce_start_bounded_keyframe_prefetch already exists in this engine variant\\n"
+            "                cap = cv2.VideoCapture(temp_path)\n"
+            "                _vce_frame_prefetch_queue = None\n"
+            "                _vce_frame_prefetch_stats = dict(worker_seconds=0.1)\n"
+            "                # _vce_start_bounded_keyframe_prefetch already exists in this engine variant\n"
             "                for idx, scene in enumerate(scenes_raw):",
         )
         variant = variant.replace(
-            "                        keyframes = sample_keyframes_for_scene(\\n"
-            "                            cap,\\n"
-            "                            scene,\\n"
-            "                            base_res=vlm_resolution,\\n"
-            "                            max_frames=keyframes_per_scene,\\n"
+            "                        keyframes = sample_keyframes_for_scene(\n"
+            "                            cap,\n"
+            "                            scene,\n"
+            "                            base_res=vlm_resolution,\n"
+            "                            max_frames=keyframes_per_scene,\n"
             "                        )",
-            "                        if _vce_frame_prefetch_queue is not None:\\n"
-            "                            keyframes = []\\n"
-            "                        else:\\n"
-            "                            keyframes = sample_keyframes_for_scene(\\n"
-            "                                cap,\\n"
-            "                                scene,\\n"
-            "                                base_res=vlm_resolution,\\n"
-            "                                max_frames=keyframes_per_scene,\\n"
+            "                        if _vce_frame_prefetch_queue is not None:\n"
+            "                            keyframes = []\n"
+            "                        else:\n"
+            "                            keyframes = sample_keyframes_for_scene(\n"
+            "                                cap,\n"
+            "                                scene,\n"
+            "                                base_res=vlm_resolution,\n"
+            "                                max_frames=keyframes_per_scene,\n"
             "                            )",
         )
         self.assertIn("_vce_start_bounded_keyframe_prefetch", variant)
