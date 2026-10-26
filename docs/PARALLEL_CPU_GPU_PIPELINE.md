@@ -79,3 +79,12 @@
 2. Установить bounded prefetch и повторить тот же ролик при тех же настройках.
 3. Сравнить wall time, число сцен, изображения/описания, OCR и транскрипцию.
 4. Если эффект повторяется, проверить 2–3 повтора и только затем переходить к конвейеризации CPU OCR.
+
+
+## Bounded keyframe prefetch
+
+A companion patch, `patches/patch_vce_bounded_frame_prefetch.py`, uses a dedicated OpenCV capture worker to prepare sampled keyframes while the VLM analyzes the current scene. The queue holds at most one waiting scene, with at most one additional scene being prepared by the worker. VLM inference itself remains serial.
+
+The producer uses the existing keyframe sampler and the same adaptive per-scene frame limit as the synchronous path. If prefetch fails for a scene, that scene falls back to synchronous sampling; a background worker is stopped and joined before temporary-file cleanup. When `enable_stage_timing` is enabled, JSON `timings.stage_diagnostics` includes `frame_prefetch_worker_seconds`, `frame_prefetch_wait_seconds`, and `frame_prefetch_fallback_count`.
+
+This is an optimization hypothesis, not a guaranteed speedup. Compare at least three runs on the same video and settings. A low prefetch wait time means CPU preparation was mostly hidden; a high wait time means the VLM pipeline still had to wait for the producer. Also compare scene count, transcript/OCR completeness, and output quality.
