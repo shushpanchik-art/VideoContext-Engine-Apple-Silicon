@@ -346,7 +346,7 @@ def patch_engine_text(text: str) -> str:
     finally_anchor = "    finally:\\n        if cap is not None:"
     finally_replacement = (
         "    finally:\\n"
-        "        _vce_pending_whisper_task = locals().get('\\\"_vce_whisper_task\\\"')\\n"
+        "        _vce_pending_whisper_task = locals().get('_vce_whisper_task')\\n"
         "        if _vce_pending_whisper_task is not None:\\n"
         "            try:\\n"
         "                await _vce_pending_whisper_task\\n"
