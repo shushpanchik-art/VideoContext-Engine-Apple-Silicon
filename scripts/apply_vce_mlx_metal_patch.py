@@ -256,13 +256,14 @@ def patch_engine_text(text: str) -> str:
     block_end_re = re.compile(r"(?m)^(?P<indent>[ \t]*)if not skip_visual or generate_summary:\s*$")
     block_end_match = block_end_re.search(text, block_start_match.end())
     if block_end_match is None:
+        # Use the actual model-load call rather than an optional UI progress label.
         load_progress_re = re.compile(
-            r"""(?m)^(?P<indent>[ \t]*)set_job_progress\(job_id,\s*["']load_vlm["']"""
+            r"(?m)^[ \t]*await asyncio\.to_thread\(vlm_engine\.load_model,\s*target_vlm\)"
         )
         load_progress = load_progress_re.search(text, block_start_match.end())
         if load_progress is None:
             raise PatchError(
-                "Cannot locate the visual-model load boundary (no load_vlm progress marker). "
+                "Cannot locate the visual-model load boundary (no VLM model-load call). "
                 "No file was changed."
             )
         candidates = list(re.finditer(
