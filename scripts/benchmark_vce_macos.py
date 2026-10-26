@@ -10,6 +10,7 @@ the absolute input path in the report.
 from __future__ import annotations
 
 import argparse
+import base64
 import csv
 import datetime as dt
 import http.client
@@ -24,7 +25,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 from urllib.request import Request, urlopen
 
 DEFAULT_PROJECTS = (
@@ -448,6 +449,72 @@ def make_summary(report: dict) -> str:
     return "\n".join(lines)
 
 
+
+GITHUB_REPOSITORY = "shushpanchik-art/VideoContext-Engine-Apple-Silicon"
+
+
+def publish_report_to_github(out_dir: Path, report: dict, branch: str) -> dict:
+    """Publish only generated, privacy-reduced report files through an existing gh login."""
+    if not shutil.which("gh"):
+        raise RuntimeError("Не найден GitHub CLI (gh). Установите gh и выполните gh auth login.")
+    token = command_output(["gh", "auth", "token"], timeout=10)
+    if not token:
+        raise RuntimeError("GitHub CLI не авторизован. Выполните gh auth login и повторите запуск.")
+
+    stamp = out_dir.name.removeprefix("VCE-Benchmark-")
+    prefix = f"results/vce-benchmark/{stamp}"
+    names = ["summary.md", "resources.csv", "report.json"]
+    urls = {
+        name: f"https://github.com/{GITHUB_REPOSITORY}/blob/{branch}/{prefix}/{name}"
+        for name in names if (out_dir / name).is_file() or name == "report.json"
+    }
+
+    def put_one(name: str) -> None:
+        local_path = out_dir / name
+        if not local_path.is_file():
+            return
+        remote_path = f"{prefix}/{name}"
+        body = json.dumps({
+            "message": f"chore: add VCE benchmark report {stamp} ({name})",
+            "content": base64.b64encode(local_path.read_bytes()).decode("ascii"),
+            "branch": branch,
+        }).encode("utf-8")
+        request = Request(
+            "https://api.github.com/repos/" + GITHUB_REPOSITORY + "/contents/" + quote(remote_path, safe="/"),
+            data=body,
+            headers={
+                "Accept": "application/vnd.github+json",
+                "Authorization": "Bearer " + token,
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json",
+                "User-Agent": "VCE-Benchmark/1.0",
+            },
+            method="PUT",
+        )
+        try:
+            with urlopen(request, timeout=30) as response:
+                response.read()
+        except Exception as exc:
+            # Never display the token or request headers.
+            raise RuntimeError(f"GitHub не принял файл {name}: {type(exc).__name__}") from None
+
+    for name in ("summary.md", "resources.csv"):
+        put_one(name)
+    report.setdefault("privacy", {})["uploaded_to_github"] = True
+    report["github_publication"] = {
+        "repository": GITHUB_REPOSITORY,
+        "branch": branch,
+        "directory": prefix,
+        "files": urls,
+    }
+    (out_dir / "report.json").write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    # Publish report.json last so it contains the predictable GitHub URLs for the bundle.
+    put_one("report.json")
+    return urls
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--video", required=True, help="Путь к тестовому видео (MP4/MOV/MKV и т. п.).")
@@ -458,6 +525,8 @@ def main() -> int:
     parser.add_argument("--sample-interval", type=float, default=2.0, help="Интервал CPU/RSS sampling в секундах.")
     parser.add_argument("--report-dir", help="Папка отчёта; по умолчанию создаётся на Desktop.")
     parser.add_argument("--yes", action="store_true", help="Не спрашивать подтверждение перед запуском анализа.")
+    parser.add_argument("--publish-github", action="store_true", help="После прогона предложить опубликовать обезличенный отчёт в GitHub.")
+    parser.add_argument("--github-branch", default="feat/vce-parallel-cpu-asr-vlm-20261025", help="Ветка GitHub для отчёта.")
     args = parser.parse_args()
 
     if platform.system() != "Darwin":
@@ -619,6 +688,63 @@ def main() -> int:
                 ])
                 writer.writeheader()
                 writer.writerows(all_samples)
+
+    if args.publish_github:
+        answer = input(
+            "\nОпубликовать report.json, summary.md и resources.csv в GitHub? "
+            "В отчёте нет пути/имени видео или текста транскрипции. Введите PUBLISH: "
+        ).strip()
+        if answer == "PUBLISH":
+            try:
+                urls = publish_report_to_github(out_dir, report, args.github_branch)
+                (out_dir / "summary.md").write_text(make_summary(report), encoding="utf-8")
+                # Refresh the summary after the URLs were added to the report.
+                if (out_dir / "summary.md").is_file():
+                    summary_path = f"results/vce-benchmark/{out_dir.name.removeprefix('VCE-Benchmark-')}/summary.md"
+                    # Update the already-published summary so it includes the links.
+                    report_summary_url = f"https://github.com/{GITHUB_REPOSITORY}/blob/{args.github_branch}/{summary_path}"
+                    report.setdefault("github_publication", {}).setdefault("files", {})["summary.md"] = report_summary_url
+                    (out_dir / "summary.md").write_text(make_summary(report), encoding="utf-8")
+                    # One extra PUT updates only the summary with final report links.
+                    token = command_output(["gh", "auth", "token"], timeout=10)
+                    if token:
+                        import base64 as _b64
+                        from urllib.parse import quote as _quote
+                        remote = summary_path
+                        request_body = json.dumps({
+                            "message": f"chore: update VCE benchmark summary links {out_dir.name}",
+                            "content": _b64.b64encode((out_dir / "summary.md").read_bytes()).decode("ascii"),
+                            "branch": args.github_branch,
+                        }).encode("utf-8")
+                        req = Request(
+                            "https://api.github.com/repos/" + GITHUB_REPOSITORY + "/contents/" + _quote(remote, safe="/"),
+                            data=request_body,
+                            headers={
+                                "Accept": "application/vnd.github+json",
+                                "Authorization": "Bearer " + token,
+                                "X-GitHub-Api-Version": "2022-11-28",
+                                "Content-Type": "application/json",
+                                "User-Agent": "VCE-Benchmark/1.0",
+                            },
+                            method="PUT",
+                        )
+                        with urlopen(req, timeout=30) as response:
+                            response.read()
+                print("\n✅ Отчёт опубликован в GitHub:")
+                for name, url in urls.items():
+                    print(f"  {name}: {url}")
+            except Exception as exc:
+                report.setdefault("warnings", []).append(
+                    "GitHub publication failed: " + type(exc).__name__ + ": " + str(exc)[:400]
+                )
+                report.setdefault("privacy", {})["uploaded_to_github"] = False
+                (out_dir / "report.json").write_text(
+                    json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+                )
+                (out_dir / "summary.md").write_text(make_summary(report), encoding="utf-8")
+                print("⚠️ Публикация не завершена; локальные отчёты сохранены. " + str(exc)[:300])
+        else:
+            print("Публикация в GitHub отменена; отчёт остался только на этом Mac.")
 
     print("\n=== Отчёт сохранён локально ===")
     print(str(out_dir))
