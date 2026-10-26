@@ -63,6 +63,18 @@ class StructuralIndexTests(unittest.TestCase):
         self.assertEqual(stats["unique_evidence_strings"], 0)
         self.assertEqual(stats["scene_ids_preserved"], ["scene-x"])
 
+    def test_saved_summary_prompt_adjustment_is_replayed(self):
+        text = "Summary instruction " * 20
+        adjusted = exp.apply_saved_prompt_adjustment(
+            text,
+            [{"field": "summary_user_prompt", "original_characters": len(text), "sent_characters": 31}],
+        )
+        self.assertEqual(adjusted, text[:31])
+
+    def test_missing_prompt_adjustment_keeps_instruction_intact(self):
+        text = "Keep every relevant detail."
+        self.assertEqual(exp.apply_saved_prompt_adjustment(text, []), text)
+
     def test_normalization_only_collapses_whitespace(self):
         self.assertEqual(
             exp.normalize_for_dedup("  value \n\t 42  "),
