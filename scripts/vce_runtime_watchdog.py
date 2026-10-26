@@ -215,6 +215,19 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         snap for snap in trace_snapshots
         if "describe_scene" in str(snap.get("function", "")).lower()
     ]
+    vlm_scene_default_devices = sorted({
+        str(snap.get("mlx_default_device"))
+        for snap in vlm_scene_trace_snapshots
+        if snap.get("mlx_default_device")
+    })
+    vlm_scene_gpu_default_device_snapshot_count = sum(
+        "gpu" in str(snap.get("mlx_default_device", "")).lower()
+        for snap in vlm_scene_trace_snapshots
+    )
+    vlm_scene_cpu_default_device_snapshot_count = sum(
+        "cpu" in str(snap.get("mlx_default_device", "")).lower()
+        for snap in vlm_scene_trace_snapshots
+    )
     gpu_generation_stream_seen = any("gpu" in device.lower() for device in vlm_generation_stream_devices)
     maps = mappings_path.read_text(encoding="utf-8", errors="replace") if mappings_path.exists() else ""
     power_records = []
@@ -242,7 +255,18 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         status = "VLM_DEVICE_UNKNOWN"
     explicit_gpu_target = (vlm_device_source == "explicit_gpu_target"
                            and "gpu" in vlm_configured_device.lower())
-    if explicit_gpu_target and "cpu" in vlm_default_device_observed.lower() and gpu_generation_stream_seen:
+    if (
+        explicit_gpu_target
+        and gpu_generation_stream_seen
+        and vlm_scene_gpu_default_device_snapshot_count > 0
+        and vlm_scene_cpu_default_device_snapshot_count == 0
+    ):
+        # Prefer snapshots around actual scene-description calls over a single
+        # load-time mx.default_device() read. The load-time CPU value can be a
+        # concurrent mx.stream(mx.cpu) context; scene snapshots still aren't
+        # per-operator execution proof.
+        overall = "VLM_SCENE_TRACE_DEFAULT_AND_GENERATION_STREAM_GPU_EXECUTION_UNPROVEN"
+    elif explicit_gpu_target and "cpu" in vlm_default_device_observed.lower() and gpu_generation_stream_seen:
         overall = "VLM_GPU_TARGET_CONFIGURED_BUT_DEFAULT_DEVICE_SNAPSHOT_CPU"
     elif explicit_gpu_target and gpu_generation_stream_seen:
         overall = "VLM_GPU_TARGET_AND_GENERATION_STREAM_CONFIGURED_EXECUTION_UNPROVEN"
@@ -262,6 +286,9 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
             "vlm_default_device_observed": vlm_default_device_observed,
             "vlm_generation_stream_devices": vlm_generation_stream_devices,
             "vlm_scene_trace_snapshot_count": len(vlm_scene_trace_snapshots),
+            "vlm_scene_default_devices": vlm_scene_default_devices,
+            "vlm_scene_gpu_default_device_snapshot_count": vlm_scene_gpu_default_device_snapshot_count,
+            "vlm_scene_cpu_default_device_snapshot_count": vlm_scene_cpu_default_device_snapshot_count,
             "gpu_generation_stream_seen": gpu_generation_stream_seen,
             "vlm_runtime": vlm_runtime, "text_llm_runtime": llm_runtime,
             "mlx_reported": mlx_reported, "metal_reported": metal_reported,
@@ -274,7 +301,7 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
                 "Device values come from structured stage_timings.json, not from arbitrary stream-setup text.",
                 "gpu_stream_smoke_test proves only that a small arithmetic probe was explicitly scheduled on the GPU stream.",
                 "configured_device records the chosen target; default_device_observed is a process-global snapshot and may reflect another thread's mx.stream context.",
-                "Generation-stream snapshots prove configuration, not that every VLM operator executed on GPU.",
+                "Generation-stream and before/after scene-call device snapshots prove runtime wiring/default-device observations around those calls, not that every VLM operator executed on GPU.",
                 "powermetrics is system-wide and cannot attribute GPU activity to the VCE PID.",
                 "vmmap proves mappings, not execution; sample captures CPU stacks, not GPU kernels.",
                 "Per-operator GPU execution needs VLM-side instrumentation or a profiler that can attribute GPU work to the process.",
