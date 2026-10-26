@@ -16,15 +16,86 @@ import sys
 import textwrap
 from pathlib import Path
 
-MARKER = "# VCE_MLX_METAL_CPU_PARALLEL_V1"
+MARKER = "# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2"
 
 
 class PatchError(RuntimeError):
     pass
 
 
-RUNTIME_HELPERS = '''# VCE_MLX_METAL_CPU_PARALLEL_V1
+RUNTIME_HELPERS = '''# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2
 VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
+_VCE_MLX_WHISPER_LOCK = threading.Lock()
+
+
+def _vce_mlx_whisper_model_id(model_name: str) -> str:
+    """Map VCE's Whisper preset names to compatible MLX Whisper checkpoints."""
+    name = str(model_name).strip()
+    if not name:
+        raise ValueError("Whisper model name cannot be empty.")
+    if "/" in name or os.path.exists(name):
+        return name
+    key = name.lower().replace("_", "-")
+    aliases = {
+        "tiny": "mlx-community/whisper-tiny",
+        "base": "mlx-community/whisper-base",
+        "small": "mlx-community/whisper-small",
+        "medium": "mlx-community/whisper-medium",
+        "large": "mlx-community/whisper-large-v3-mlx",
+        "large-v1": "mlx-community/whisper-large-v1",
+        "large-v2": "mlx-community/whisper-large-v2",
+        "large-v3": "mlx-community/whisper-large-v3-mlx",
+        "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
+        "turbo": "mlx-community/whisper-large-v3-turbo",
+    }
+    if key in aliases:
+        return aliases[key]
+    raise ValueError(
+        f"Unsupported Whisper preset {name!r}. Use a known preset or a local/Hugging Face model path."
+    )
+
+
+class _VCEWhisperMLXCPU:
+    """mlx-whisper adapter that pins each MLX operation to a CPU thread-local stream."""
+
+    def __init__(self, model_name: str):
+        model_override = os.environ.get("VIDEOCONTEXT_MLX_WHISPER_MODEL", "").strip()
+        self.model_name = model_override or model_name
+        self.model_path = _vce_mlx_whisper_model_id(self.model_name)
+        self.device = "cpu"
+        print(
+            f"[VCE Whisper] backend=mlx-whisper device=cpu stream=mx.cpu "
+            f"model={self.model_path}; weights load on first transcription."
+        )
+
+    def transcribe(self, audio_path: str, **kwargs: Any) -> Dict[str, Any]:
+        import mlx.core as mx
+        import mlx_whisper
+
+        started = time.perf_counter()
+        cpu_stream = mx.new_thread_local_stream(mx.cpu)
+        with _VCE_MLX_WHISPER_LOCK:
+            with mx.stream(cpu_stream):
+                result = mlx_whisper.transcribe(
+                    audio_path,
+                    path_or_hf_repo=self.model_path,
+                    **kwargs,
+                )
+                mx.synchronize(cpu_stream)
+        elapsed = time.perf_counter() - started
+        VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"] = {
+            "backend": "mlx-whisper",
+            "device": "cpu",
+            "stream": "mx.cpu",
+            "model": self.model_path,
+            "inference_seconds_including_first_load": round(elapsed, 3),
+            "model_load_included_in_first_inference": True,
+        }
+        print(
+            "[VCE runtime] "
+            + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"], ensure_ascii=False, sort_keys=True)
+        )
+        return result
 
 
 def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
@@ -42,10 +113,9 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     if mx.default_device() != mx.gpu:
         raise RuntimeError(f"[VCE MLX] {stage}: failed to select the MLX GPU device.")
 
-    # Evaluate and synchronize a real GPU operation; no large model allocation.
     probe = mx.array([1.0, 2.0, 3.0]) * 2
     mx.eval(probe)
-    mx.synchronize()
+    mx.synchronize(mx.gpu)
     if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
         raise RuntimeError(f"[VCE MLX] {stage}: Metal smoke test returned an unexpected result.")
 
@@ -72,28 +142,13 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
 
 
 def resolve_whisper_device(acceleration_enabled: bool = True) -> str:
-    """Whisper is pinned to CPU so it can overlap with MLX/Metal inference."""
-    if acceleration_enabled:
-        print("[VCE Whisper] CPU/MLX parallel mode: legacy whisper_acceleration is ignored.")
-    device_override = os.environ.get("VIDEOCONTEXT_WHISPER_DEVICE", "cpu").strip().lower()
-    if device_override != "cpu":
-        raise RuntimeError(
-            "VCE parallel mode requires VIDEOCONTEXT_WHISPER_DEVICE=cpu; "
-            "Whisper GPU/MPS is incompatible with the requested CPU/GPU overlap."
-        )
+    """Whisper is pinned to MLX CPU stream to overlap with MLX/Metal inference."""
     return "cpu"
 
 
 def load_whisper_model(model_name: str, acceleration_enabled: bool = True):
-    """Load OpenAI Whisper explicitly on CPU."""
-    device = resolve_whisper_device(acceleration_enabled)
-    print(f"[VCE Whisper] Loading {model_name} on {device}; running concurrently with MLX/Metal.")
-    model = whisper.load_model(model_name, device="cpu")
-    actual = str(getattr(model, "device", "")).lower()
-    if actual not in {"cpu", "cpu:0"}:
-        raise RuntimeError(f"[VCE Whisper] Expected CPU model but got device={actual!r}.")
-    return model
-
+    """Return an mlx-whisper adapter; MLX model weights load inside the CPU stream."""
+    return _VCEWhisperMLXCPU(model_name)
 
 '''
 
@@ -108,11 +163,14 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_engine_text(text: str) -> str:
     if MARKER in text:
         return text
+    if "# VCE_MLX_METAL_CPU_PARALLEL_V1" in text:
+        raise PatchError("Detected previous CPU/Metal patch version. Restore the pre-patch backup before applying MLX Whisper CPU-stream v2.")
     required_tokens = [
         "def resolve_whisper_device(",
         "def run_text_llm_postprocess(",
         "class MLXEngine(VLMProvider):",
         "from mlx_vlm import load, generate",
+        "enable_mlx_whisper",
         "whisper_segments: List[Dict[str, Any]] = []",
         "if not skip_visual or generate_summary:",
         'set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам"',
@@ -221,8 +279,8 @@ def patch_engine_text(text: str) -> str:
                             )
                             whisper_load_time = time.time() - t0
 
-                        # Older RAM-mode caches may have been created with MPS enabled.
-                        w_model = await asyncio.to_thread(w_model.to, "cpu")
+                        # mlx-whisper assigns its operations to a thread-local mx.cpu stream.
+                        # Do not call .to("cpu"): MLX uses unified memory and explicit stream placement.
                         t_infer_start = time.perf_counter()
                         audio_res = await asyncio.to_thread(
                             w_model.transcribe,
@@ -400,6 +458,8 @@ def patch_engine_text(text: str) -> str:
     for marker in (
         MARKER,
         '_vce_run_whisper_cpu_stage',
+        'mlx_whisper.transcribe(',
+        'mx.new_thread_local_stream(mx.cpu)',
         '_vce_configure_mlx_metal("vlm")',
         '_vce_configure_mlx_metal("text_llm")',
         '"whisper_vlm_overlap_seconds"',
@@ -417,6 +477,7 @@ def patch_settings_text(text: str) -> str:
     if not isinstance(settings, dict):
         raise PatchError("Settings root must be a JSON object.")
     settings["whisper_acceleration"] = False
+    settings["enable_mlx_whisper"] = True
     settings["mlx_device"] = "metal"
     return json.dumps(settings, ensure_ascii=False, indent=2) + "\n"
 
@@ -454,8 +515,8 @@ def main() -> int:
 
     print("Preflight passed.")
     print(f"Engine: {args.engine} ({len(original_engine)} -> {len(patched_engine)} characters)")
-    print(f"Settings: {args.settings} (Whisper CPU, MLX device=metal)")
-    print("Changes: CPU Whisper scheduled concurrently with VLM scene analysis; both MLX stages fail closed unless Metal is available.")
+    print(f"Settings: {args.settings} (mlx-whisper on CPU stream, VLM/LLM on MLX/Metal)")
+    print("Changes: mlx-whisper CPU stream overlaps VLM scene inference on Metal; VLM and final text analysis require MLX/Metal.")
     if not args.apply:
         print("Dry run only. Re-run with --apply to write changes.")
         return 0
