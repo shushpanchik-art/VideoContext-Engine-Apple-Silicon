@@ -17,7 +17,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile helper and tests
-        run: python -m compileall -q scripts/mlx_metal_runtime.py scripts/verify_mlx_metal_runtime.py tests/test_mlx_metal_runtime.py
-      - name: Run hardware-independent tests
+      - name: Compile helpers, patcher and tests
+        run: python -m compileall -q scripts/mlx_metal_runtime.py scripts/verify_mlx_metal_runtime.py scripts/apply_vce_mlx_metal_patch.py tests/test_mlx_metal_runtime.py tests/test_vce_mlx_metal_patcher.py
+      - name: Run hardware-independent runtime tests
         run: python -m unittest discover -s tests -p 'test_mlx_metal_runtime.py' -v
+      - name: Run source patcher tests
+        run: python -m unittest discover -s tests -p 'test_vce_mlx_metal_patcher.py' -v
