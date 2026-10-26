@@ -357,6 +357,34 @@ def patch_engine_text(text: str) -> str:
     cap_end = cap_match.end()
     scene_indent = cap_match.group("indent")
     text = text[:cap_end] + "\n" + scene_indent + "_vce_vlm_scene_started_at = time.perf_counter()" + text[cap_end:]
+    scene_helper = r'''
+_vce_prefetch_tasks: Dict[int, asyncio.Task] = {}
+_vce_cpu_prefetch_seconds = 0.0
+
+async def _vce_prepare_scene_keyframes_cpu(_scene: Dict[str, Any]):
+    nonlocal _vce_cpu_prefetch_seconds
+    _started = time.perf_counter()
+
+    def _prepare():
+        _prefetch_cap = cv2.VideoCapture(temp_path)
+        try:
+            return sample_keyframes_for_scene(
+                _prefetch_cap,
+                _scene,
+                base_res=vlm_resolution,
+                max_frames=keyframes_per_scene,
+            )
+        finally:
+            _prefetch_cap.release()
+
+    _frames = await asyncio.to_thread(_prepare)
+    _vce_cpu_prefetch_seconds += time.perf_counter() - _started
+    return _frames
+'''
+    scene_helper = "\n" + textwrap.indent(textwrap.dedent(scene_helper).strip("\n"), scene_indent) + "\n"
+    _scene_started_line = scene_indent + "_vce_vlm_scene_started_at = time.perf_counter()"
+    _scene_started_pos = text.index(_scene_started_line) + len(_scene_started_line)
+    text = text[:_scene_started_pos] + scene_helper + text[_scene_started_pos:]
 
     loop_re = re.compile(r"(?m)^(?P<indent>[ \t]*)for idx, scene in enumerate\(scenes_raw\):\s*$")
     loop_matches = [m for m in loop_re.finditer(text, cap_end) if len(m.group("indent")) >= len(scene_indent)]
@@ -365,6 +393,53 @@ def patch_engine_text(text: str) -> str:
     loop_match = loop_matches[0]
     loop_indent = loop_match.group("indent")
     loop_line_end = loop_match.end()
+
+    # Replace synchronous keyframe sampling with a one-scene-ahead CPU prefetch.
+    keyframes_re = re.compile(
+        r"(?m)^(?P<indent>[ \t]*)keyframes = sample_keyframes_for_scene\(\r?\n"
+        r"(?P=indent)    cap,\r?\n"
+        r"(?P=indent)    scene,\r?\n"
+        r"(?P=indent)    base_res=vlm_resolution,\r?\n"
+        r"(?P=indent)    max_frames=keyframes_per_scene,\r?\n"
+        r"(?P=indent)\)"
+    )
+    keyframes_matches = list(keyframes_re.finditer(text, loop_line_end))
+    if len(keyframes_matches) != 1:
+        raise PatchError(f"Expected one scene keyframe sampling block, found {len(keyframes_matches)}.")
+    _kf_match = keyframes_matches[0]
+    _kf_indent = _kf_match.group("indent")
+    _kf_replacement = (
+        _kf_indent + "_vce_prefetch_task = _vce_prefetch_tasks.pop(idx, None)\n"
+        + _kf_indent + "if _vce_prefetch_task is not None:\n"
+        + _kf_indent + "    keyframes = await _vce_prefetch_task\n"
+        + _kf_indent + "else:\n"
+        + _kf_indent + "    keyframes = sample_keyframes_for_scene(\n"
+        + _kf_indent + "        cap,\n"
+        + _kf_indent + "        scene,\n"
+        + _kf_indent + "        base_res=vlm_resolution,\n"
+        + _kf_indent + "        max_frames=keyframes_per_scene,\n"
+        + _kf_indent + "    )"
+    )
+    text = text[:_kf_match.start()] + _kf_replacement + text[_kf_match.end():]
+
+    # Start preparing the next scene immediately before current-scene GPU inference.
+    _vlm_start_matches = list(re.finditer(
+        r"(?m)^(?P<indent>[ \t]*)t_vlm_start = time\.time\(\)\s*$",
+        text[_kf_match.start():],
+    ))
+    if not _vlm_start_matches:
+        raise PatchError("Could not find VLM inference timer for one-scene-ahead prefetch.")
+    _vlm_start = _vlm_start_matches[0]
+    _vlm_start_pos = _kf_match.start() + _vlm_start.start()
+    _vlm_indent = _vlm_start.group("indent")
+    _prefetch_code = (
+        _vlm_indent + "if idx + 1 < len(scenes_raw) and (idx + 1) not in _vce_prefetch_tasks:\n"
+        + _vlm_indent + "    _vce_prefetch_tasks[idx + 1] = asyncio.create_task(\n"
+        + _vlm_indent + "        _vce_prepare_scene_keyframes_cpu(scenes_raw[idx + 1])\n"
+        + _vlm_indent + "    )\n"
+    )
+    text = text[:_vlm_start_pos] + _prefetch_code + text[_vlm_start_pos:]
+
     loop_insert = (
         "\n" + loop_indent + "    if _vce_whisper_task is not None and _vce_whisper_task.done():"
         + "\n" + loop_indent + "        whisper_segments = _vce_whisper_task.result()"
@@ -431,6 +506,7 @@ def patch_engine_text(text: str) -> str:
         '                "whisper_device": "cpu",\n'
         '                "whisper_runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),\n'
         '                "whisper_vlm_overlap_seconds": round(_vce_overlap_seconds, 3) if "_vce_overlap_seconds" in locals() else 0.0,\n'
+        '                "cpu_keyframe_prefetch_seconds": round(_vce_cpu_prefetch_seconds, 3) if "_vce_cpu_prefetch_seconds" in locals() else 0.0,\n'
         '            },'
     )
     text = _replace_once(text, vlm_timing_anchor, vlm_timing_replacement, "Runtime telemetry")
@@ -466,6 +542,11 @@ def patch_engine_text(text: str) -> str:
         "                await _vce_pending_whisper_task\n"
         "            except BaseException:\n"
         "                # Preserve the original endpoint exception; the task is now observed.\n"
+        "                pass\n"
+        "        for _vce_prefetch in locals().get('_vce_prefetch_tasks', {}).values():\n"
+        "            try:\n"
+        "                await _vce_prefetch\n"
+        "            except BaseException:\n"
         "                pass\n"
         "        if cap is not None:"
     )
