@@ -30,7 +30,7 @@ python -c 'import platform,sys; print(platform.machine(), sys.executable)'
 python -m pip install -U mlx mlx-vlm mlx-lm openai-whisper
 ~~~
 
-The separate summary worker environment also needs mlx and mlx-lm; the engine environment needs mlx and mlx-vlm. Keep separate dependency sets if the APIs have incompatible constraints, but copy/import scripts/mlx_metal_runtime.py from both environments. Resolve dependencies against the project's current pinned versions before upgrading the live service.
+The customized engine path shown in the source snapshot uses `mlx-vlm` both for scene VLM and the final text-analysis call, so its engine environment needs `mlx` and `mlx-vlm`. If the newer local branch has replaced the final summary with a standalone `mlx-lm` worker, that separate worker must call the same GPU setup before `mlx_lm.load()`; do not assume setting the device in another process configures it. Resolve dependencies against the project's current pinned versions before upgrading the live service.
 
 ## Wire into the customized engine
 
