@@ -1,0 +1,20 @@
+name: VCE optimization checkbox patch validation
+
+on:
+  push:
+    branches: [feat/vce-optimization-checkboxes-20261025]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile patcher
+        run: python -m py_compile patches/patch_vce_optimization_checkboxes.py
+      - name: Run patcher unit tests
+        run: python -m unittest tests.test_vce_optimization_checkboxes -v
