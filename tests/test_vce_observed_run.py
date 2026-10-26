@@ -66,6 +66,8 @@ class ObservedRunHelpersTests(unittest.TestCase):
                             "enable_stage_timing": {"type": "boolean", "default": False},
                             "enable_mlx_whisper": {"type": "boolean", "default": False},
                             "text_llm_enabled": {"type": "boolean", "default": False},
+                            "visual_user_prompt": {"type": "string", "maxLength": 1000, "default": "short default"},
+                            "summary_user_prompt": {"type": "string", "maxLength": 2000, "default": "short summary"},
                             "job_id": {"type": "string", "default": ""},
                         }
                     }
@@ -75,7 +77,18 @@ class ObservedRunHelpersTests(unittest.TestCase):
         props, progress_path = get_form_schema(spec)
         self.assertIn("video_file", props)
         self.assertEqual(progress_path, "/api/v1/progress/{job_id}")
-        fields, origins = resolve_form_fields({}, props)
+        long_prompts = {
+            "visual_user_prompt": "v" * 1420,
+            "summary_user_prompt": "s" * 2138,
+        }
+        fields, origins = resolve_form_fields(long_prompts, props)
+        # Saved prompts exceed OpenAPI field limits, so the observed runner must omit
+        # them and let the running VCE use its persisted values rather than truncate.
+        self.assertNotIn("visual_user_prompt", fields)
+        self.assertNotIn("summary_user_prompt", fields)
+        self.assertIn("visual_user_prompt", origins)
+        self.assertIn("omitted from multipart", origins["visual_user_prompt"])
+        self.assertEqual(validate_prompt_limits(fields, props), [])
         self.assertEqual(fields["skip_audio"], False)
         self.assertEqual(fields["skip_visual"], False)
         self.assertEqual(fields["analysis_mode"], "full")
