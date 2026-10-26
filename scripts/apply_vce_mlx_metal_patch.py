@@ -328,6 +328,125 @@ def _vce_prepare_mlx_vlm_runtime():
 '''
 
 
+
+MLX_VLM_RUNTIME_TRACE_MARKER = "# VCE_MLX_VLM_RUNTIME_TRACE_V1"
+
+MLX_VLM_RUNTIME_TRACE_HELPER = '''# VCE_MLX_VLM_RUNTIME_TRACE_V1
+import sys as _vce_mlx_trace_sys
+import threading as _vce_mlx_trace_threading
+
+
+def _vce_mlx_trace_stream(value):
+    if value is None:
+        return None
+    try:
+        device = str(value.device)
+    except Exception:
+        device = None
+    return {"type": type(value).__name__, "repr": repr(value), "device": device}
+
+
+def _vce_mlx_trace_runtime(phase: str, function_name: str, error: str = "") -> None:
+    # Snapshot the executor thread around the VCE call into mlx-vlm.
+    # This records device/stream wiring, not per-operator GPU execution.
+    trace = {
+        "phase": phase,
+        "function": function_name,
+        "pid": os.getpid(),
+        "thread_name": _vce_mlx_trace_threading.current_thread().name,
+        "thread_ident": _vce_mlx_trace_threading.get_ident(),
+        "thread_native_id": getattr(_vce_mlx_trace_threading, "get_native_id", lambda: None)(),
+    }
+    if error:
+        trace["error"] = error[:1000]
+    try:
+        import mlx.core as mx
+        trace["mlx_default_device"] = str(mx.default_device())
+        trace["mlx_gpu_available"] = bool(mx.is_available(mx.gpu))
+        trace["metal_available"] = bool(mx.metal.is_available())
+        for label, getter in (
+            ("default_gpu_stream", lambda: mx.default_stream(mx.gpu)),
+            ("default_cpu_stream", lambda: mx.default_stream(mx.cpu)),
+        ):
+            try:
+                trace[label] = _vce_mlx_trace_stream(getter())
+            except Exception as exc:
+                trace[label] = {"error": repr(exc)[:500]}
+    except Exception as exc:
+        trace["mlx_snapshot_error"] = repr(exc)[:1000]
+
+    for module_name in ("mlx_vlm.generate.common", "mlx_vlm.generate.dispatch"):
+        module = _vce_mlx_trace_sys.modules.get(module_name)
+        if module is None:
+            trace[module_name + ".loaded"] = False
+            continue
+        trace[module_name + ".loaded"] = True
+        try:
+            trace[module_name + ".generation_stream"] = _vce_mlx_trace_stream(
+                getattr(module, "generation_stream", None)
+            )
+        except Exception as exc:
+            trace[module_name + ".generation_stream_error"] = repr(exc)[:500]
+    print("[VCE MLX TRACE] " + json.dumps(trace, ensure_ascii=False, sort_keys=True), flush=True)
+
+
+def _vce_mlx_invoke_traced(fn, *args, **kwargs):
+    function_name = (
+        str(getattr(fn, "__module__", "unknown")) + "." +
+        str(getattr(fn, "__qualname__", getattr(fn, "__name__", type(fn).__name__)))
+    )
+    lower_name = function_name.lower()
+    should_trace = any(token in lower_name for token in (
+        "load_model", "describe_scene", "run_text_llm_postprocess"
+    ))
+    if should_trace:
+        _vce_mlx_trace_runtime("before", function_name)
+    try:
+        result = fn(*args, **kwargs)
+    except BaseException as exc:
+        if should_trace:
+            _vce_mlx_trace_runtime("error", function_name, repr(exc))
+        raise
+    if should_trace:
+        _vce_mlx_trace_runtime("after", function_name)
+    return result
+
+'''
+
+
+def patch_mlx_vlm_runtime_trace(text: str) -> str:
+    """Add idempotent diagnostics around MLX-VLM work on the dedicated executor."""
+    if MLX_VLM_RUNTIME_TRACE_MARKER in text:
+        required = (
+            "_vce_mlx_invoke_traced",
+            '_vce_mlx_trace_runtime("before"',
+            "mlx_vlm.generate.common",
+            "mlx_vlm.generate.dispatch",
+        )
+        if not all(token in text for token in required):
+            raise PatchError("VLM trace marker exists but runtime instrumentation is incomplete.")
+        return text
+
+    anchor = (
+        "    call = _vce_mlx_functools.partial(fn, *args, **kwargs)\n"
+        "    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)\n"
+    )
+    if text.count(anchor) != 1:
+        raise PatchError("Could not locate exactly one MLX executor dispatch for runtime tracing.")
+    replacement = (
+        "    call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)\n"
+        "    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)\n\n"
+        + MLX_VLM_RUNTIME_TRACE_HELPER
+        + "\n"
+    )
+    text = text.replace(anchor, replacement, 1)
+    for token in (MLX_VLM_RUNTIME_TRACE_MARKER, "_vce_mlx_trace_runtime", "_vce_mlx_invoke_traced"):
+        if token not in text:
+            raise PatchError(f"VLM runtime trace validation failed: missing {token!r}.")
+    return text
+
+
+
 def patch_mlx_vlm_runtime_compat(text: str) -> str:
     """Apply the mlx-vlm 0.7.10 CPU-device-info compatibility and stream rebinding."""
     if MLX_VLM_WIRED_LIMIT_COMPAT_MARKER in text:
@@ -338,7 +457,7 @@ def patch_mlx_vlm_runtime_compat(text: str) -> str:
         )
         if not all(item in text for item in required):
             raise PatchError("The MLX-VLM compatibility marker exists but its implementation is incomplete.")
-        return text
+        return patch_mlx_vlm_runtime_trace(text)
 
     executor_anchor = "    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)\n"
     if text.count(executor_anchor) != 1:
@@ -370,7 +489,7 @@ def patch_mlx_vlm_runtime_compat(text: str) -> str:
     ):
         if required not in text:
             raise PatchError(f"MLX-VLM compatibility validation failed: missing {required!r}.")
-    return text
+    return patch_mlx_vlm_runtime_trace(text)
 
 
 def _replace_once(text: str, old: str, new: str, label: str) -> str:
