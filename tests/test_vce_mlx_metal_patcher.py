@@ -149,7 +149,28 @@ class PatchTests(unittest.TestCase):
         self.assertIn('_vce_run_whisper_cpu_stage', patched)
         self.assertIn('await _vce_whisper_task', patched)
         self.assertIn('"whisper_vlm_overlap_seconds"', patched)
+        self.assertIn(patcher.MLX_VLM_RUNTIME_TRACE_MARKER, patched)
+        self.assertIn("_vce_mlx_invoke_traced", patched)
+        self.assertIn("_vce_mlx_trace_runtime", patched)
+        self.assertIn("thread_native_id", patched)
+        self.assertIn("mlx_vlm.generate.common", patched)
+        self.assertIn("mlx_vlm.generate.dispatch", patched)
         self.assertEqual(patcher.patch_engine_text(patched), patched)
+
+    def test_existing_patched_engine_is_upgraded_with_runtime_trace(self):
+        fully_patched = patcher.patch_engine_text(FIXTURE)
+        self.assertIn(patcher.MLX_VLM_RUNTIME_TRACE_MARKER, fully_patched)
+        legacy = fully_patched.replace(patcher.MLX_VLM_RUNTIME_TRACE_HELPER + "\\n", "")
+        legacy = legacy.replace(
+            "_vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)",
+            "_vce_mlx_functools.partial(fn, *args, **kwargs)",
+        )
+        self.assertNotIn(patcher.MLX_VLM_RUNTIME_TRACE_MARKER, legacy)
+        upgraded = patcher.patch_engine_text(legacy)
+        compile(upgraded, "upgraded_runtime_trace_engine.py", "exec")
+        self.assertIn(patcher.MLX_VLM_RUNTIME_TRACE_MARKER, upgraded)
+        self.assertIn("_vce_mlx_trace_runtime", upgraded)
+        self.assertEqual(patcher.patch_engine_text(upgraded), upgraded)
 
     def test_whisper_block_with_custom_initializers_is_supported(self):
         old = "                whisper_segments: List[Dict[str, Any]] = []\n\n                if not skip_audio:"
