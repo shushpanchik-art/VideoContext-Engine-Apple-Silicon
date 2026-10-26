@@ -342,6 +342,21 @@ def patch_engine_text(text: str) -> str:
     )
     text = _replace_once(text, text_llm_timing_anchor, text_llm_timing_replacement, "Text LLM telemetry")
 
+    # Do not delete a temporary video file while a worker-thread ASR call is still using it.
+    finally_anchor = "    finally:\\n        if cap is not None:"
+    finally_replacement = (
+        "    finally:\\n"
+        "        _vce_pending_whisper_task = locals().get('\\\"_vce_whisper_task\\\"')\\n"
+        "        if _vce_pending_whisper_task is not None:\\n"
+        "            try:\\n"
+        "                await _vce_pending_whisper_task\\n"
+        "            except BaseException:\\n"
+        "                # Preserve the original endpoint exception; the task is now observed.\\n"
+        "                pass\\n"
+        "        if cap is not None:"
+    )
+    text = _replace_once(text, finally_anchor, finally_replacement, "ASR task cleanup")
+
     # Guard against accidental partial edits.
     for marker in (
         MARKER,
