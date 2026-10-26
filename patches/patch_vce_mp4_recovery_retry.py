@@ -70,6 +70,7 @@ UPDATED_RECOVERY = r'''def _vce_validate_video_with_remux(video_path, force_remu
     for label, codec_args in strategies:
         fd, candidate = tempfile.mkstemp(prefix="vce_mp4_recovery_", suffix=".mp4")
         os.close(fd)
+        candidate_valid = False
         try:
             command = [
                 ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
@@ -94,6 +95,7 @@ UPDATED_RECOVERY = r'''def _vce_validate_video_with_remux(video_path, force_remu
                         "оригинальный файл не менялся."
                     )
                     print("✅ [MP4 recovery] " + note)
+                    candidate_valid = True
                     return duration, candidate, note
                 except Exception as verify_exc:
                     err = str(getattr(verify_exc, "detail", None) or verify_exc)
@@ -105,9 +107,8 @@ UPDATED_RECOVERY = r'''def _vce_validate_video_with_remux(video_path, force_remu
         except Exception as recovery_exc:
             failures.append(f"{label}: {type(recovery_exc).__name__}: {recovery_exc}")
         finally:
-            # A successful candidate is returned above, so this cleanup only runs
-            # for unsuccessful attempts.
-            if os.path.exists(candidate):
+            # Preserve the successful file for analyze_video; remove only failed attempts.
+            if not candidate_valid and os.path.exists(candidate):
                 try:
                     os.remove(candidate)
                 except OSError:
