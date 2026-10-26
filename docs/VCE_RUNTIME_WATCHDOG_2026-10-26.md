@@ -164,14 +164,24 @@ python3 "$HOME/Downloads/VCE-watchdog-repo/scripts/vce_runtime_watchdog.py" \
 
 В `watchdog_verdict.md` нужно проверить `VLM device` из API-таймингов и отдельно `runtime_trace_snapshots`. Ключевые поля: `mlx_default_device`, `common_generation_stream.device`, `dispatch_generation_stream.device`, `thread_name` и `thread_ident`. В `process_resource_summary.json` ожидается числовой `max_observed_rss_mib`; при отсутствии выборок сначала читать `ps_parser_diagnostics.jsonl`.
 
+## CI-проверка изменений
+
+На ветке PR все три соответствующие проверки завершились успешно после фиксов парсера и runtime trace:
+
+- [VCE Runtime Watchdog tests — run 4](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/40406717935): компиляция watchdog/patcher, тесты парсинга RSS и классификации runtime evidence, тесты upgrade и генерации патчера.
+- [MLX Metal helper tests — run 114](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/40406718054): аппаратно-независимые runtime-тесты и тесты патчера.
+- [VCE quality benchmark tests — run 80](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/40406718050): компиляция всех изменённых скриптов и набор test_vce_*.py.
+
+Это подтверждает статический код и тестовые случаи, но не заменяет повторный запуск на Mac с установленным VideoContext Engine.
+
 ## 9. Итог и план дальнейшей проверки
 
 1. Полный end-to-end pipeline работает: API 200, 14 сцен, Whisper, VLM, OCR и итоговая Text LLM сводка завершились.
 2. Runtime сообщает MLX 0.32.4 и Metal; Whisper явно направлен на mx.cpu, Text LLM сообщает Device(gpu, 0), а VLM сообщает Device(cpu, 0).
 3. Зависания на 96,6% не видно: генерация продолжалась и число токенов росло.
-4. Наибольший видимый RSS — около 6,96 GiB; собственный RSS-summary watchdog сломан на локализованной запятой, поэтому точный максимум и системное memory pressure требуют raw JSONL.
-5. Из текущего вывода нельзя подтвердить успешные GPU power-сэмплы, vmmap или stack snapshots.
-6. Исправить parser ps и классификацию VLM device-маркеров, добавить регрессионные тесты и затем повторить watchdog без других параллельных задач.
-7. Для окончательного установления device placement инструментировать локальный исходник VLM непосредственно внутри executor. Повторный производительный прогон выполнять после проверки и с теми же настройками, отдельно от профилирующего запуска.
+4. Наибольший RSS среди показанных старых runner-сэмплов — около 6,96 GiB. В первом watchdog v1 собственный RSS-summary был None из-за decimal-comma parser bug; watchdog v2 включает исправленный парсер и диагностику ps. Точный максимум по всему новому прогону и системное memory pressure ещё нужно измерить повторно.
+5. В старом запуске нет достаточных данных, чтобы подтвердить успешные GPU power-сэмплы, vmmap или stack snapshots.
+6. Исправления парсера/классификатора и runtime-трассировка уже закоммичены и прошли CI; локальное фактическое исполнение с новыми trace markers ещё не запускалось.
+7. Следующий шаг — обновить локальный checkout, применить патчер с созданием бэкапа, перезапустить приложение и запустить watchdog v2 без параллельных задач. Разбор trace snapshots должен показать фактические mx.default_device() и generation-stream поля внутри VLM executor. Это проверяет wiring; для доказательства исполнения каждого оператора всё ещё нужен низкоуровневый GPU profiler или инструментирование mlx-vlm.
 
 Этот документ фиксирует только агрегированные тайминги и диагностические выводы. Видео, полный ответ API и транскрипция не включены.
