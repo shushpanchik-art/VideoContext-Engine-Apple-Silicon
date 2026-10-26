@@ -169,7 +169,7 @@ class PatchTests(unittest.TestCase):
             "                for idx, scene in enumerate(scenes_raw):",
             "                cap = cv2.VideoCapture(temp_path)\\n"
             "                _vce_frame_prefetch_queue = None\\n"
-            "                _vce_frame_prefetch_stats = {\\"worker_seconds\\": 0.1}\\n"
+            "                _vce_frame_prefetch_stats = dict(worker_seconds=0.1)\\n"
             "                # _vce_start_bounded_keyframe_prefetch already exists in this engine variant\\n"
             "                for idx, scene in enumerate(scenes_raw):",
         )
