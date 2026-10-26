@@ -13,7 +13,7 @@ fail() { printf 'ОШИБКА: %s\n' "$*" >&2; exit 2; }
 printf '%s\n' \
   "VideoContext Engine — bounded prefetch кадров CPU → GPU" \
   "Проект: $PROJECT" \
-  "Очередь кадров: максимум 2 сцены" \
+  "Очередь кадров: 1 ожидающая сцена + не более 1 сцены в работе" \
   "Патч берётся из GitHub: $BRANCH" \
   ""
 
