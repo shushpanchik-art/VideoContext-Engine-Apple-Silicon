@@ -133,7 +133,7 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     # CPU in this thread. Do not use that shared snapshot as the probe target
     # or as a fail-fast check. Pin the probe operations to the GPU stream.
     gpu_probe_stream = mx.default_stream(mx.gpu)
-    probe = mx.ones((3,), stream=gpu_probe_stream)
+    probe = mx.arange(1, 4, stream=gpu_probe_stream)
     probe = mx.multiply(probe, 2, stream=gpu_probe_stream)
     mx.eval(probe)
     mx.synchronize(gpu_probe_stream)
@@ -489,6 +489,18 @@ def patch_mlx_gpu_diagnostics(text: str) -> str:
         )
         if not all(token in text for token in required):
             raise PatchError("Explicit GPU-probe marker exists but diagnostic upgrade is incomplete.")
+        # V1 generated a constant ones vector but compared it to [2, 4, 6],
+        # so every patched engine failed its probe before loading the VLM.
+        # Repair that already-marked engine in place so --apply is a safe upgrade.
+        faulty_probe = "probe = mx.ones((3,), stream=gpu_probe_stream)"
+        if faulty_probe in text:
+            if text.count(faulty_probe) != 1:
+                raise PatchError("GPU probe repair: expected one faulty constant-vector probe.")
+            text = text.replace(
+                faulty_probe,
+                "probe = mx.arange(1, 4, stream=gpu_probe_stream)",
+                1,
+            )
         return text
 
     old_probe = '''    mx.set_default_device(mx.gpu)
@@ -508,7 +520,7 @@ def patch_mlx_gpu_diagnostics(text: str) -> str:
     # CPU in this thread. Do not use that shared snapshot as the probe target
     # or as a fail-fast check. Pin the probe operations to the GPU stream.
     gpu_probe_stream = mx.default_stream(mx.gpu)
-    probe = mx.ones((3,), stream=gpu_probe_stream)
+    probe = mx.arange(1, 4, stream=gpu_probe_stream)
     probe = mx.multiply(probe, 2, stream=gpu_probe_stream)
     mx.eval(probe)
     mx.synchronize(gpu_probe_stream)
