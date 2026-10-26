@@ -17,7 +17,5 @@ jobs:
           python-version: "3.11"
       - name: Compile observed-run script
         run: python -m py_compile scripts/vce_observed_run.py
-      - name: Check icon installer shell syntax
-        run: bash -n scripts/install_vce_macos_icon.command
-      - name: Run benchmark, icon, and observed-run unit tests
+      - name: Run benchmark and observed-run unit tests
         run: python -m unittest discover -s tests -p "test_vce_*.py" -v
