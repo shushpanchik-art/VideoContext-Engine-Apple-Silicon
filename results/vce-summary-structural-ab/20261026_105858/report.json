@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "experiment": "vce-summary-structural-index-ab",
+  "run_timestamp_local": "2026-10-26 10:58:58",
+  "host": {
+    "platform": "macOS",
+    "architecture": "arm64",
+    "cpu": "Apple M1 Max",
+    "unified_memory_gb": 32
+  },
+  "input": {
+    "checkpoint": "evidence_checkpoint.json",
+    "scene_count": 14,
+    "video_pipeline_rerun": false,
+    "cpu_generative_prefilter_used": false
+  },
+  "model": {
+    "id": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "worker_python": "~/.venvs/vce-summary-prefilter/bin/python"
+  },
+  "candidate_a": {
+    "name": "full_evidence",
+    "context_characters": 33153,
+    "prompt_tokens": 12882,
+    "summary_generation_seconds": 71.851
+  },
+  "candidate_b": {
+    "name": "structural_index",
+    "context_characters": 48019,
+    "prompt_tokens": 22907,
+    "summary_generation_seconds": 101.343,
+    "index_build_seconds": 0.009,
+    "unique_evidence_strings": 53,
+    "exact_duplicate_occurrences_collapsed": 0
+  },
+  "comparison": {
+    "context_characters_change_percent": 44.84,
+    "prompt_tokens_change_percent": 77.82,
+    "summary_generation_time_change_percent": 41.04,
+    "summary_generation_time_delta_seconds": 29.492,
+    "optimization_success": false
+  },
+  "validation": {
+    "py_compile": "passed on user's Mac",
+    "ab_run": "completed from user-supplied terminal output",
+    "full_test_suite": "not independently verified in this environment"
+  },
+  "local_output_directory": "~/Desktop/VCE-Summary-Structural-AB-20261026_105858",
+  "privacy": {
+    "candidate_summaries_uploaded": false,
+    "video_derived_evidence_uploaded": false
+  }
+}
