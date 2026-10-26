@@ -146,7 +146,8 @@ class PatchTests(unittest.TestCase):
         self.assertNotIn('w_model.to, "cpu"', patched)
         self.assertIn('_vce_configure_mlx_metal("vlm")', patched)
         self.assertIn('_vce_configure_mlx_metal("text_llm")', patched)
-        self.assertIn('mx.ones((3,), stream=gpu_probe_stream)', patched)
+        self.assertIn('mx.arange(1, 4, stream=gpu_probe_stream)', patched)
+        self.assertNotIn('mx.ones((3,), stream=gpu_probe_stream)', patched)
         self.assertIn('mx.multiply(probe, 2, stream=gpu_probe_stream)', patched)
         self.assertIn('mx.synchronize(gpu_probe_stream)', patched)
         self.assertIn('"device": str(mx.gpu)', patched)
@@ -166,6 +167,19 @@ class PatchTests(unittest.TestCase):
         self.assertIn("mlx_vlm.generate.common", patched)
         self.assertIn("mlx_vlm.generate.dispatch", patched)
         self.assertEqual(patcher.patch_engine_text(patched), patched)
+
+    def test_marked_gpu_probe_repairs_the_constant_vector_regression(self):
+        patched = patcher.patch_engine_text(FIXTURE)
+        faulty = patched.replace(
+            "probe = mx.arange(1, 4, stream=gpu_probe_stream)",
+            "probe = mx.ones((3,), stream=gpu_probe_stream)",
+            1,
+        )
+        self.assertIn(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, faulty)
+        repaired = patcher.patch_engine_text(faulty)
+        self.assertIn("probe = mx.arange(1, 4, stream=gpu_probe_stream)", repaired)
+        self.assertNotIn("probe = mx.ones((3,), stream=gpu_probe_stream)", repaired)
+        self.assertEqual(patcher.patch_engine_text(repaired), repaired)
 
     def test_existing_patched_engine_is_upgraded_with_runtime_trace(self):
         fully_patched = patcher.patch_engine_text(FIXTURE)
@@ -203,7 +217,7 @@ class PatchTests(unittest.TestCase):
     # CPU in this thread. Do not use that shared snapshot as the probe target
     # or as a fail-fast check. Pin the probe operations to the GPU stream.
     gpu_probe_stream = mx.default_stream(mx.gpu)
-    probe = mx.ones((3,), stream=gpu_probe_stream)
+    probe = mx.arange(1, 4, stream=gpu_probe_stream)
     probe = mx.multiply(probe, 2, stream=gpu_probe_stream)
     mx.eval(probe)
     mx.synchronize(gpu_probe_stream)
