@@ -6,6 +6,7 @@ import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS))
@@ -14,6 +15,25 @@ import benchmark_vce_summary_prefilter as exp  # noqa: E402
 
 
 class SummaryPrefilterTests(unittest.TestCase):
+    @patch.object(exp.subprocess, "run")
+    def test_worker_environment_probe_reports_missing_mlx_lm(self, mocked_run):
+        mocked_run.return_value = type("Probe", (), {
+            "returncode": 1, "stdout": "",
+            "stderr": "ModuleNotFoundError: No module named 'mlx_lm'\n"
+        })()
+        ok, detail = exp.check_worker_environment("/tmp/python")
+        self.assertFalse(ok)
+        self.assertIn("mlx_lm", detail)
+
+    @patch.object(exp.subprocess, "run")
+    def test_worker_environment_probe_accepts_successful_imports(self, mocked_run):
+        mocked_run.return_value = type("Probe", (), {
+            "returncode": 0, "stdout": "MLX_LM_IMPORT_OK\n", "stderr": ""
+        })()
+        ok, detail = exp.check_worker_environment("/tmp/python")
+        self.assertTrue(ok)
+        self.assertEqual(detail, "")
+
     def test_scene_records_keep_raw_evidence_but_drop_derived_fields(self):
         payload = {
             "meta": {"source": "/private/video.mp4", "global_summary": "A summary"},
