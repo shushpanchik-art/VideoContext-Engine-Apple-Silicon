@@ -43,6 +43,11 @@ NUMBER_RE = re.compile(
     r"MPa|kPa|Hz|kHz|MHz|GHz|dB|dBm|mm|cm|km|kg|mg|ml|mL|L|W|kW|MW|V|kV|A|mA|fps))?"
     r"(?![\w])"
 )
+QUOTED_RE = re.compile(r'«[^»\n]{2,100}»|“[^”\n]{2,100}”|"[^"\n]{2,100}"')
+CAPITALIZED_PHRASE_RE = re.compile(
+    r"(?<![\w])(?:[А-ЯЁ][а-яё]{2,}|[A-Z][a-z]{2,})"
+    r"(?:[ -]+(?:[А-ЯЁ][а-яё]{2,}|[A-Z][a-z]{2,})){1,2}(?![\w])"
+)
 ACRONYM_RE = re.compile(r"(?<![\w])[A-ZА-ЯЁ][A-ZА-ЯЁ0-9]{1,}(?:[-/][A-ZА-ЯЁ0-9]{1,})*(?![\w])")
 FIELD_SPECS = (
     ("A", "audio", "AUDIO"),
@@ -134,15 +139,20 @@ def build_structural_index(rows: list[dict], max_anchor_values: int = 180) -> tu
                     anchors[key] = record
                 if entry["code"] not in record["evidence_codes"]:
                     record["evidence_codes"].append(entry["code"])
-                if kind in ("STANDARD", "DATE"):
+                if kind in ("STANDARD", "DATE", "QUOTED", "CAPITALIZED_PHRASE"):
                     occupied.append((match.start(), match.end()))
 
         add_matches("STANDARD", STANDARD_RE)
         add_matches("DATE", DATE_RE, exclude_overlap=True)
+        add_matches("QUOTED", QUOTED_RE, exclude_overlap=True)
+        add_matches("CAPITALIZED_PHRASE", CAPITALIZED_PHRASE_RE, exclude_overlap=True)
         add_matches("NUMBER", NUMBER_RE, exclude_overlap=True)
         add_matches("ACRONYM", ACRONYM_RE, exclude_overlap=True)
 
-    priority = {"STANDARD": 0, "DATE": 1, "NUMBER": 2, "ACRONYM": 3}
+    priority = {
+        "STANDARD": 0, "DATE": 1, "NUMBER": 2, "QUOTED": 3,
+        "CAPITALIZED_PHRASE": 4, "ACRONYM": 5,
+    }
     anchor_list = sorted(anchors.values(), key=lambda item: (priority[item["kind"]], item["value"]))
     rendered_anchors = anchor_list[:max_anchor_values]
     entry_by_code = {entry["code"]: entry for entry in entries}
@@ -158,15 +168,15 @@ def build_structural_index(rows: list[dict], max_anchor_values: int = 180) -> tu
     lines = [
         "DETERMINISTIC SOURCE-LINKED SCENE INDEX",
         "No generative paraphrasing was used. Evidence text below is copied from the saved VCE fields.",
-        "SCENE MAP: each S value points to the original scene ID/time; A=audio, V=visual description, O=OCR, T=visual tags.",
+        "SCENE MAP references use the original scene ID plus timestamp; A=audio, V=visual description, O=OCR, T=visual tags.",
         "Exact duplicate field strings are listed once in EVIDENCE and linked to every occurrence. Case and punctuation are not normalized.",
         "",
         "SCENE MAP",
     ]
-    for i, scene in enumerate(timeline, 1):
+    for scene in timeline:
         sid = json.dumps(scene["scene_id"], ensure_ascii=False)
         refs = " ".join(f"{key}={code}" for key, code in scene["links"].items()) or "(no text evidence)"
-        lines.append(f"S{i} scene_id={sid} time={scene['time']}: {refs}")
+        lines.append(f"S{sid}@{scene['time']}: {refs}")
 
     lines.extend(["", "EVIDENCE (unique field strings, original wording preserved)"])
     for entry in entries:
