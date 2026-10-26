@@ -201,8 +201,18 @@ def patch_engine_text(text: str) -> str:
                 f"Expected one structurally matching line {line_text!r}, got {len(occurrences)}. "
                 "No file was changed."
             )
-    if not re.search(r"(?m)^[ \t]*finally:\r?\n[ \t]*if cap is not None:", text):
-        raise PatchError("Could not find endpoint cleanup block. No file was changed.")
+    # Endpoint cleanup formatting varies in local copies. Identify its finalizer
+    # structurally by capture release, allowing blank/comment lines and custom indentation.
+    _vce_source_lines = text.splitlines(keepends=True)
+    _vce_cleanup_finalizers = []
+    for _vce_i, _vce_line in enumerate(_vce_source_lines):
+        if _vce_line.strip() != "finally:":
+            continue
+        _vce_tail = "".join(_vce_source_lines[_vce_i + 1:_vce_i + 81])
+        if "cap.release()" in _vce_tail and ("cap is not None" in _vce_tail or "if cap:" in _vce_tail):
+            _vce_cleanup_finalizers.append(_vce_i)
+    if not _vce_cleanup_finalizers:
+        raise PatchError("Could not identify endpoint cleanup finalizer containing cap.release(). No file was changed.")
 
     # Replace the Whisper placement functions# Replace the Whisper placement functions and insert the fail-closed MLX/Metal helper.
     helper_anchor = "# Optionnel : supprimer le warning HF tokenizers"
@@ -564,25 +574,47 @@ async def _vce_prepare_scene_keyframes_cpu(_scene: Dict[str, Any]):
     )
     text = _replace_once(text, text_llm_timing_anchor, text_llm_timing_replacement, "Text LLM telemetry")
 
-    # Do not delete a temporary video file while a worker-thread ASR call is still using it.
-    finally_anchor = "    finally:\n        if cap is not None:"
-    finally_replacement = (
-        "    finally:\n"
-        "        _vce_pending_whisper_task = locals().get('_vce_whisper_task')\n"
-        "        if _vce_pending_whisper_task is not None:\n"
-        "            try:\n"
-        "                await _vce_pending_whisper_task\n"
-        "            except BaseException:\n"
-        "                # Preserve the original endpoint exception; the task is now observed.\n"
-        "                pass\n"
-        "        for _vce_prefetch in locals().get('_vce_prefetch_tasks', {}).values():\n"
-        "            try:\n"
-        "                await _vce_prefetch\n"
-        "            except BaseException:\n"
-        "                pass\n"
-        "        if cap is not None:"
-    )
-    text = _replace_once(text, finally_anchor, finally_replacement, "ASR task cleanup")
+    # Do not delete a temporary video file while worker-thread tasks are still using it.
+    # Insert cleanup at the start of the endpoint finalizer, regardless of blank lines
+    # or local indentation before the capture-release logic.
+    _vce_lines = text.splitlines(keepends=True)
+    _vce_finalizer_candidates = []
+    for _vce_i, _vce_line in enumerate(_vce_lines):
+        if _vce_line.strip() != "finally:":
+            continue
+        _vce_tail = "".join(_vce_lines[_vce_i + 1:_vce_i + 81])
+        if "cap.release()" in _vce_tail and ("cap is not None" in _vce_tail or "if cap:" in _vce_tail):
+            _vce_finalizer_candidates.append(_vce_i)
+    if not _vce_finalizer_candidates:
+        raise PatchError("Cannot inject task cleanup: endpoint finalizer with cap.release() was not found.")
+    _vce_finalizer_i = _vce_finalizer_candidates[-1]
+    _vce_finalizer_line = _vce_lines[_vce_finalizer_i]
+    _vce_finalizer_indent = _vce_finalizer_line[:len(_vce_finalizer_line) - len(_vce_finalizer_line.lstrip(" \\t"))]
+    _vce_cleanup_indent = _vce_finalizer_indent + "    "
+    _vce_cleanup_code = [
+        "_vce_pending_whisper_task = locals().get('_vce_whisper_task')",
+        "if _vce_pending_whisper_task is not None:",
+        "    try:",
+        "        await _vce_pending_whisper_task",
+        "    except BaseException:",
+        "        # Preserve the original endpoint exception; observe task completion before cleanup.",
+        "        pass",
+        "for _vce_prefetch in locals().get('_vce_prefetch_tasks', {}).values():",
+        "    try:",
+        "        await _vce_prefetch",
+        "    except BaseException:",
+        "        pass",
+        "_vce_pf_stop = locals().get('_vce_frame_prefetch_stop')",
+        "if _vce_pf_stop is not None:",
+        "    _vce_pf_stop.set()",
+        "_vce_pf_thread = locals().get('_vce_frame_prefetch_thread')",
+        "if _vce_pf_thread is not None and _vce_pf_thread.is_alive():",
+        "    await asyncio.to_thread(_vce_pf_thread.join, 2.0)",
+    ]
+    _vce_newline = "\\r\\n" if "\\r\\n" in text else "\\n"
+    _vce_insert_at = sum(len(line) for line in _vce_lines[:_vce_finalizer_i + 1])
+    _vce_insert_text = "".join(_vce_cleanup_indent + line + _vce_newline for line in _vce_cleanup_code)
+    text = text[:_vce_insert_at] + _vce_insert_text + text[_vce_insert_at:]
 
     # Guard against accidental partial edits.
     for marker in (
