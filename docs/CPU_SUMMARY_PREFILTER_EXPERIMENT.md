@@ -74,7 +74,7 @@ Before running another long video, it is possible to test model loading and one 
 
     printf '%s' '{"chunks":[[{"scene_id":1,"start":0,"end":1,"audio":"Проверка: температура 20 градусов.","visual":"На экране таблица.","ocr":"20 °C","visual_tags":{}}]]}' | "$HOME/.venvs/vce-summary-prefilter/bin/python" "$HOME/Desktop/benchmark_vce_summary_prefilter.py" --_worker-task prefilter --_worker-device cpu --_worker-model "mlx-community/Qwen2.5-1.5B-Instruct-4bit" --_worker-max-tokens 64
 
-This smoke test loads the small model and extracts one synthetic fact card, but it does not run a VCE analysis. Worker errors now include the exception message to help diagnose incompatible model/runtime APIs.
+This smoke test loads the small model and extracts one synthetic fact card, but it does not run a VCE analysis. Worker errors now include the exception message to help diagnose incompatible model/runtime APIs. The Python API uses `mlx_lm.sample_utils.make_sampler(temp=0.0)` and passes `sampler=` to `generate()`; do not pass `temp=` directly to the Python `generate()` call.
 
 To resume after a model-stage failure without repeating VCE, pass --save-evidence-checkpoint on the initial run. After the baseline completes, the script saves evidence_checkpoint.json in its output directory. To resume, use:
 
