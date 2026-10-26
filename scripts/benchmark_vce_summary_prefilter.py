@@ -407,7 +407,9 @@ def main() -> int:
         fields = bench.build_form_fields(settings, bench.request_properties(openapi), request_adaptations)
         worker_venv_python = project / ".venv" / "bin" / "python"
         default_worker_python = str(worker_venv_python) if worker_venv_python.is_file() else sys.executable
-        # Do not resolve() the venv Python path: bin/python is often a symlink, and\n        # resolving it points at the base interpreter outside the venv, losing its packages.\n        worker_python = normalize_worker_python(args.worker_python) if args.worker_python else default_worker_python
+        # Do not resolve() the venv Python path: bin/python is often a symlink, and
+        # resolving it points at the base interpreter outside the venv, losing its packages.
+        worker_python = normalize_worker_python(args.worker_python) if args.worker_python else default_worker_python
         if not Path(worker_python).is_file():
             raise FileNotFoundError("Worker Python executable does not exist.")
     except Exception as exc:
