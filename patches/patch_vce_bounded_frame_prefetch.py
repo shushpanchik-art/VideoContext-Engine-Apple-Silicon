@@ -31,14 +31,14 @@ def _vce_start_bounded_keyframe_prefetch(
     scenes: List[Dict[str, Any]],
     base_res: int,
     max_frames: int,
-    queue_size: int = 2,
+    queue_size: int = 1,
     max_frames_by_scene=None,
 ):
     """Prepare upcoming scene keyframes in a bounded queue on a single CPU worker."""
     import queue
     import threading
 
-    result_queue = queue.Queue(maxsize=max(1, min(int(queue_size), 2)))
+    result_queue = queue.Queue(maxsize=max(1, min(int(queue_size), 1)))
     stop_event = threading.Event()
     stats = {"worker_seconds": 0.0, "wait_seconds": 0.0, "fallback_count": 0}
 
@@ -154,7 +154,7 @@ def patch_scene_loop(source: str) -> str:
         + child + "    base_res=vlm_resolution,\n"
         + child + "    max_frames=keyframes_per_scene,\n"
         + child + "    max_frames_by_scene=[_vce_adaptive_keyframe_limit(s, keyframes_per_scene) if enable_adaptive_keyframes else keyframes_per_scene for s in scenes_raw],\n"
-        + child + "    queue_size=2,\n"
+        + child + "    queue_size=1,\n"
         + child + ")\n"
         + "\n"
     )
