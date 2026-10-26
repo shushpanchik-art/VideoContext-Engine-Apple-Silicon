@@ -232,9 +232,14 @@ class PatchTests(unittest.TestCase):
         self.assertIn("_VCE_MLX_EXECUTOR", patched)
         self.assertIn('max_workers=1, thread_name_prefix="vce-mlx-metal"', patched)
         self.assertIn("await _vce_mlx_run(vlm_engine.load_model, target_vlm)", patched)
+        self.assertIn(patcher.MLX_VLM_WIRED_LIMIT_COMPAT_MARKER, patched)
+        self.assertIn("_vce_prepare_mlx_vlm_runtime()", patched)
+        self.assertIn('mx.device_info(mx.gpu).get("max_recommended_working_set_size")', patched)
+        self.assertIn("_vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit", patched)
         self.assertIn("await _vce_mlx_run(vlm_engine.describe_scene,", patched)
         self.assertNotIn("await asyncio.to_thread(vlm_engine.load_model", patched)
         self.assertNotIn("await asyncio.to_thread(vlm_engine.describe_scene", patched)
+        self.assertEqual(patcher.patch_engine_text(patched), patched)
 
     def test_custom_memory_fallback_call_uses_dedicated_executor(self):
         variant = FIXTURE.replace(
