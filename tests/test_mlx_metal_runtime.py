@@ -142,6 +142,7 @@ class RuntimeHelperTests(unittest.TestCase):
 
     def test_mlx_whisper_uses_cpu_stream_without_changing_gpu_default(self):
         fake_core = FakeMlxCore()
+        fake_core._default = fake_core.gpu
         fake_mlx = types.ModuleType("mlx")
         fake_mlx.core = fake_core
         fake_whisper = types.ModuleType("mlx_whisper")
@@ -165,7 +166,7 @@ class RuntimeHelperTests(unittest.TestCase):
         self.assertEqual(seen, [
             ("sample.wav", "mlx-community/whisper-large-v3-mlx", "cpu", {"temperature": 0.0})
         ])
-        self.assertEqual(fake_core.default_device(), FakeDevice("cpu"))
+        self.assertEqual(fake_core.default_device(), FakeDevice("gpu"))
 
 
 if __name__ == "__main__":
