@@ -29,7 +29,7 @@ The current endpoint returns only after the existing full VCE pipeline has compl
 - macOS on Apple Silicon.
 - Running local VCE at http://127.0.0.1:7555.
 - The benchmark helper and this experiment script in the same directory.
-- MLX-LM available in the VCE virtual environment. The script prefers the discovered project’s .venv/bin/python, falling back to the current Python if there is no such virtual environment.
+- MLX and MLX-LM importable in the worker Python. The script checks this before it starts the expensive VCE analysis. By default it uses the discovered project’s .venv/bin/python, but `--worker-python` can select a separate environment.
 - Access to the selected MLX models in the local Hugging Face cache or internet access for the first model download.
 
 Defaults:
@@ -58,7 +58,17 @@ Optional overrides:
       --chunk-scenes 6 \
       --max-input-tokens 48000
 
-If the CPU worker reports that MLX-LM is unavailable, activate the VCE virtual environment and check python -m pip show mlx-lm before installing anything.
+If the preflight reports that MLX-LM is unavailable, do not install packages into the VCE environment blindly. Create a separate worker environment so its MLX / Transformers dependency versions cannot alter the working VCE stack. Use the project virtualenv's Python as the base interpreter (adjust the project path if your checkout is in Downloads):
+
+    "$HOME/VideoContext-Engine/.venv/bin/python" -m venv "$HOME/.venvs/vce-summary-prefilter"
+    "$HOME/.venvs/vce-summary-prefilter/bin/python" -m pip install -U pip mlx-lm
+    "$HOME/.venvs/vce-summary-prefilter/bin/python" -c "import mlx.core; import mlx_lm; from mlx_lm import load, generate; print('MLX-LM OK')"
+
+Then rerun the command with:
+
+    --worker-python "$HOME/.venvs/vce-summary-prefilter/bin/python"
+
+This environment is used only for the small CPU prefilter and the standalone large-model A/B calls. The currently running VCE service continues to use its own Python environment. The script checks the imports before running VCE again, so a missing dependency does not waste another full analysis.
 
 ## Output and privacy
 
