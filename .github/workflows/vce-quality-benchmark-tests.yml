@@ -1,0 +1,23 @@
+name: VCE quality benchmark tests
+
+on:
+  push:
+    branches: [main, "feat/vce-quality-benchmark-harness", "fix/vce-benchmark-prompt-limits-and-icon", "fix/mlx-vlm-thread-affinity-custom-20261026"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile observed-run script
+        run: python -m py_compile scripts/vce_observed_run.py
+      - name: Check icon installer shell syntax
+        run: bash -n scripts/install_vce_macos_icon.command
+      - name: Run benchmark, icon, and observed-run unit tests
+        run: python -m unittest discover -s tests -p "test_vce_*.py" -v
