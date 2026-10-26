@@ -255,12 +255,18 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         status = "VLM_DEVICE_UNKNOWN"
     explicit_gpu_target = (vlm_device_source == "explicit_gpu_target"
                            and "gpu" in vlm_configured_device.lower())
-    if (
+    scene_gpu_trace_consistent = (
         explicit_gpu_target
         and gpu_generation_stream_seen
         and vlm_scene_gpu_default_device_snapshot_count > 0
         and vlm_scene_cpu_default_device_snapshot_count == 0
-    ):
+    )
+    if scene_gpu_trace_consistent and metal_reported and power_records and gpu_power_label:
+        # powermetrics is system-wide, not attributable to this PID, but many
+        # successful high-residency samples during the end-to-end run add
+        # independent system-GPU corroboration to the scene-call GPU snapshots.
+        overall = "VLM_SCENE_GPU_WIRING_AND_SYSTEM_GPU_ACTIVITY_CORROBORATED_EXECUTION_NOT_PER_OPERATOR_PROVEN"
+    elif scene_gpu_trace_consistent:
         # Prefer snapshots around actual scene-description calls over a single
         # load-time mx.default_device() read. The load-time CPU value can be a
         # concurrent mx.stream(mx.cpu) context; scene snapshots still aren't
