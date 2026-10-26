@@ -70,9 +70,9 @@ class BenchmarkPrivacyAndSchemaTests(unittest.TestCase):
     def test_process_sampler_accepts_comma_decimal_cpu_and_descendants(self, mocked_command):
         # Some localized ps output uses a comma as the decimal separator.
         mocked_command.return_value = (
-            "123 1 20,5 102400\\n"
-            "124 123 1,5 204800\\n"
-            "125 1 50,0 51200\\n"
+            "123 1 20,5 102400\n"
+            "124 123 1,5 204800\n"
+            "125 1 50,0 51200\n"
         )
         cpu, rss_mb, process_count = bench.ps_process_tree(123)
         self.assertAlmostEqual(cpu, 22.0)
