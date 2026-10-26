@@ -2,7 +2,7 @@ name: VCE quality benchmark tests
 
 on:
   push:
-    branches: [main, "feat/vce-quality-benchmark-harness"]
+    branches: [main, "feat/vce-quality-benchmark-harness", "fix/vce-benchmark-prompt-limits-and-icon"]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -15,5 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Run benchmark unit tests
+      - name: Check icon installer shell syntax
+        run: bash -n scripts/install_vce_macos_icon.command
+      - name: Run benchmark and icon unit tests
         run: python -m unittest discover -s tests -p "test_vce_*.py" -v
