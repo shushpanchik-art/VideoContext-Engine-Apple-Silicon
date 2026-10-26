@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -64,6 +65,19 @@ class BenchmarkPrivacyAndSchemaTests(unittest.TestCase):
         message = bench.safe_http_error(500, secret_text)
         self.assertIn("body omitted for privacy", message)
         self.assertNotIn(secret_text.decode("utf-8"), message)
+
+    @patch.object(bench, "command_output")
+    def test_process_sampler_accepts_comma_decimal_cpu_and_descendants(self, mocked_command):
+        # Some localized ps output uses a comma as the decimal separator.
+        mocked_command.return_value = (
+            "123 1 20,5 102400\\n"
+            "124 123 1,5 204800\\n"
+            "125 1 50,0 51200\\n"
+        )
+        cpu, rss_mb, process_count = bench.ps_process_tree(123)
+        self.assertAlmostEqual(cpu, 22.0)
+        self.assertAlmostEqual(rss_mb, 300.0)
+        self.assertEqual(process_count, 2)
 
 
 if __name__ == "__main__":
