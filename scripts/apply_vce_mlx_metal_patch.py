@@ -13,6 +13,7 @@ import platform
 import re
 import shutil
 import sys
+import textwrap
 from pathlib import Path
 
 MARKER = "# VCE_MLX_METAL_CPU_PARALLEL_V1"
@@ -107,21 +108,34 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
 def patch_engine_text(text: str) -> str:
     if MARKER in text:
         return text
-    required = [
+    required_tokens = [
         "def resolve_whisper_device(",
         "def run_text_llm_postprocess(",
         "class MLXEngine(VLMProvider):",
-        '            from mlx_vlm import load, generate',
-        '                whisper_segments: List[Dict[str, Any]] = []',
-        '                if not skip_visual or generate_summary:',
-        '                set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам"',
-        '    finally:\n        if cap is not None:',
+        "from mlx_vlm import load, generate",
+        "whisper_segments: List[Dict[str, Any]] = []",
+        "if not skip_visual or generate_summary:",
+        'set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам"',
     ]
-    for token in required:
+    for token in required_tokens:
         if token not in text:
             raise PatchError(f"Could not find required source anchor: {token!r}. No file was changed.")
+    # Indentation varies between local VCE edits, so validate structural lines
+    # by their stripped text rather than requiring a specific number of spaces.
+    for line_text in (
+        "whisper_segments: List[Dict[str, Any]] = []",
+        "if not skip_visual or generate_summary:",
+    ):
+        occurrences = [line for line in text.splitlines() if line.strip() == line_text]
+        if len(occurrences) != 1:
+            raise PatchError(
+                f"Expected one structurally matching line {line_text!r}, got {len(occurrences)}. "
+                "No file was changed."
+            )
+    if not re.search(r"(?m)^[ \t]*finally:\r?\n[ \t]*if cap is not None:", text):
+        raise PatchError("Could not find endpoint cleanup block. No file was changed.")
 
-    # Replace the Whisper placement functions and insert the fail-closed MLX/Metal helper.
+    # Replace the Whisper placement functions# Replace the Whisper placement functions and insert the fail-closed MLX/Metal helper.
     helper_anchor = "# Optionnel : supprimer le warning HF tokenizers"
     i = text.index("def resolve_whisper_device(")
     j = text.index(helper_anchor, i)
@@ -157,15 +171,22 @@ def patch_engine_text(text: str) -> str:
     llm_replacement = llm_anchor + '    _vce_configure_mlx_metal("text_llm")\n'
     text = _replace_once(text, llm_anchor, llm_replacement, "Text LLM Metal selection")
 
-    # Replace the serial Whisper block with a CPU task that runs while the VLM stage proceeds.
-    block_start_token = "                whisper_segments: List[Dict[str, Any]] = []\n\n                if not skip_audio:\n"
-    block_start = text.find(block_start_token)
-    if block_start < 0:
-        raise PatchError("Could not locate the serial Whisper block.")
-    block_end_token = "\n                if not skip_visual or generate_summary:\n"
-    block_end = text.find(block_end_token, block_start + len(block_start_token))
-    if block_end < 0:
-        raise PatchError("Could not locate the VLM stage following the Whisper block.")
+    # Replace the serial Whisper block using its discovered indentation.
+    block_start_re = re.compile(
+        r"(?m)^(?P<indent>[ \\t]*)whisper_segments: List\\[Dict\\[str, Any\\]\\] = \\[\\]\\r?\\n"
+        r"\\r?\\n(?P=indent)if not skip_audio:\\s*$"
+    )
+    block_start_match = block_start_re.search(text)
+    if not block_start_match:
+        raise PatchError("Could not locate the serial Whisper block. No file was changed.")
+    block_start = block_start_match.start()
+    base_indent = block_start_match.group("indent")
+
+    block_end_re = re.compile(r"(?m)^[ \\t]*if not skip_visual or generate_summary:\\s*$")
+    block_end_match = block_end_re.search(text, block_start_match.end())
+    if not block_end_match:
+        raise PatchError("Could not locate the VLM stage following the Whisper block. No file was changed.")
+    block_end = block_end_match.start()
 
     parallel_block = '''                whisper_segments: List[Dict[str, Any]] = []
                 _vce_whisper_task = None
@@ -229,9 +250,10 @@ def patch_engine_text(text: str) -> str:
                 if not skip_audio:
                     _vce_whisper_task = asyncio.create_task(_vce_run_whisper_cpu_stage())
                 '''
+    parallel_block = textwrap.indent(textwrap.dedent(parallel_block).strip("\\n"), base_indent) + "\\n\\n"
     text = text[:block_start] + parallel_block + text[block_end:]
 
-    # Add per-request stage timestamps for measured overlap telemetry.
+    # Add per-request stage timestamps    # Add per-request stage timestamps for measured overlap telemetry.
     timing_anchor = "    whisper_load_time = 0.0\n\n    target_whisper"
     timing_replacement = (
         "    whisper_load_time = 0.0\n"
@@ -243,36 +265,52 @@ def patch_engine_text(text: str) -> str:
     )
     text = _replace_once(text, timing_anchor, timing_replacement, "Parallel stage timestamps")
 
-    # Start the VLM timing and opportunistically pass ASR context to later scenes if ready.
-    scene_start_anchor = (
-        '                set_job_progress(job_id, "scene_analysis", None, "Начинаем OCR и визуальный анализ сцен", '
-        "indeterminate=True, stage_index=4, stage_count=6)\n"
-        "                cap = cv2.VideoCapture(temp_path)\n"
+    # Find scene-analysis and summary boundaries independently of source indentation.
+    scene_progress_re = re.compile(
+        r'(?m)^(?P<indent>[ \\t]*)set_job_progress\\(job_id, "scene_analysis", None, "Начинаем OCR и визуальный анализ сцен".*$'
     )
-    scene_start_replacement = scene_start_anchor + "                _vce_vlm_scene_started_at = time.perf_counter()\n"
-    text = _replace_once(text, scene_start_anchor, scene_start_replacement, "VLM scene timer start")
+    scene_progress_matches = list(scene_progress_re.finditer(text))
+    if len(scene_progress_matches) != 1:
+        raise PatchError(f"Expected one scene-analysis progress line, found {len(scene_progress_matches)}.")
+    scene_progress_match = scene_progress_matches[0]
+    cap_re = re.compile(r"(?m)^(?P<indent>[ \\t]*)cap = cv2.VideoCapture\\(temp_path\\)\\s*$")
+    cap_match = None
+    for candidate in cap_re.finditer(text, scene_progress_match.end()):
+        if candidate.group("indent") == scene_progress_match.group("indent"):
+            cap_match = candidate
+            break
+    if cap_match is None:
+        raise PatchError("Could not find VideoCapture at the scene-analysis stage.")
+    cap_end = cap_match.end()
+    scene_indent = cap_match.group("indent")
+    text = text[:cap_end] + "\\n" + scene_indent + "_vce_vlm_scene_started_at = time.perf_counter()" + text[cap_end:]
 
-    loop_anchor = "                for idx, scene in enumerate(scenes_raw):\n                    if cancel_event.is_set():"
-    loop_start = text.find(loop_anchor, text.find(scene_start_replacement))
-    if loop_start < 0:
-        raise PatchError("Could not locate the VLM per-scene loop.")
-    loop_replacement = (
-        "                for idx, scene in enumerate(scenes_raw):\n"
-        "                    if _vce_whisper_task is not None and _vce_whisper_task.done():\n"
-        "                        whisper_segments = _vce_whisper_task.result()\n"
-        "                    if cancel_event.is_set():"
+    loop_re = re.compile(r"(?m)^(?P<indent>[ \\t]*)for idx, scene in enumerate\\(scenes_raw\\):\\s*$")
+    loop_matches = [m for m in loop_re.finditer(text, cap_end) if len(m.group("indent")) >= len(scene_indent)]
+    if len(loop_matches) != 1:
+        raise PatchError(f"Expected one scene loop after VideoCapture, found {len(loop_matches)}.")
+    loop_match = loop_matches[0]
+    loop_indent = loop_match.group("indent")
+    loop_line_end = loop_match.end()
+    loop_insert = (
+        "\\n" + loop_indent + "    if _vce_whisper_task is not None and _vce_whisper_task.done():"
+        + "\\n" + loop_indent + "        whisper_segments = _vce_whisper_task.result()"
     )
-    text = text[:loop_start] + loop_replacement + text[loop_start + len(loop_anchor):]
+    text = text[:loop_line_end] + loop_insert + text[loop_line_end:]
 
-    summary_anchor = (
-        '                set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам", '
-        "indeterminate=True, stage_index=5, stage_count=6)\n"
+    summary_re = re.compile(
+        r'(?m)^(?P<indent>[ \\t]*)set_job_progress\\(job_id, "summary", None, "Формируем сводку по всем сценам".*$'
     )
+    summary_matches = list(summary_re.finditer(text, loop_line_end))
+    if len(summary_matches) != 1:
+        raise PatchError(f"Expected one final summary boundary after the scene loop, found {len(summary_matches)}.")
+    summary_match = summary_matches[0]
+    summary_indent = summary_match.group("indent")
+
     overlap_block = '''                _vce_vlm_scene_finished_at = time.perf_counter()
                 if _vce_whisper_task is not None:
                     whisper_segments = await _vce_whisper_task
-                    # Attach every ASR transcript after the concurrent visual pass. This keeps the
-                    # evidence complete even for scenes whose VLM prompts ran before ASR finished.
+                    # Attach every ASR transcript after the concurrent visual pass.
                     for _vce_idx, _vce_scene in enumerate(scenes_raw):
                         if _vce_idx >= len(final_segments):
                             break
@@ -297,9 +335,10 @@ def patch_engine_text(text: str) -> str:
                     )
                 print(f"[VCE parallelism] CPU Whisper / MLX VLM overlap: {_vce_overlap_seconds:.2f}s")
 '''
-    text = _replace_once(text, summary_anchor, overlap_block + summary_anchor, "ASR join and scene transcript attachment")
+    overlap_block = textwrap.indent(textwrap.dedent(overlap_block).strip("\\n"), summary_indent) + "\\n"
+    text = text[:summary_match.start()] + overlap_block + text[summary_match.start():]
 
-    # Runtime backend evidence in returned timing JSON.
+    # Runtime backend evidence    # Runtime backend evidence in returned timing JSON.
     vlm_timing_anchor = (
         '            "vlm": {\n'
         '                "model": target_vlm,\n'
