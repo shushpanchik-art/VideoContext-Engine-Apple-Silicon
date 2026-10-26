@@ -415,6 +415,8 @@ def main() -> int:
                 "Останавливаюсь, чтобы не запускать тест с неподтверждёнными настройками."
             )
 
+        properties, progress_template = get_form_schema(openapi)
+
         # Save both sources locally for audit; neither file is uploaded to GitHub.
         write_json(run_dir / "local_settings_snapshot.json", settings)
         write_json(run_dir / "active_server_settings_snapshot.json", active_settings)
@@ -432,10 +434,7 @@ def main() -> int:
                 key: {
                     "local_file_chars": len(settings.get(key, "")) if isinstance(settings.get(key), str) else None,
                     "active_server_chars": len(active_settings.get(key, "")) if isinstance(active_settings.get(key), str) else None,
-                    "api_maxLength": openapi.get("components", {}).get("schemas", {}).get(
-                        next((ref.rsplit("/", 1)[-1] for ref in get_form_schema(openapi)[0].values() if isinstance(ref, dict) and "$ref" in ref), ""),
-                        {}
-                    ).get("maxLength")
+                    "api_maxLength": properties.get(key, {}).get("maxLength")
                 } for key in prompt_keys
             },
         })
@@ -446,7 +445,6 @@ def main() -> int:
                 f"по полям: {keys}. Видео не отправлялось; проверь settings_comparison.json."
             )
 
-        properties, progress_template = get_form_schema(openapi)
         # Use the running VCE settings as authority. Long persisted prompts are deliberately
         # omitted from multipart so the API can use its persisted values without truncation.
         fields, origins = resolve_form_fields(active_settings, properties)
