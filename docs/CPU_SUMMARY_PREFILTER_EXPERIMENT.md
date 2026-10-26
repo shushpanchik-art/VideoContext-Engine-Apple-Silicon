@@ -70,13 +70,25 @@ Then rerun the command with:
 
 This environment is used only for the small CPU prefilter and the standalone large-model A/B calls. The currently running VCE service continues to use its own Python environment. The script checks the imports before running VCE again, so a missing dependency does not waste another full analysis.
 
+Before running another long video, it is possible to test model loading and one short inference without contacting VCE:
+
+    printf '%s' '{"chunks":[[{"scene_id":1,"start":0,"end":1,"audio":"Проверка: температура 20 градусов.","visual":"На экране таблица.","ocr":"20 °C","visual_tags":{}}]]}' | "$HOME/.venvs/vce-summary-prefilter/bin/python" "$HOME/Desktop/benchmark_vce_summary_prefilter.py" --_worker-task prefilter --_worker-device cpu --_worker-model "mlx-community/Qwen2.5-1.5B-Instruct-4bit" --_worker-max-tokens 64
+
+This smoke test loads the small model and extracts one synthetic fact card, but it does not run a VCE analysis. Worker errors now include the exception message to help diagnose incompatible model/runtime APIs.
+
+To resume after a model-stage failure without repeating VCE, pass --save-evidence-checkpoint on the initial run. After the baseline completes, the script saves evidence_checkpoint.json in its output directory. To resume, use:
+
+    python3 "$HOME/Desktop/benchmark_vce_summary_prefilter.py" --resume-evidence "$HOME/Desktop/VCE-Summary-Prefilter-YYYYMMDD_HHMMSS/evidence_checkpoint.json" --worker-python "$HOME/.venvs/vce-summary-prefilter/bin/python"
+
+Resume mode skips the VCE API call and does not require --video. The checkpoint contains raw transcript, scene descriptions and OCR, so it is sensitive local data; it is created with owner-only permissions. Delete the checkpoint when it is no longer needed.
+
 ## Output and privacy
 
 Creates VCE-Summary-Prefilter-<timestamp> under Desktop (or --report-dir) containing:
 - summary.md: timings and both candidate summaries for manual review.
 - report.json: timing metadata, fact cards and both generated candidate summaries.
 
-Raw transcripts, raw OCR, raw scene descriptions, the source path, source filename and prompts are not written to disk. Generated fact cards and candidate summaries are written locally and may reveal video content; do not upload the folder to GitHub or share it unless you have reviewed it.
+By default, raw transcripts, raw OCR, raw scene descriptions, the source path, source filename and prompts are not written to disk. If --save-evidence-checkpoint is used, the checkpoint intentionally stores raw scene transcript/visual/OCR evidence to make the experiment resumable; it does not store the source path or filename. The checkpoint is created with owner-only permissions and should be deleted when no longer needed. Generated fact cards and candidate summaries are written locally and may reveal video content; do not upload the folder to GitHub or share it unless you have reviewed it.
 
 The experiment script has no report-publication option and sends the video only to the local VCE API. MLX may download model weights from the configured Hugging Face model source if they are not already cached.
 
