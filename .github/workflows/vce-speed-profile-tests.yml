@@ -1,0 +1,53 @@
+name: VCE speed profile and macOS menu bar tests
+
+on:
+  pull_request:
+    paths:
+      - "patches/patch_vce_speed_profile.py"
+      - "patches/patch_vce_defaults.py"
+      - "patches/patch_vce_quality_prompt.py"
+      - "patches/patch_vce_memory_safety.py"
+      - "tests/test_vce_quality_prompt.py"
+      - "tests/test_vce_native_app_lifecycle.py"
+      - "docs/**"
+      - "install_patches_to_existing_checkout.command"
+      - "macos/**"
+      - "tests/test_vce_speed_profile.py"
+      - "tests/test_vce_memory_safety.py"
+      - "tests/test_vce_native_app_lifecycle.py"
+      - ".github/workflows/vce-speed-profile-tests.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "patches/patch_vce_speed_profile.py"
+      - "patches/patch_vce_defaults.py"
+      - "patches/patch_vce_quality_prompt.py"
+      - "tests/test_vce_quality_prompt.py"
+      - "docs/**"
+      - "install_patches_to_existing_checkout.command"
+      - "macos/**"
+      - "tests/test_vce_speed_profile.py"
+      - ".github/workflows/vce-speed-profile-tests.yml"
+
+jobs:
+  config-and-bundle-static-checks:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Test reversible VLM speed profile
+        run: python -m unittest discover -s tests -p "test_vce_*.py" -v
+      - name: Validate patcher syntax
+        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py patches/patch_vce_memory_safety.py
+      - name: Validate installer shell syntax
+        run: bash -n macos/install_video_context_mac.command macos/repair_installed_native_app.command install_patches_to_existing_checkout.command
+      - name: Compile native menu bar app
+        run: |
+          xcrun swiftc -O "macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift" \
+            -framework AppKit \
+            -framework WebKit \
+            -o /tmp/VideoContextStatusBar
+          file /tmp/VideoContextStatusBar

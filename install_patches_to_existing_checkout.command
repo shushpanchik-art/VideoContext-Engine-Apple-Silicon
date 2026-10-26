@@ -56,10 +56,10 @@ current = json.loads(current_path.read_text(encoding='utf-8'))
 profile = json.loads(profile_path.read_text(encoding='utf-8'))
 keys = [
     'vlm_model', 'whisper_model', 'response_format', 'vlm_resolution',
-    'scene_threshold', 'min_scene_duration', 'max_scene_duration',
+    'scene_threshold', 'min_scene_duration', 'max_scene_duration', 'analysis_mode',
     'keyframes_per_scene', 'vlm_max_tokens_scene', 'vlm_max_tokens_summary',
     'skip_audio', 'skip_visual', 'generate_txt', 'generate_json',
-    'enable_audio_features', 'enable_apple_ocr', 'generate_summary',
+    'enable_audio_features', 'enable_apple_ocr', 'enable_ffmpeg_ocr', 'ffmpeg_ocr_interval', 'generate_summary',
     'ram_mode', 'mlx_device', 'whisper_acceleration', 'word_timestamps',
     'apple_ocr_recognition_level', 'apple_ocr_languages', 'apple_ocr_confidence'
 ]
