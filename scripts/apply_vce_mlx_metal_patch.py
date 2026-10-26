@@ -195,7 +195,7 @@ def patch_mlx_thread_affinity(text: str) -> str:
     if MARKER not in text:
         raise PatchError("Cannot add MLX thread affinity before the V2 runtime patch is present.")
 
-    diagnostics_anchor = "VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}\\n"
+    diagnostics_anchor = "VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}\n"
     if text.count(diagnostics_anchor) != 1:
         raise PatchError("Expected one runtime diagnostics anchor for the MLX executor helper.")
     text = text.replace(
@@ -205,7 +205,7 @@ def patch_mlx_thread_affinity(text: str) -> str:
     )
 
     load_pattern = re.compile(
-        r"await asyncio\\.to_thread\\(\\s*vlm_engine\\.load_model,\\s*target_vlm\\s*\\)"
+        r"await asyncio\.to_thread\(\s*vlm_engine\.load_model,\s*target_vlm\s*\)"
     )
     text, load_count = load_pattern.subn(
         "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
@@ -219,11 +219,11 @@ def patch_mlx_thread_affinity(text: str) -> str:
 
     inference_patterns = (
         (
-            re.compile(r"await asyncio\\.to_thread\\(\\s*_vce_describe_scene_with_memory_fallback\\s*,"),
+            re.compile(r"await asyncio\.to_thread\(\s*_vce_describe_scene_with_memory_fallback\s*,"),
             "await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,",
         ),
         (
-            re.compile(r"await asyncio\\.to_thread\\(\\s*vlm_engine\\.describe_scene\\s*,"),
+            re.compile(r"await asyncio\.to_thread\(\s*vlm_engine\.describe_scene\s*,"),
             "await _vce_mlx_run(vlm_engine.describe_scene,",
         ),
     )
@@ -239,7 +239,7 @@ def patch_mlx_thread_affinity(text: str) -> str:
     # The optional final text-LLM uses the same mlx-vlm internals and must share
     # the same executor to keep its generation stream thread-affine as well.
     text, text_llm_count = re.subn(
-        r"await asyncio\\.to_thread\\(\\s*run_text_llm_postprocess\\s*,",
+        r"await asyncio\.to_thread\(\s*run_text_llm_postprocess\s*,",
         "await _vce_mlx_run(run_text_llm_postprocess,",
         text,
     )
