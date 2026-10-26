@@ -6,6 +6,7 @@ import sys
 import types
 import unittest
 import threading
+from contextlib import contextmanager
 from unittest import mock
 from pathlib import Path
 
@@ -36,7 +37,9 @@ class FakeMlxCore(types.ModuleType):
     def __init__(self):
         super().__init__("mlx.core")
         self.gpu = FakeDevice("gpu")
+        self.cpu = FakeDevice("cpu")
         self._default = FakeDevice("cpu")
+        self._active_stream = None
         self.metal = types.SimpleNamespace(is_available=lambda: True)
 
     def is_available(self, device):
@@ -59,6 +62,18 @@ class FakeMlxCore(types.ModuleType):
 
     def device_info(self, _device):
         return {"device": "Fake Apple GPU"}
+
+    def new_thread_local_stream(self, device):
+        return device
+
+    @contextmanager
+    def stream(self, stream):
+        old = self._active_stream
+        self._active_stream = stream
+        try:
+            yield
+        finally:
+            self._active_stream = old
 
 
 class RuntimeHelperTests(unittest.TestCase):
@@ -124,6 +139,33 @@ class RuntimeHelperTests(unittest.TestCase):
         asr_result, gpu_result = runtime.run_whisper_cpu_parallel_with_gpu(asr, gpu)
         self.assertEqual(asr_result, "transcript")
         self.assertEqual(gpu_result, "scenes")
+
+    def test_mlx_whisper_uses_cpu_stream_without_changing_gpu_default(self):
+        fake_core = FakeMlxCore()
+        fake_mlx = types.ModuleType("mlx")
+        fake_mlx.core = fake_core
+        fake_whisper = types.ModuleType("mlx_whisper")
+        seen = []
+
+        def transcribe(audio, path_or_hf_repo, **kwargs):
+            seen.append((audio, path_or_hf_repo, fake_core._active_stream.name, kwargs))
+            return {"text": "hello", "segments": []}
+
+        fake_whisper.transcribe = transcribe
+        with mock.patch.dict(sys.modules, {
+            "mlx": fake_mlx,
+            "mlx.core": fake_core,
+            "mlx_whisper": fake_whisper,
+        }):
+            result = runtime.transcribe_mlx_whisper_cpu(
+                "sample.wav", "mlx-community/whisper-large-v3-mlx", temperature=0.0
+            )
+
+        self.assertEqual(result["text"], "hello")
+        self.assertEqual(seen, [
+            ("sample.wav", "mlx-community/whisper-large-v3-mlx", "cpu", {"temperature": 0.0})
+        ])
+        self.assertEqual(fake_core.default_device(), FakeDevice("cpu"))
 
 
 if __name__ == "__main__":
