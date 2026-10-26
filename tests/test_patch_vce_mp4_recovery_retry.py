@@ -31,7 +31,7 @@ def _vce_validate_video_with_remux(video_path):
 
 @app.post("/api/v1/analyze")
 async def analyze_video(temp_path, enable_mlx_whisper=False):
-    try:
+    if True:
         owns_temp_path = True
         original_input_path = temp_path
         prepared_path = await asyncio.to_thread(ensure_opencv_compatible_video, original_input_path)
