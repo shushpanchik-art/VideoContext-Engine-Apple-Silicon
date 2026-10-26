@@ -88,6 +88,23 @@ async def analyze_video():
                     if cancel_event.is_set():
                         raise RuntimeError("cancelled")
                     audio_text = transcript_for_scene(scene, whisper_segments) if not skip_audio and whisper_segments else ""
+                    if not skip_visual:
+                        keyframes = sample_keyframes_for_scene(
+                            cap,
+                            scene,
+                            base_res=vlm_resolution,
+                            max_frames=keyframes_per_scene,
+                        )
+                        if keyframes:
+                            images = [kf["image"] for kf in keyframes]
+                            t_vlm_start = time.time()
+                            raw = await asyncio.to_thread(
+                                vlm_engine.describe_scene,
+                                images,
+                                "fixture prompt",
+                                128,
+                            )
+                            t_vlm_end = time.time()
                     final_segments.append({"scene_id": idx + 1, "audio_transcript": audio_text, "audio_features": {}})
                 set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам", indeterminate=True, stage_index=5, stage_count=6)
 
@@ -123,6 +140,8 @@ class PatchTests(unittest.TestCase):
         self.assertIn('return "cpu"', patched)
         self.assertIn('mlx_whisper.transcribe(', patched)
         self.assertIn('mx.new_thread_local_stream(mx.cpu)', patched)
+        self.assertIn('_vce_prepare_scene_keyframes_cpu', patched)
+        self.assertIn('cpu_keyframe_prefetch_seconds', patched)
         self.assertIn('"backend": "mlx-whisper"', patched)
         self.assertNotIn('w_model.to, "cpu"', patched)
         self.assertIn('_vce_configure_mlx_metal("vlm")', patched)
