@@ -212,7 +212,7 @@ class PatchTests(unittest.TestCase):
         compile(patched, "patched_thread_affinity_engine.py", "exec")
         self.assertIn(patcher.MLX_THREAD_AFFINITY_MARKER, patched)
         self.assertIn("_VCE_MLX_EXECUTOR", patched)
-        self.assertIn("max_workers=1, thread_name_prefix=\\"vce-mlx-metal\\"", patched)
+        self.assertIn('max_workers=1, thread_name_prefix="vce-mlx-metal"', patched)
         self.assertIn("await _vce_mlx_run(vlm_engine.load_model, target_vlm)", patched)
         self.assertIn("await _vce_mlx_run(vlm_engine.describe_scene,", patched)
         self.assertNotIn("await asyncio.to_thread(vlm_engine.load_model", patched)
@@ -243,7 +243,7 @@ class PatchTests(unittest.TestCase):
         )
         legacy = legacy.replace(
             "await _vce_mlx_run(vlm_engine.describe_scene,",
-            "await asyncio.to_thread(\\n                                vlm_engine.describe_scene,",
+            "await asyncio.to_thread(\n                                vlm_engine.describe_scene,",
         )
         self.assertNotIn(patcher.MLX_THREAD_AFFINITY_MARKER, legacy)
         upgraded = patcher.patch_engine_text(legacy)
