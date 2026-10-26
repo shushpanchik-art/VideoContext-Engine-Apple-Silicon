@@ -325,6 +325,14 @@ def run_gpu_summaries_with_progress(
         raise RuntimeError("GPU worker returned invalid result JSON.") from exc
 
 
+def candidate_timing(result: dict) -> str:
+    status = result.get("status")
+    if status and status != "ok":
+        return str(status)
+    seconds = result.get("inference_time_s")
+    return f"{seconds}s" if isinstance(seconds, (int, float)) else "n/a"
+
+
 def write_private(path: Path, content: str) -> None:
     path.write_text(content, encoding="utf-8")
     path.chmod(0o600)
@@ -527,6 +535,8 @@ def main() -> int:
             f"| Full-context prompt tokens | {raw_token_count} |",
             f"| Index prompt tokens | {compact_token_count} |",
             f"| Token reduction | {token_reduction if token_reduction is not None else 'n/a'}% |",
+            f"| Candidate A generation | {candidate_timing(baseline)} |",
+            f"| Candidate B generation | {candidate_timing(optimized)} |",
             f"| Unique evidence strings | {index_stats['unique_evidence_strings']} |",
             f"| Exact duplicate occurrences grouped | {index_stats['duplicate_occurrences_collapsed']} |",
             f"| Exact anchors found / rendered | {index_stats['anchor_count']} / {index_stats['anchors_rendered']} |",
@@ -561,8 +571,8 @@ def main() -> int:
         print("\nA/B experiment complete.")
         print(f"Full context tokens: {raw_token_count}; structural index tokens: {compact_token_count}.")
         print(f"Context character reduction: {char_reduction:+.2f}%; token reduction: {token_reduction}.")
-        print(f"Full-context summary time: {baseline.get('inference_time_s', baseline.get('status', 'n/a'))}")
-        print(f"Index summary time: {optimized.get('inference_time_s', optimized.get('status', 'n/a'))}")
+        print(f"Full-context summary time: {candidate_timing(baseline)}")
+        print(f"Index summary time: {candidate_timing(optimized)}")
         print(f"Local reports: {outdir}")
         print("No CPU generative prefilter ran; no new video analysis was performed.")
         return 0
