@@ -363,6 +363,14 @@ def main() -> int:
         help="Python executable for MLX-LM workers; use a dedicated venv to avoid changing VCE dependencies.",
     )
     parser.add_argument("--report-dir")
+    parser.add_argument(
+        "--save-evidence-checkpoint", action="store_true",
+        help="Save raw scene transcript/visual/OCR evidence locally for resume after model errors; sensitive content.",
+    )
+    parser.add_argument(
+        "--resume-evidence", default=None,
+        help="Reuse a local evidence checkpoint from a previous run instead of re-running VCE.",
+    )
     parser.add_argument("--_worker-task", choices=("prefilter", "summaries"), help=argparse.SUPPRESS)
     parser.add_argument("--_worker-device", choices=("cpu", "gpu"), help=argparse.SUPPRESS)
     parser.add_argument("--_worker-model", help=argparse.SUPPRESS)
@@ -398,13 +406,15 @@ def main() -> int:
             raise FileNotFoundError("Engine source or settings file not found.")
         settings = json.loads(settings_path.read_text(encoding="utf-8"))
         api = args.base_url.rstrip("/")
-        port_text = api.rsplit(":", 1)[-1]
-        port = int(port_text) if port_text.isdigit() else 7555
-        if not bench.listener_pids(port):
-            raise RuntimeError("VCE is not listening. Start VideoContext Engine first.")
-        openapi = bench.fetch_json(api + "/openapi.json", timeout=10)
         request_adaptations = []
-        fields = bench.build_form_fields(settings, bench.request_properties(openapi), request_adaptations)
+        fields = None
+        if not args.resume_evidence:
+            port_text = api.rsplit(":", 1)[-1]
+            port = int(port_text) if port_text.isdigit() else 7555
+            if not bench.listener_pids(port):
+                raise RuntimeError("VCE is not listening. Start VideoContext Engine first.")
+            openapi = bench.fetch_json(api + "/openapi.json", timeout=10)
+            fields = bench.build_form_fields(settings, bench.request_properties(openapi), request_adaptations)
         worker_venv_python = project / ".venv" / "bin" / "python"
         default_worker_python = str(worker_venv_python) if worker_venv_python.is_file() else sys.executable
         # Do not resolve() the venv Python path: bin/python is often a symlink, and
@@ -427,7 +437,10 @@ def main() -> int:
     print(f"Video: {video.suffix.lower()}, {video.stat().st_size / (1024 ** 2):.1f} MB")
     print(f"Small CPU model: {args.small_model}")
     print("The installed engine and settings will not be modified; no GitHub upload is available.")
-    print("One full VCE analysis will run, followed by local CPU fact extraction and two large-model summaries.")
+    if args.resume_evidence:
+        print("Resume mode: reuse local evidence checkpoint; VCE will not run again.")
+    else:
+        print("One full VCE analysis will run, followed by local CPU fact extraction and two large-model summaries.")
     print("MLX worker Python:", worker_python)
     ok, detail = check_worker_environment(worker_python)
     if not ok:
@@ -445,7 +458,10 @@ def main() -> int:
             f"Request-only compatibility: {item['field']} {item['original_characters']} -> "
             f"{item['sent_characters']} characters. Local settings remain unchanged."
         )
-    answer = input("For one full analysis plus model tests, enter RUN: ").strip()
+    if args.resume_evidence:
+        answer = input("For model tests using the saved checkpoint, enter RUN: ").strip()
+    else:
+        answer = input("For one full analysis plus model tests, enter RUN: ").strip()
     if answer != "RUN":
         print("Cancelled.")
         return 0
