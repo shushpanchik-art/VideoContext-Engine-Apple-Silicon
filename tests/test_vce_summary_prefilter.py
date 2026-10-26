@@ -16,6 +16,13 @@ import benchmark_vce_summary_prefilter as exp  # noqa: E402
 
 
 class SummaryPrefilterTests(unittest.TestCase):
+    def test_generation_uses_supported_mlx_lm_sampler_api(self):
+        source = (SCRIPTS / "benchmark_vce_summary_prefilter.py").read_text(encoding="utf-8")
+        self.assertIn("from mlx_lm.sample_utils import make_sampler", source)
+        self.assertIn("sampler = make_sampler(temp=0.0)", source)
+        self.assertEqual(source.count("sampler=sampler"), 2)
+        self.assertNotIn("max_tokens=max_tokens, temp=0.0", source)
+
     def test_worker_python_normalization_preserves_venv_symlink(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
