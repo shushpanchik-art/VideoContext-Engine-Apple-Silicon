@@ -285,6 +285,8 @@ def patch_engine_text(text: str) -> str:
 
     parallel_block = '''                whisper_segments: List[Dict[str, Any]] = []
                 _vce_whisper_task = None
+                whisper_audio_error = None
+                _vce_whisper_model = None
 
                 async def _vce_run_whisper_cpu_stage() -> List[Dict[str, Any]]:
                     nonlocal whisper_load_time, whisper_infer_time
