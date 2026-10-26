@@ -126,7 +126,45 @@ Watchdog напечатал «Максимальный RSS среди наблю
 
 Оба запроса вернули HTTP 200 и обработали 14 сцен. Эта таблица — описательное сравнение двух прогонов, **не строгий performance benchmark**: второй запуск выполнялся под диагностической нагрузкой watchdog; точный вклад измерительного overhead, кэширования моделей, системного фонового состояния и вариации длины генерации не изолирован. Большая часть дельты общего времени связана с измеренным увеличением времени Text LLM stage; нельзя приписывать всю дельту watchdog без контролируемого повторения.
 
-## 7. Итог и план дальнейшей проверки
+
+## 8. Исправления наблюдателя и runtime трассировка для следующего запуска
+
+В PR добавлены два изменения для следующего сбора доказательств:
+
+1. `scripts/vce_runtime_watchdog.py` — новый watchdog v2. Он принимает значения CPU с десятичной запятой и точкой в выводе macOS `ps`, сохраняет `ps_parser_diagnostics.jsonl` и рассчитывает максимум RSS по наблюдаемым PID. Классификация VLM device берёт значение из структурированного `stage_timings.json` и не считает сообщение о создании GPU stream самостоятельным доказательством `Device(gpu, 0)`.
+2. `scripts/apply_vce_mlx_metal_patch.py` — патчер добавляет `[VCE MLX TRACE]` snapshots до/после `load_model`, каждого `describe_scene` и `run_text_llm_postprocess`. Снимок формируется именно внутри выделенного `vce-mlx-metal` executor и включает PID, имя/ID потока, `mx.default_device()`, доступность GPU/Metal и состояние `generation_stream` из `mlx_vlm.generate.common` / `mlx_vlm.generate.dispatch`. Эти сообщения не включают промпты, кадры или текст анализа.
+
+Это позволяет проверить, выбирает ли реальный worker-поток GPU и одинаковы ли common/dispatch generation stream в момент входа/выхода визуальной генерации. Но и такой снимок — доказательство конфигурации и wiring; для утверждения о фактическом исполнении каждого оператора нужны инструментирование/профайлер ниже уровня вызова модели.
+
+Добавлены регрессионные тесты на оба варианта локали `ps`, расчёт максимума RSS, раздельную интерпретацию VLM CPU и Text LLM GPU, а также чтение trace snapshot из серверных логов.
+
+### Следующий запуск на целевом Mac
+
+После получения коммитов ветки:
+
+```bash
+git -C "$HOME/Downloads/VCE-watchdog-repo" pull --ff-only
+python3 "$HOME/Downloads/VCE-watchdog-repo/scripts/apply_vce_mlx_metal_patch.py" \
+  --engine "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" \
+  --settings "$HOME/VideoContext-Engine/videocontext_settings.json" \
+  --apply
+```
+
+Патчер сперва выполняет preflight и компиляцию, затем создаёт резервные копии исходника и настроек перед записью. После применения нужно полностью перезапустить VideoContext Engine, чтобы процесс загрузил новый модуль, и убедиться, что локальный `/openapi.json` возвращает HTTP 200.
+
+Затем запустить:
+
+```bash
+python3 "$HOME/Downloads/VCE-watchdog-repo/scripts/vce_runtime_watchdog.py" \
+  --runner "$HOME/Downloads/VCE-watchdog-repo/scripts/vce_observed_run.py" \
+  --video '/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4' \
+  --settings "$HOME/VideoContext-Engine/videocontext_settings.json" \
+  --powermetrics --sample-stacks --vmmap
+```
+
+В `watchdog_verdict.md` нужно проверить `VLM device` из API-таймингов и отдельно `runtime_trace_snapshots`. Ключевые поля: `mlx_default_device`, `common_generation_stream.device`, `dispatch_generation_stream.device`, `thread_name` и `thread_ident`. В `process_resource_summary.json` ожидается числовой `max_observed_rss_mib`; при отсутствии выборок сначала читать `ps_parser_diagnostics.jsonl`.
+
+## 9. Итог и план дальнейшей проверки
 
 1. Полный end-to-end pipeline работает: API 200, 14 сцен, Whisper, VLM, OCR и итоговая Text LLM сводка завершились.
 2. Runtime сообщает MLX 0.32.4 и Metal; Whisper явно направлен на mx.cpu, Text LLM сообщает Device(gpu, 0), а VLM сообщает Device(cpu, 0).
