@@ -1,0 +1,1 @@
+run_id,case_id,claim_id,claim_text,claim_type,evidence_type,evidence_start_s,evidence_end_s,evidence_quote_or_observation,support_status,raw_evidence_preserved,technical_term_exact,hallucination_severity,completeness_gap,reviewer_notes

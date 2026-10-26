@@ -1,0 +1,79 @@
+# Практическое сравнение настроек VCE на одном видео
+
+Основной сценарий — **один и тот же исходный видеофайл, несколько наборов настроек, результаты рядом**. Эталонная транскрипция и ручное подготовление JSON для этого не нужны.
+
+## Что делает сценарий
+
+scripts/vce_compare_runs.py последовательно отправляет один и тот же файл в локальный VCE API (/api/v1/analyze) для каждого профиля. По умолчанию базовые значения берутся из текущего API (/api/v1/ui-settings); можно явно передать videocontext_settings.json. В профиле достаточно перечислить только те параметры, которые нужно изменить относительно текущих настроек.
+
+Для каждого запуска сценарий сохраняет:
+- result.json — полный JSON, который вернул VCE;
+- report.txt — читаемый отчёт с общим итогом и данными по сценам;
+- settings.json — точные поля, отправленные на сервер;
+- run.json — статус и время выполнения;
+- error.txt — если конкретный профиль завершился ошибкой.
+
+В общей папке создаются comparison.html для визуального сравнения результатов рядом и comparison.md со ссылками на все файлы. Один упавший профиль не мешает остальным завершиться. Запуски выполняются по одному, чтобы не перегружать память и ML-модели на Apple Silicon.
+
+Сценарий не записывает настройки обратно в videocontext_settings.json. Для защиты от перезаписи файлов рядом с исходным видео он отключает сохранение TXT/JSON самим VCE на время запроса, но сохраняет всё возвращённое API в отдельную папку результатов. Сравнительная HTML-страница показывает структурированный итог Qwen3.5, темы, ключевые моменты, сущности, неопределённости и времена Whisper/VLM/OCR/Qwen3.5 отдельно.
+
+## Быстрый запуск на Mac
+
+1. Убедись, что VideoContext Engine уже открыт и локальный интерфейс доступен на http://127.0.0.1:7555.
+2. Подготовь отдельную папку с инструментом и примером профилей:
+
+    BENCH="$HOME/Downloads/vce-compare"
+    mkdir -p "$BENCH"
+    curl -fL \
+      "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/vce-quality-benchmark-harness/scripts/vce_compare_runs.py" \
+      -o "$BENCH/vce_compare_runs.py"
+    curl -fL \
+      "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/vce-quality-benchmark-harness/config/vce_compare_profiles.example.json" \
+      -o "$BENCH/profiles.json"
+
+3. Запусти все варианты на одном файле. Укажи реальный путь к видео:
+
+    python3 "$BENCH/vce_compare_runs.py" \
+      --video "$HOME/Downloads/lecture.mp4" \
+      --profiles "$BENCH/profiles.json" \
+      --base-settings "$HOME/VideoContext-Engine/videocontext_settings.json" \
+      --out-dir "$BENCH/results-lecture"
+
+   Если локальный файл настроек отсутствует, убери параметр --base-settings: значения будут запрошены у уже работающего API. Если папка results-lecture уже содержит файлы, задай новое имя, чтобы старые результаты не были перезаписаны. Если путь к видео устарел, runner ищет уникальный файл с тем же именем в Downloads. Если точного совпадения нет, он выводит список найденных видео и останавливается, а не выбирает другой ролик автоматически.
+
+4. Открой готовую сравнительную страницу:
+
+    open "$BENCH/results-lecture/comparison.html"
+
+## Настройка вариантов
+
+Файл профилей — обычный JSON с массивом profiles. Первый профиль обычно оставляют базовым: "settings": {}. Остальные содержат только изменения относительно сохранённых настроек.
+
+В примере config/vce_compare_profiles.example.json есть варианты:
+- baseline-current — сохранённые сейчас настройки;
+- whisper-ocr-no-vlm — отключается Qwen3-VL, оставляя Whisper и Apple OCR;
+- whisper-medium — меняется только Whisper на medium;
+- two-keyframes — меняется только число кадров на сцену;
+- vlm-4b — меняется только визуальная модель на Qwen3-VL-4B;
+- ffmpeg-ocr-on — включается дополнительный FFmpeg/Tesseract OCR.
+
+Можно менять профили и имена под свой эксперимент. Среди поддерживаемых параметров — analysis_mode, whisper_model, vlm_model, vlm_resolution, scene_threshold, min_scene_duration, max_scene_duration, keyframes_per_scene, vlm_max_tokens_scene, vlm_max_tokens_summary, enable_apple_ocr, enable_ffmpeg_ocr, ffmpeg_ocr_interval, whisper_acceleration, enable_audio_features, generate_summary, word_timestamps, visual_user_prompt, summary_user_prompt.
+
+Для понятного эксперимента меняй по одному фактору за раз. Например, сначала сравни текущий профиль с whisper_model=medium; затем отдельно сравни один и два кадра на сцену. Можно использовать один и тот же профильный файл для разных роликов, но для каждого видео выбирай новую папку результатов.
+
+## Как трактовать время
+
+Время VCE берётся из метаданных ответа движка, Полное время запроса измеряется инструментом вокруг HTTP-запроса. На первом прогоне модель может загружаться в память, поэтому он нередко медленнее последующих. Для прикидки качества смотри сами транскрипты, общий итог, пропущенные или ошибочно распознанные слова, качество текста на слайдах и количество/границы сцен. Сценарий не объявляет один профиль «лучшим» автоматически.
+
+## Необязательная количественная оценка WER/CER
+
+Если нужно не просто посмотреть разницу, а рассчитать долю ошибок распознавания, дополнительно используй scripts/vce_benchmark.py. Для WER/CER ему нужна вручную проверенная эталонная транскрипция, отдельная от результата VCE. Эти метрики полезны для оценки ASR, но не оценивают смысловую полноту конспекта, качество визуального описания или обоснованность выводов. benchmarks/manifest.example.jsonl — только шаблон; он не должен запускаться без реальных данных.
+
+После сохранения реальных отчётов можно сравнивать их с эталоном через JSONL-манифест:
+
+    python3 scripts/vce_benchmark.py \
+      --manifest benchmarks/private/manifest.jsonl \
+      --out-dir benchmarks/private/results \
+      --baseline baseline-current
+
+Для этого необязательного режима смотри структуру манифеста в benchmarks/manifest.example.jsonl. Эталоны, видео и результаты храни локально и не коммить в Git.

@@ -1,0 +1,19 @@
+name: VCE quality benchmark tests
+
+on:
+  push:
+    branches: [main, "feat/vce-quality-benchmark-harness"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run benchmark unit tests
+        run: python -m unittest discover -s tests -p "test_vce_*.py" -v
