@@ -468,7 +468,7 @@ def main() -> int:
                 "unique_evidence_strings_referenced": index_stats["unique_evidence_strings"],
                 "exact_duplicate_occurrences_collapsed": index_stats["duplicate_occurrences_collapsed"],
                 "all_non_duplicate_text_values_preserved_verbatim": True,
-            "visual_tags_serialized_canonically_without_changing_values": True,
+                "visual_tags_serialized_canonically_without_changing_values": True,
                 "anchor_values_are_regex_matches_not_semantic_facts": True,
             },
             "summary_instruction_loaded_from_project": Path(project_path).name if project_path else None,
