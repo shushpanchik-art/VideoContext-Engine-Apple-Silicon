@@ -611,7 +611,7 @@ async def _vce_prepare_scene_keyframes_cpu(_scene: Dict[str, Any]):
         "if _vce_pf_thread is not None and _vce_pf_thread.is_alive():",
         "    await asyncio.to_thread(_vce_pf_thread.join, 2.0)",
     ]
-    _vce_newline = "\\r\\n" if "\\r\\n" in text else "\\n"
+    _vce_newline = "\r\n" if "\r\n" in text else "\n"
     _vce_insert_at = sum(len(line) for line in _vce_lines[:_vce_finalizer_i + 1])
     _vce_insert_text = "".join(_vce_cleanup_indent + line + _vce_newline for line in _vce_cleanup_code)
     text = text[:_vce_insert_at] + _vce_insert_text + text[_vce_insert_at:]
