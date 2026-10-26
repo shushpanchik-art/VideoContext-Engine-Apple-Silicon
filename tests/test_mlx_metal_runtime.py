@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import types
 import unittest
+import threading
 from unittest import mock
 
 from scripts import mlx_metal_runtime as runtime
@@ -106,22 +107,20 @@ class RuntimeHelperTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "reports device"):
             runtime.load_whisper_cpu(Whisper, "large")
 
-    def test_cpu_asr_and_gpu_stage_both_return_results(self):
-        events = []
+    def test_cpu_asr_overlaps_gpu_stage(self):
+        barrier = threading.Barrier(2)
 
         def asr():
-            events.append("asr")
+            barrier.wait(timeout=2)
             return "transcript"
 
         def gpu():
-            events.append("gpu")
+            barrier.wait(timeout=2)
             return "scenes"
 
         asr_result, gpu_result = runtime.run_whisper_cpu_parallel_with_gpu(asr, gpu)
         self.assertEqual(asr_result, "transcript")
         self.assertEqual(gpu_result, "scenes")
-        self.assertIn("asr", events)
-        self.assertIn("gpu", events)
 
 
 if __name__ == "__main__":
