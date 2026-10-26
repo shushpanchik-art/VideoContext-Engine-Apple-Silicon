@@ -184,7 +184,7 @@ class PatchTests(unittest.TestCase):
 
     def test_legacy_patched_engine_is_upgraded_with_explicit_gpu_diagnostics(self):
         patched = patcher.patch_engine_text(FIXTURE)
-        legacy = patched.replace(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER + "\\n", "", 1)
+        legacy = patched.replace(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, "", 1)
 
         old_probe = '''    mx.set_default_device(mx.gpu)
     if mx.default_device() != mx.gpu:
@@ -272,7 +272,7 @@ class PatchTests(unittest.TestCase):
         legacy = legacy.replace(new_info, old_info, 1)
         legacy = legacy.replace(new_compat_check, old_compat_check, 1)
         legacy = legacy.replace('f"to {mx.gpu}; process-global default observed={_vce_default_device_observed}."', 'f"on {mx.default_device()}."', 1)
-        legacy = legacy.replace('    _vce_default_device_observed = str(mx.default_device())\\n', "", 1)
+        legacy = legacy.replace('    _vce_default_device_observed = str(mx.default_device())', "", 1)
         self.assertNotIn(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, legacy)
         upgraded = patcher.patch_engine_text(legacy)
         compile(upgraded, "upgraded_gpu_diagnostics_engine.py", "exec")
