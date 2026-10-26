@@ -1,0 +1,24 @@
+name: VCE benchmark script syntax validation
+
+on:
+  push:
+    branches: [feat/vce-parallel-cpu-asr-vlm-20261025]
+    paths:
+      - "scripts/benchmark_vce_macos.py"
+      - ".github/workflows/vce-benchmark-script.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/benchmark_vce_macos.py"
+      - ".github/workflows/vce-benchmark-script.yml"
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile benchmark script
+        run: python -m py_compile scripts/benchmark_vce_macos.py
