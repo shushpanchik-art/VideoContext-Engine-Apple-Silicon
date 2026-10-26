@@ -716,7 +716,11 @@ def main() -> int:
     print("\n=== Отчёт сохранён локально ===")
     print(str(out_dir))
     print("Передайте report.json и summary.md в чат; resources.csv поможет разобрать пики CPU/RAM.")
-    print("Видео, расшифровка и текст сцен в отчёт не включаются; ничего не отправлено в GitHub.")
+    print("Видео, расшифровка и текст сцен в отчёт не включаются.")
+    if report.get("privacy", {}).get("uploaded_to_github"):
+        print("Обезличенный отчёт опубликован в GitHub; ссылки показаны выше.")
+    else:
+        print("Отчёт остался локальным; в GitHub ничего не отправлено.")
     if any("stage_diagnostics" not in (run.get("metrics", {}).get("timings", {})) for run in report["runs"] if run.get("metrics")):
         print("ПРИМЕЧАНИЕ: stage_diagnostics отсутствует в ответе API; отчёт всё равно содержит wall time и Whisper/VLM timings.")
     return 0 if report["runs"] and any(run.get("metrics") for run in report["runs"]) else 1
