@@ -163,6 +163,40 @@ class PatchTests(unittest.TestCase):
         self.assertIn('_vce_configure_mlx_metal("vlm")', patched)
         self.assertIn("_vce_prepare_scene_keyframes_cpu", patched)
 
+    def test_existing_bounded_prefetch_is_preserved(self):
+        variant = FIXTURE.replace(
+            "                cap = cv2.VideoCapture(temp_path)\\n"
+            "                for idx, scene in enumerate(scenes_raw):",
+            "                cap = cv2.VideoCapture(temp_path)\\n"
+            "                _vce_frame_prefetch_queue = None\\n"
+            "                _vce_frame_prefetch_stats = {\\"worker_seconds\\": 0.1}\\n"
+            "                # _vce_start_bounded_keyframe_prefetch already exists in this engine variant\\n"
+            "                for idx, scene in enumerate(scenes_raw):",
+        )
+        variant = variant.replace(
+            "                        keyframes = sample_keyframes_for_scene(\\n"
+            "                            cap,\\n"
+            "                            scene,\\n"
+            "                            base_res=vlm_resolution,\\n"
+            "                            max_frames=keyframes_per_scene,\\n"
+            "                        )",
+            "                        if _vce_frame_prefetch_queue is not None:\\n"
+            "                            keyframes = []\\n"
+            "                        else:\\n"
+            "                            keyframes = sample_keyframes_for_scene(\\n"
+            "                                cap,\\n"
+            "                                scene,\\n"
+            "                                base_res=vlm_resolution,\\n"
+            "                                max_frames=keyframes_per_scene,\\n"
+            "                            )",
+        )
+        self.assertIn("_vce_start_bounded_keyframe_prefetch", variant)
+        patched = patcher.patch_engine_text(variant)
+        compile(patched, "patched_existing_prefetch_engine.py", "exec")
+        self.assertIn("_vce_frame_prefetch_queue is not None", patched)
+        self.assertNotIn("_vce_prepare_scene_keyframes_cpu", patched)
+        self.assertIn('locals().get("_vce_frame_prefetch_stats", {})', patched)
+
     def test_settings_force_mlx_whisper_cpu_stream_and_metal(self):
         content = json.dumps({"whisper_acceleration": True, "enable_mlx_whisper": False, "mlx_device": "auto", "custom": "keep"})
         result = json.loads(patcher.patch_settings_text(content))
