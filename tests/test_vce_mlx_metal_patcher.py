@@ -151,6 +151,18 @@ class PatchTests(unittest.TestCase):
         self.assertIn('"whisper_vlm_overlap_seconds"', patched)
         self.assertEqual(patcher.patch_engine_text(patched), patched)
 
+    def test_custom_visual_condition_without_legacy_anchor_is_supported(self):
+        variant = FIXTURE.replace(
+            "if not skip_visual or generate_summary:",
+            "if not skip_visual:",
+        )
+        self.assertNotIn("if not skip_visual or generate_summary:", variant)
+        patched = patcher.patch_engine_text(variant)
+        compile(patched, "patched_custom_engine.py", "exec")
+        self.assertIn("if not skip_visual:", patched)
+        self.assertIn('_vce_configure_mlx_metal("vlm")', patched)
+        self.assertIn("_vce_prepare_scene_keyframes_cpu", patched)
+
     def test_settings_force_mlx_whisper_cpu_stream_and_metal(self):
         content = json.dumps({"whisper_acceleration": True, "enable_mlx_whisper": False, "mlx_device": "auto", "custom": "keep"})
         result = json.loads(patcher.patch_settings_text(content))
