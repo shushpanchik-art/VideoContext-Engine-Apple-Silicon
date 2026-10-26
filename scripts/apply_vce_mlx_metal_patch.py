@@ -173,8 +173,8 @@ def patch_engine_text(text: str) -> str:
 
     # Replace the serial Whisper block using its discovered indentation.
     block_start_re = re.compile(
-        r"(?m)^(?P<indent>[ \\t]*)whisper_segments: List\\[Dict\\[str, Any\\]\\] = \\[\\]\\r?\\n"
-        r"\\r?\\n(?P=indent)if not skip_audio:\\s*$"
+        r"(?m)^(?P<indent>[ \t]*)whisper_segments: List\[Dict\[str, Any\]\] = \[\]\r?\n"
+        r"\r?\n(?P=indent)if not skip_audio:\s*$"
     )
     block_start_match = block_start_re.search(text)
     if not block_start_match:
@@ -182,7 +182,7 @@ def patch_engine_text(text: str) -> str:
     block_start = block_start_match.start()
     base_indent = block_start_match.group("indent")
 
-    block_end_re = re.compile(r"(?m)^[ \\t]*if not skip_visual or generate_summary:\\s*$")
+    block_end_re = re.compile(r"(?m)^[ \t]*if not skip_visual or generate_summary:\s*$")
     block_end_match = block_end_re.search(text, block_start_match.end())
     if not block_end_match:
         raise PatchError("Could not locate the VLM stage following the Whisper block. No file was changed.")
@@ -250,7 +250,7 @@ def patch_engine_text(text: str) -> str:
                 if not skip_audio:
                     _vce_whisper_task = asyncio.create_task(_vce_run_whisper_cpu_stage())
                 '''
-    parallel_block = textwrap.indent(textwrap.dedent(parallel_block).strip("\\n"), base_indent) + "\\n\\n"
+    parallel_block = textwrap.indent(textwrap.dedent(parallel_block).strip("\n"), base_indent) + "\n\n"
     text = text[:block_start] + parallel_block + text[block_end:]
 
     # Add per-request stage timestamps    # Add per-request stage timestamps for measured overlap telemetry.
@@ -267,13 +267,13 @@ def patch_engine_text(text: str) -> str:
 
     # Find scene-analysis and summary boundaries independently of source indentation.
     scene_progress_re = re.compile(
-        r'(?m)^(?P<indent>[ \\t]*)set_job_progress\\(job_id, "scene_analysis", None, "Начинаем OCR и визуальный анализ сцен".*$'
+        r'(?m)^(?P<indent>[ \t]*)set_job_progress\(job_id, "scene_analysis", None, "Начинаем OCR и визуальный анализ сцен".*$'
     )
     scene_progress_matches = list(scene_progress_re.finditer(text))
     if len(scene_progress_matches) != 1:
         raise PatchError(f"Expected one scene-analysis progress line, found {len(scene_progress_matches)}.")
     scene_progress_match = scene_progress_matches[0]
-    cap_re = re.compile(r"(?m)^(?P<indent>[ \\t]*)cap = cv2.VideoCapture\\(temp_path\\)\\s*$")
+    cap_re = re.compile(r"(?m)^(?P<indent>[ \t]*)cap = cv2.VideoCapture\(temp_path\)\s*$")
     cap_match = None
     for candidate in cap_re.finditer(text, scene_progress_match.end()):
         if candidate.group("indent") == scene_progress_match.group("indent"):
@@ -283,9 +283,9 @@ def patch_engine_text(text: str) -> str:
         raise PatchError("Could not find VideoCapture at the scene-analysis stage.")
     cap_end = cap_match.end()
     scene_indent = cap_match.group("indent")
-    text = text[:cap_end] + "\\n" + scene_indent + "_vce_vlm_scene_started_at = time.perf_counter()" + text[cap_end:]
+    text = text[:cap_end] + "\n" + scene_indent + "_vce_vlm_scene_started_at = time.perf_counter()" + text[cap_end:]
 
-    loop_re = re.compile(r"(?m)^(?P<indent>[ \\t]*)for idx, scene in enumerate\\(scenes_raw\\):\\s*$")
+    loop_re = re.compile(r"(?m)^(?P<indent>[ \t]*)for idx, scene in enumerate\(scenes_raw\):\s*$")
     loop_matches = [m for m in loop_re.finditer(text, cap_end) if len(m.group("indent")) >= len(scene_indent)]
     if len(loop_matches) != 1:
         raise PatchError(f"Expected one scene loop after VideoCapture, found {len(loop_matches)}.")
@@ -293,13 +293,13 @@ def patch_engine_text(text: str) -> str:
     loop_indent = loop_match.group("indent")
     loop_line_end = loop_match.end()
     loop_insert = (
-        "\\n" + loop_indent + "    if _vce_whisper_task is not None and _vce_whisper_task.done():"
-        + "\\n" + loop_indent + "        whisper_segments = _vce_whisper_task.result()"
+        "\n" + loop_indent + "    if _vce_whisper_task is not None and _vce_whisper_task.done():"
+        + "\n" + loop_indent + "        whisper_segments = _vce_whisper_task.result()"
     )
     text = text[:loop_line_end] + loop_insert + text[loop_line_end:]
 
     summary_re = re.compile(
-        r'(?m)^(?P<indent>[ \\t]*)set_job_progress\\(job_id, "summary", None, "Формируем сводку по всем сценам".*$'
+        r'(?m)^(?P<indent>[ \t]*)set_job_progress\(job_id, "summary", None, "Формируем сводку по всем сценам".*$'
     )
     summary_matches = list(summary_re.finditer(text, loop_line_end))
     if len(summary_matches) != 1:
@@ -335,7 +335,7 @@ def patch_engine_text(text: str) -> str:
                     )
                 print(f"[VCE parallelism] CPU Whisper / MLX VLM overlap: {_vce_overlap_seconds:.2f}s")
 '''
-    overlap_block = textwrap.indent(textwrap.dedent(overlap_block).strip("\\n"), summary_indent) + "\\n"
+    overlap_block = textwrap.indent(textwrap.dedent(overlap_block).strip("\n"), summary_indent) + "\n"
     text = text[:summary_match.start()] + overlap_block + text[summary_match.start():]
 
     # Runtime backend evidence    # Runtime backend evidence in returned timing JSON.
