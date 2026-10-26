@@ -1,0 +1,386 @@
+{
+  "schema_version": 1,
+  "timestamp_utc": "2026-10-26T11:19:16+00:00",
+  "api": {
+    "base_url": "http://127.0.0.1:7555",
+    "listener_pid": 37159,
+    "server_process_start": "понедельник, 26 октября 2026 г. 08:11:51"
+  },
+  "machine": {
+    "macOS": "27.0.1",
+    "architecture": "arm64",
+    "cpu": "Apple M1 Max",
+    "logical_cpu_count": 10,
+    "physical_memory_gb": 32.0,
+    "free_mb": 2647.9,
+    "active_mb": 13172.5,
+    "inactive_mb": 12534.4,
+    "speculative_mb": 678.7,
+    "wired_mb": 2237.8,
+    "compressed_mb": 615.1
+  },
+  "video": {
+    "extension": ".mp4",
+    "size_mb": 17.41,
+    "duration_s": 108.233,
+    "streams": [
+      {
+        "type": "video",
+        "codec": "h264",
+        "width": 1920,
+        "height": 1080,
+        "avg_frame_rate": "30/1"
+      },
+      {
+        "type": "audio",
+        "codec": "aac"
+      },
+      {
+        "type": "data",
+        "codec": "timed_id3"
+      }
+    ],
+    "ffprobe_available": true
+  },
+  "settings_summary": {
+    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "whisper_model": "large",
+    "response_format": "json",
+    "vlm_resolution": 768,
+    "scene_threshold": 0.172,
+    "min_scene_duration": 1.5,
+    "max_scene_duration": 20.0,
+    "keyframes_per_scene": 1,
+    "vlm_max_tokens_scene": 768,
+    "vlm_max_tokens_summary": 2048,
+    "skip_audio": false,
+    "skip_visual": false,
+    "enable_audio_features": true,
+    "generate_summary": true,
+    "enable_apple_ocr": true,
+    "enable_ffmpeg_ocr": true,
+    "whisper_acceleration": true,
+    "enable_mlx_whisper": false,
+    "word_timestamps": true,
+    "analysis_mode": "full",
+    "ram_mode": "ram-",
+    "enable_stage_timing": true
+  },
+  "request_adaptations": [
+    {
+      "field": "visual_user_prompt",
+      "reason": "truncated_to_api_maxLength_for_request_only",
+      "original_characters": 1420,
+      "sent_characters": 998,
+      "api_maxLength": 1000
+    },
+    {
+      "field": "summary_user_prompt",
+      "reason": "truncated_to_api_maxLength_for_request_only",
+      "original_characters": 2138,
+      "sent_characters": 1997,
+      "api_maxLength": 2000
+    }
+  ],
+  "engine_markers": {
+    "parallel_cpu_asr_gpu_vlm": true,
+    "bounded_frame_prefetch": true,
+    "mp4_recovery": true
+  },
+  "engine_mtime_local": "2026-10-26T07:37:29-03:00",
+  "server_started_before_engine_mtime": false,
+  "runs": [
+    {
+      "run_index": 1,
+      "client_wall_s": 267.029,
+      "metrics": {
+        "http_status": 200,
+        "server_duration_s": 108.23,
+        "server_process_time_s": 266.61,
+        "scene_count": 14,
+        "models": {
+          "vlm": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+          "whisper": "large"
+        },
+        "skipped": {
+          "audio": false,
+          "visual": false
+        },
+        "params": {
+          "keyframes_per_scene": 1,
+          "enable_audio_features": true,
+          "generate_summary": true,
+          "vlm_max_tokens_scene": 768,
+          "vlm_max_tokens_summary": 2048,
+          "ram_mode": "ram-"
+        },
+        "timings": {
+          "total_process_time": 266.612,
+          "total_request_time": 266.879,
+          "whisper": {
+            "model": "large",
+            "device": "cpu",
+            "acceleration": false,
+            "load_time": 7.782,
+            "inference_time": 112.536
+          },
+          "vlm": {
+            "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+            "load_time": 6.493,
+            "inference_time": 142.543
+          },
+          "apple_ocr": {
+            "enabled": true,
+            "inference_time": 5.331
+          },
+          "ffmpeg_ocr": {
+            "requested": true,
+            "available": true,
+            "interval_seconds": 5,
+            "workers": 3,
+            "backend": "tesseract-cli",
+            "sample_count": 22,
+            "inference_time": 11.205,
+            "message": ""
+          },
+          "ram_mode": "ram-",
+          "stage_diagnostics": {
+            "scene_detection_seconds": 10.675,
+            "whisper_load_seconds": 7.782,
+            "whisper_inference_seconds": 112.536,
+            "vlm_load_seconds": 6.493,
+            "vlm_inference_seconds": 142.543,
+            "apple_ocr_seconds": 5.331,
+            "ffmpeg_ocr_seconds": 11.205,
+            "frame_prefetch_worker_seconds": 1.334,
+            "frame_prefetch_wait_seconds": 0.126,
+            "frame_prefetch_fallback_count": 0
+          },
+          "text_llm": {
+            "enabled": true,
+            "model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+            "status": "success",
+            "inference_time": 87.551,
+            "error": null
+          }
+        },
+        "result_shape_only": {
+          "segments_returned": 14,
+          "transcript_characters": 1297,
+          "visual_description_characters": 3392,
+          "ocr_characters": 31636
+        }
+      },
+      "resource_summary": {
+        "samples": 133,
+        "mean_cpu_percent": null,
+        "peak_cpu_percent": null,
+        "peak_rss_mb": null
+      }
+    },
+    {
+      "run_index": 2,
+      "client_wall_s": 264.028,
+      "metrics": {
+        "http_status": 200,
+        "server_duration_s": 108.23,
+        "server_process_time_s": 263.7,
+        "scene_count": 14,
+        "models": {
+          "vlm": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+          "whisper": "large"
+        },
+        "skipped": {
+          "audio": false,
+          "visual": false
+        },
+        "params": {
+          "keyframes_per_scene": 1,
+          "enable_audio_features": true,
+          "generate_summary": true,
+          "vlm_max_tokens_scene": 768,
+          "vlm_max_tokens_summary": 2048,
+          "ram_mode": "ram-"
+        },
+        "timings": {
+          "total_process_time": 263.703,
+          "total_request_time": 263.901,
+          "whisper": {
+            "model": "large",
+            "device": "cpu",
+            "acceleration": false,
+            "load_time": 7.598,
+            "inference_time": 110.269
+          },
+          "vlm": {
+            "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+            "load_time": 2.502,
+            "inference_time": 148.242
+          },
+          "apple_ocr": {
+            "enabled": true,
+            "inference_time": 0.078
+          },
+          "ffmpeg_ocr": {
+            "requested": true,
+            "available": true,
+            "interval_seconds": 5,
+            "workers": 3,
+            "backend": "tesseract-cli",
+            "sample_count": 22,
+            "inference_time": 10.53,
+            "message": ""
+          },
+          "ram_mode": "ram-",
+          "stage_diagnostics": {
+            "scene_detection_seconds": 11.111,
+            "whisper_load_seconds": 7.598,
+            "whisper_inference_seconds": 110.269,
+            "vlm_load_seconds": 2.502,
+            "vlm_inference_seconds": 148.242,
+            "apple_ocr_seconds": 0.078,
+            "ffmpeg_ocr_seconds": 10.53,
+            "frame_prefetch_worker_seconds": 1.342,
+            "frame_prefetch_wait_seconds": 0.13,
+            "frame_prefetch_fallback_count": 0
+          },
+          "text_llm": {
+            "enabled": true,
+            "model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+            "status": "success",
+            "inference_time": 84.428,
+            "error": null
+          }
+        },
+        "result_shape_only": {
+          "segments_returned": 14,
+          "transcript_characters": 1297,
+          "visual_description_characters": 3437,
+          "ocr_characters": 31636
+        }
+      },
+      "resource_summary": {
+        "samples": 132,
+        "mean_cpu_percent": null,
+        "peak_cpu_percent": null,
+        "peak_rss_mb": null
+      }
+    },
+    {
+      "run_index": 3,
+      "client_wall_s": 250.133,
+      "metrics": {
+        "http_status": 200,
+        "server_duration_s": 108.23,
+        "server_process_time_s": 249.83,
+        "scene_count": 14,
+        "models": {
+          "vlm": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+          "whisper": "large"
+        },
+        "skipped": {
+          "audio": false,
+          "visual": false
+        },
+        "params": {
+          "keyframes_per_scene": 1,
+          "enable_audio_features": true,
+          "generate_summary": true,
+          "vlm_max_tokens_scene": 768,
+          "vlm_max_tokens_summary": 2048,
+          "ram_mode": "ram-"
+        },
+        "timings": {
+          "total_process_time": 249.83,
+          "total_request_time": 250.007,
+          "whisper": {
+            "model": "large",
+            "device": "cpu",
+            "acceleration": false,
+            "load_time": 7.604,
+            "inference_time": 107.855
+          },
+          "vlm": {
+            "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+            "load_time": 2.43,
+            "inference_time": 137.766
+          },
+          "apple_ocr": {
+            "enabled": true,
+            "inference_time": 0.067
+          },
+          "ffmpeg_ocr": {
+            "requested": true,
+            "available": true,
+            "interval_seconds": 5,
+            "workers": 3,
+            "backend": "tesseract-cli",
+            "sample_count": 22,
+            "inference_time": 10.531,
+            "message": ""
+          },
+          "ram_mode": "ram-",
+          "stage_diagnostics": {
+            "scene_detection_seconds": 11.101,
+            "whisper_load_seconds": 7.604,
+            "whisper_inference_seconds": 107.855,
+            "vlm_load_seconds": 2.43,
+            "vlm_inference_seconds": 137.766,
+            "apple_ocr_seconds": 0.067,
+            "ffmpeg_ocr_seconds": 10.531,
+            "frame_prefetch_worker_seconds": 1.24,
+            "frame_prefetch_wait_seconds": 0.128,
+            "frame_prefetch_fallback_count": 0
+          },
+          "text_llm": {
+            "enabled": true,
+            "model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+            "status": "success",
+            "inference_time": 81.018,
+            "error": null
+          }
+        },
+        "result_shape_only": {
+          "segments_returned": 14,
+          "transcript_characters": 1297,
+          "visual_description_characters": 3051,
+          "ocr_characters": 31636
+        }
+      },
+      "resource_summary": {
+        "samples": 125,
+        "mean_cpu_percent": null,
+        "peak_cpu_percent": null,
+        "peak_rss_mb": null
+      }
+    }
+  ],
+  "warnings": [],
+  "resource_samples_csv": "resources.csv",
+  "privacy": {
+    "absolute_video_path_saved": false,
+    "video_filename_saved": false,
+    "transcript_or_scene_text_saved": false,
+    "custom_prompt_text_saved": false,
+    "uploaded_to_github": true
+  },
+  "machine_memory_after": {
+    "physical_memory_gb": 32.0,
+    "free_mb": 7353.8,
+    "active_mb": 7237.9,
+    "inactive_mb": 11790.9,
+    "speculative_mb": 87.9,
+    "wired_mb": 4055.2,
+    "compressed_mb": 1360.6
+  },
+  "github_publication": {
+    "repository": "shushpanchik-art/VideoContext-Engine-Apple-Silicon",
+    "branch": "feat/vce-parallel-cpu-asr-vlm-20261025",
+    "directory": "results/vce-benchmark/20261026_081916",
+    "files": {
+      "summary.md": "https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/blob/feat/vce-parallel-cpu-asr-vlm-20261025/results/vce-benchmark/20261026_081916/summary.md",
+      "resources.csv": "https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/blob/feat/vce-parallel-cpu-asr-vlm-20261025/results/vce-benchmark/20261026_081916/resources.csv",
+      "report.json": "https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/blob/feat/vce-parallel-cpu-asr-vlm-20261025/results/vce-benchmark/20261026_081916/report.json"
+    }
+  }
+}
