@@ -159,6 +159,7 @@ class PatchTests(unittest.TestCase):
         self.assertIn('await _vce_whisper_task', patched)
         self.assertIn('"whisper_vlm_overlap_seconds"', patched)
         self.assertIn(patcher.MLX_VLM_RUNTIME_TRACE_MARKER, patched)
+        self.assertIn(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, patched)
         self.assertIn("_vce_mlx_invoke_traced", patched)
         self.assertIn("_vce_mlx_trace_runtime", patched)
         self.assertIn("thread_native_id", patched)
@@ -179,6 +180,106 @@ class PatchTests(unittest.TestCase):
         compile(upgraded, "upgraded_runtime_trace_engine.py", "exec")
         self.assertIn(patcher.MLX_VLM_RUNTIME_TRACE_MARKER, upgraded)
         self.assertIn("_vce_mlx_trace_runtime", upgraded)
+        self.assertEqual(patcher.patch_engine_text(upgraded), upgraded)
+
+    def test_legacy_patched_engine_is_upgraded_with_explicit_gpu_diagnostics(self):
+        patched = patcher.patch_engine_text(FIXTURE)
+        legacy = patched.replace(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER + "\\n", "", 1)
+
+        old_probe = '''    mx.set_default_device(mx.gpu)
+    if mx.default_device() != mx.gpu:
+        raise RuntimeError(f"[VCE MLX] {stage}: failed to select the MLX GPU device.")
+
+    probe = mx.array([1.0, 2.0, 3.0]) * 2
+    mx.eval(probe)
+    mx.synchronize(mx.gpu)
+    if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
+        raise RuntimeError(f"[VCE MLX] {stage}: Metal smoke test returned an unexpected result.")
+'''
+        new_probe = '''    mx.set_default_device(mx.gpu)
+
+    # mx.default_device() is process-global in MLX 0.32.4. A concurrent
+    # with mx.stream(cpu_stream) can temporarily make its value appear to be
+    # CPU in this thread. Do not use that shared snapshot as the probe target
+    # or as a fail-fast check. Pin the probe operations to the GPU stream.
+    gpu_probe_stream = mx.default_stream(mx.gpu)
+    probe = mx.ones((3,), stream=gpu_probe_stream)
+    probe = mx.multiply(probe, 2, stream=gpu_probe_stream)
+    mx.eval(probe)
+    mx.synchronize(gpu_probe_stream)
+    if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
+        raise RuntimeError(f"[VCE MLX] {stage}: explicit GPU-stream smoke test returned an unexpected result.")
+'''
+        old_info = '''    info = {
+        "backend": "MLX",
+        "accelerator": "Metal",
+        "stage": stage,
+        "mlx_version": mlx_version,
+        "device": str(mx.default_device()),
+        "device_info": device_info,
+        "metal_smoke_test": "passed",
+    }
+    VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    print(f"[VCE runtime] {json.dumps(info, ensure_ascii=False, sort_keys=True)}")
+'''
+        new_info_start = '    default_device_observed = str(mx.default_device())\n    info = {'
+        new_info = '''    default_device_observed = str(mx.default_device())
+    info = {
+        "backend": "MLX",
+        "accelerator": "Metal",
+        "stage": stage,
+        "mlx_version": mlx_version,
+        # Backward-compatible field: this is the explicitly configured target,
+        # not a claim that every operator in the model ran on this device.
+        "device": str(mx.gpu),
+        "configured_device": str(mx.gpu),
+        "device_source": "explicit_gpu_target",
+        "default_device_observed": default_device_observed,
+        "device_semantics": "configured target; not per-operator execution proof",
+        "device_observation_note": (
+            "mx.default_device() is process-global and can temporarily reflect a concurrent "
+            "mx.stream(mx.cpu) context; see default_device_observed."
+        ),
+        "gpu_probe_stream": repr(gpu_probe_stream),
+        "gpu_stream_smoke_test": "passed",
+        "device_info": device_info,
+        "metal_smoke_test": "passed",
+    }
+    VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    if default_device_observed != str(mx.gpu):
+        print(
+            f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
+            f"but process-global mx.default_device() snapshot was {default_device_observed}. "
+            "This snapshot may reflect another thread's mx.stream() context.",
+            flush=True,
+        )
+    print(f"[VCE runtime] {json.dumps(info, ensure_ascii=False, sort_keys=True)}")
+'''
+        old_compat_check = '''    mx.set_default_device(mx.gpu)
+    if mx.default_device() != mx.gpu:
+        raise RuntimeError("VCE VLM worker could not select the MLX GPU")
+
+    # mlx-vlm creates generation_stream at import time. Rebind the module-level
+'''
+        new_compat_check = '''    mx.set_default_device(mx.gpu)
+    # Do not assert mx.default_device() here: MLX 0.32.4 exposes a process-global
+    # default, and another thread's mx.stream(mx.cpu) context can temporarily
+    # change the value observed here. The generation stream below is explicitly GPU.
+
+    # mlx-vlm creates generation_stream at import time. Rebind the module-level
+'''
+        legacy = legacy.replace(new_probe, old_probe, 1)
+        legacy = legacy.replace(new_info, old_info, 1)
+        legacy = legacy.replace(new_compat_check, old_compat_check, 1)
+        legacy = legacy.replace('f"to {mx.gpu}; process-global default observed={_vce_default_device_observed}."', 'f"on {mx.default_device()}."', 1)
+        legacy = legacy.replace('    _vce_default_device_observed = str(mx.default_device())\\n', "", 1)
+        self.assertNotIn(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, legacy)
+        upgraded = patcher.patch_engine_text(legacy)
+        compile(upgraded, "upgraded_gpu_diagnostics_engine.py", "exec")
+        self.assertIn(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, upgraded)
+        self.assertIn("gpu_probe_stream = mx.default_stream(mx.gpu)", upgraded)
+        self.assertIn('"configured_device": str(mx.gpu)', upgraded)
+        self.assertIn('"default_device_observed": default_device_observed', upgraded)
         self.assertEqual(patcher.patch_engine_text(upgraded), upgraded)
 
     def test_whisper_block_with_custom_initializers_is_supported(self):
