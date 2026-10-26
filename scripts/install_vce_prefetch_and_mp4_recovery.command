@@ -8,8 +8,8 @@ BRANCH="feat/vce-parallel-cpu-asr-vlm-20261025"
 REPO="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$BRANCH"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 ENGINE="$PROJECT/VideoContextEngine_v3.19.py"
-ROLLBACK="$PROJECT/VideoContextEngine_v3.19.py.before_prefetch_media_recovery_\${STAMP}.bak"
-TMPDIR_VCE="$(mktemp -d "\${TMPDIR:-/tmp}/vce-prefetch-recovery.XXXXXX")"
+ROLLBACK="$PROJECT/VideoContextEngine_v3.19.py.before_prefetch_media_recovery_${STAMP}.bak"
+TMPDIR_VCE="$(mktemp -d "${TMPDIR:-/tmp}/vce-prefetch-recovery.XXXXXX")"
 PREFETCH="$TMPDIR_VCE/patch_vce_bounded_frame_prefetch.py"
 RECOVERY="$TMPDIR_VCE/patch_vce_mp4_recovery_retry.py"
 ROLLBACK_READY=0
@@ -91,11 +91,11 @@ mkdir -p "$PATCH_DIR"
 for spec in \
   "patch_vce_mp4_recovery_retry.py:$RECOVERY" \
   "patch_vce_bounded_frame_prefetch.py:$PREFETCH"; do
-  name="\${spec%%:*}"
-  src="\${spec#*:}"
+  name="${spec%%:*}"
+  src="${spec#*:}"
   dest="$PATCH_DIR/$name"
   if [[ -f "$dest" ]] && ! cmp -s "$src" "$dest"; then
-    cp -p "$dest" "$dest.before_prefetch_media_recovery_\${STAMP}.bak"
+    cp -p "$dest" "$dest.before_prefetch_media_recovery_${STAMP}.bak"
   fi
   cp "$src" "$dest"
   chmod 700 "$dest"
