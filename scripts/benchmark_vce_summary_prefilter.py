@@ -30,6 +30,36 @@ DEFAULT_LARGE_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
 SENTINEL = "__VCE_RESULT__="
 
 
+def check_worker_environment(python_executable: str, timeout: float = 30.0) -> tuple[bool, str]:
+    """Check MLX + MLX-LM before spending time on a full VCE analysis."""
+    probe = (
+        "import mlx.core; import mlx_lm; "
+        "from mlx_lm import load, generate; "
+        "print('MLX_LM_IMPORT_OK')"
+    )
+    try:
+        result = subprocess.run(
+            [python_executable, "-c", probe],
+            capture_output=True, text=True, encoding="utf-8",
+            timeout=timeout, check=False,
+            env={**os.environ, "TOKENIZERS_PARALLELISM": "false"},
+        )
+    except Exception as exc:
+        return False, type(exc).__name__
+    if result.returncode == 0 and "MLX_LM_IMPORT_OK" in (result.stdout or ""):
+        return True, ""
+    detail = next(
+        (line.strip() for line in reversed((result.stderr or "").splitlines()) if line.strip()),
+        "",
+    )
+    if not detail:
+        detail = next(
+            (line.strip() for line in reversed((result.stdout or "").splitlines()) if line.strip()),
+            "",
+        )
+    return False, (detail or f"import probe exited with code {result.returncode}")[:300]
+
+
 def pick_text(obj: dict, names: tuple[str, ...]) -> str:
     for name in names:
         value = obj.get(name)
@@ -220,10 +250,17 @@ def run_worker(task: str, device: str, model: str, data: dict, max_tokens: int, 
 def worker_main(task: str, device: str, model_id: str, max_tokens: int) -> int:
     try:
         import mlx.core as mx
+    except ImportError as exc:
+        print(f"Missing MLX import: {getattr(exc, 'name', None) or 'mlx.core'}", file=sys.stderr)
+        return 3
+    try:
         mx.set_default_device(mx.cpu if device == "cpu" else mx.gpu)
         from mlx_lm import load, generate
-    except Exception:
-        print("MLX-LM unavailable in this Python environment.", file=sys.stderr)
+    except ImportError as exc:
+        print(f"Missing MLX-LM import: {getattr(exc, 'name', None) or 'mlx_lm'}", file=sys.stderr)
+        return 3
+    except Exception as exc:
+        print(f"MLX-LM initialization failed: {type(exc).__name__}: {str(exc)[:180]}", file=sys.stderr)
         return 3
     try:
         data = json.load(sys.stdin)
@@ -316,6 +353,10 @@ def main() -> int:
     parser.add_argument("--max-input-tokens", type=int, default=48000)
     parser.add_argument("--timeout", type=float, default=14400)
     parser.add_argument("--model-timeout", type=float, default=7200)
+    parser.add_argument(
+        "--worker-python", default=None,
+        help="Python executable for MLX-LM workers; use a dedicated venv to avoid changing VCE dependencies.",
+    )
     parser.add_argument("--report-dir")
     parser.add_argument("--_worker-task", choices=("prefilter", "summaries"), help=argparse.SUPPRESS)
     parser.add_argument("--_worker-device", choices=("cpu", "gpu"), help=argparse.SUPPRESS)
@@ -360,7 +401,10 @@ def main() -> int:
         request_adaptations = []
         fields = bench.build_form_fields(settings, bench.request_properties(openapi), request_adaptations)
         worker_venv_python = project / ".venv" / "bin" / "python"
-        worker_python = str(worker_venv_python) if worker_venv_python.is_file() else sys.executable
+        default_worker_python = str(worker_venv_python) if worker_venv_python.is_file() else sys.executable
+        worker_python = str(Path(args.worker_python).expanduser().resolve()) if args.worker_python else default_worker_python
+        if not Path(worker_python).is_file():
+            raise FileNotFoundError("Worker Python executable does not exist.")
     except Exception as exc:
         print("ERROR during preflight: " + type(exc).__name__, file=sys.stderr)
         return 2
@@ -378,6 +422,17 @@ def main() -> int:
     print("The installed engine and settings will not be modified; no GitHub upload is available.")
     print("One full VCE analysis will run, followed by local CPU fact extraction and two large-model summaries.")
     print("MLX worker Python:", worker_python)
+    ok, detail = check_worker_environment(worker_python)
+    if not ok:
+        print("\nERROR: MLX-LM is not importable in the selected worker environment.")
+        print("Diagnostic:", detail)
+        print("\nRecommended: create a separate environment so the installed VCE/MLX-VLM dependencies stay untouched:")
+        print('  "' + str(Path(worker_python)) + '" -m venv "$HOME/.venvs/vce-summary-prefilter"')
+        print('  "$HOME/.venvs/vce-summary-prefilter/bin/python" -m pip install -U pip mlx-lm')
+        print("\nThen re-run this experiment with:")
+        print('  --worker-python "$HOME/.venvs/vce-summary-prefilter/bin/python"')
+        print("No video analysis was started; engine and settings were not changed.")
+        return 2
     for item in request_adaptations:
         print(
             f"Request-only compatibility: {item['field']} {item['original_characters']} -> "
