@@ -167,6 +167,39 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
     llm_runtime = llm.get("runtime", {}) if isinstance(llm.get("runtime"), dict) else {}
     vlm_device, llm_device = str(vlm_runtime.get("device", "unknown")), str(llm_runtime.get("device", "unknown"))
     console = console_path.read_text(encoding="utf-8", errors="replace") if console_path.exists() else ""
+    log_parts = [console]
+    if observed_dir:
+        for log_path in (observed_dir / "server_events.jsonl", observed_dir / "server_log_key_lines.txt"):
+            if not log_path.exists():
+                continue
+            for raw_line in log_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    event = json.loads(raw_line)
+                    line_text = str(event.get("line", raw_line)) if isinstance(event, dict) else raw_line
+                except Exception:
+                    line_text = raw_line
+                log_parts.append(line_text)
+    app_text = "\n".join(log_parts)
+    trace_snapshots = []
+    for line_text in app_text.splitlines():
+        marker_pos = line_text.find("[VCE MLX TRACE] ")
+        if marker_pos < 0:
+            continue
+        try:
+            obj = json.loads(line_text[marker_pos + len("[VCE MLX TRACE] "):])
+            trace_snapshots.append({
+                "phase": obj.get("phase"),
+                "function": obj.get("function"),
+                "thread_name": obj.get("thread_name"),
+                "thread_ident": obj.get("thread_ident"),
+                "mlx_default_device": obj.get("mlx_default_device"),
+                "common_generation_stream": obj.get("mlx_vlm.generate.common.generation_stream"),
+                "dispatch_generation_stream": obj.get("mlx_vlm.generate.dispatch.generation_stream"),
+                "mlx_snapshot_error": obj.get("mlx_snapshot_error"),
+                "error": obj.get("error"),
+            })
+        except Exception:
+            pass
     maps = mappings_path.read_text(encoding="utf-8", errors="replace") if mappings_path.exists() else ""
     power_records = []
     if power_path.exists():
@@ -178,9 +211,9 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
             except Exception:
                 pass
     power_text = "\n".join(str(x.get("stdout", "")) + "\n" + str(x.get("stderr", "")) for x in power_records)
-    gpu_stream_setup = bool(re.search(r"Applied GPU-aware|generation_stream.*Device\(gpu", console, re.I))
-    mlx_reported = bool(vlm_runtime.get("backend") == "MLX" or llm_runtime.get("backend") == "MLX" or "mlx-whisper" in console)
-    metal_reported = bool(vlm_runtime.get("accelerator") == "Metal" or llm_runtime.get("accelerator") == "Metal" or vlm_runtime.get("metal_smoke_test") == "passed")
+    gpu_stream_setup = bool(re.search(r"Applied GPU-aware|generation_stream.*Device\(gpu", app_text, re.I))
+    mlx_reported = bool(vlm_runtime.get("backend") == "MLX" or llm_runtime.get("backend") == "MLX" or "mlx-whisper" in app_text or "[VCE runtime]" in app_text or "[VCE MLX TRACE]" in app_text)
+    metal_reported = bool(vlm_runtime.get("accelerator") == "Metal" or llm_runtime.get("accelerator") == "Metal" or vlm_runtime.get("metal_smoke_test") == "passed" or re.search(r"accelerator\s*[=:]\s*Metal|metal_smoke_test.{0,40}passed", app_text, re.I))
     gpu_power_label = bool(re.search(r"GPU Power|GPU active residency|GPU HW active|GPU frequency|GPU active", power_text, re.I))
     mapped = bool(re.search(r"mlx|libmetal|metal\.framework|mpsgraph|coreml", maps, re.I))
     if "cpu" in vlm_device.lower() and "gpu" in llm_device.lower():
@@ -207,6 +240,8 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
             "gpu_stream_setup_log_found": gpu_stream_setup,
             "successful_powermetrics_samples": len(power_records), "gpu_power_activity_label_found": gpu_power_label,
             "ml_or_metal_libraries_mapped": mapped,
+            "runtime_trace_snapshot_count": len(trace_snapshots),
+            "runtime_trace_snapshots": trace_snapshots[-16:],
             "limits": [
                 "Device values come from structured stage_timings.json, not from arbitrary stream-setup text.",
                 "A Metal smoke test proves only that its small arithmetic probe succeeded.",
