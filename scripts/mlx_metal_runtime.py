@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Strict MLX/Metal runtime helpers for VCE's Apple Silicon pipeline.
 
-Call configure_mlx_gpu() in every process that loads an MLX model, before
-loading the model. Keep Whisper on CPU explicitly and use
-run_whisper_cpu_parallel_with_gpu() around the CPU ASR and GPU visual stages.
+Call configure_mlx_gpu() in every process that loads an MLX/Metal VLM or LLM.
+Use transcribe_mlx_whisper_cpu() to run mlx-whisper on a thread-local MLX CPU
+stream while a separate thread runs MLX/Metal VLM inference.
 """
 from __future__ import annotations
 
 import platform
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from importlib import metadata
 from typing import Any, Callable
@@ -71,6 +72,43 @@ def configure_mlx_gpu() -> dict[str, Any]:
         "device_info": device_info,
         "gpu_smoke_test": "passed",
     }
+
+
+
+
+_MLX_WHISPER_LOCK = threading.Lock()
+
+
+def transcribe_mlx_whisper_cpu(
+    audio: str,
+    model_id: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Run mlx-whisper with all default MLX operations on a CPU stream.
+
+    The stream is thread-local: it does not change the calling VLM thread's
+    stream. Synchronize only this stream so ASR completion does not wait for
+    independent Metal work. Model weights use unified memory, not a separate
+    CPU-only allocation.
+    """
+    try:
+        import mlx.core as mx
+        import mlx_whisper
+    except ImportError as exc:
+        raise RuntimeError(
+            "mlx-whisper and mlx must be installed in the same environment as VCE."
+        ) from exc
+
+    cpu_stream = mx.new_thread_local_stream(mx.cpu)
+    with _MLX_WHISPER_LOCK:
+        with mx.stream(cpu_stream):
+            result = mlx_whisper.transcribe(
+                audio,
+                path_or_hf_repo=model_id,
+                **kwargs,
+            )
+            mx.synchronize(cpu_stream)
+    return result
 
 
 def load_whisper_cpu(whisper_module: Any, model_name: str, **kwargs: Any) -> Any:
