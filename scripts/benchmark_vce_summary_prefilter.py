@@ -389,12 +389,12 @@ def main() -> int:
     if bench is None:
         print("ERROR: download benchmark_vce_macos.py next to this script.", file=sys.stderr)
         return 2
-    if not args.video:
-        parser.error("--video is required")
+    if not args.video and not args.resume_evidence:
+        parser.error("--video is required unless --resume-evidence is used")
     if args.chunk_scenes < 1 or args.max_field_chars < 500:
         parser.error("--chunk-scenes must be >=1 and --max-field-chars >=500")
-    video = Path(args.video).expanduser().resolve()
-    if not video.is_file():
+    video = Path(args.video).expanduser().resolve() if args.video else None
+    if video is not None and not video.is_file():
         print("ERROR: video not found.", file=sys.stderr)
         return 2
 
@@ -434,7 +434,10 @@ def main() -> int:
     outdir.mkdir(parents=True, exist_ok=False)
 
     print("VCE CPU prefilter experiment — phase 1, offline A/B")
-    print(f"Video: {video.suffix.lower()}, {video.stat().st_size / (1024 ** 2):.1f} MB")
+    if video is not None:
+        print(f"Video: {video.suffix.lower()}, {video.stat().st_size / (1024 ** 2):.1f} MB")
+    else:
+        print("Video: reuse scene evidence from checkpoint; source path is not stored.")
     print(f"Small CPU model: {args.small_model}")
     print("The installed engine and settings will not be modified; no GitHub upload is available.")
     if args.resume_evidence:
@@ -530,7 +533,7 @@ def main() -> int:
             "request_adaptations": request_adaptations,
         }
         checkpoint_path.write_text(
-            json.dumps(checkpoint, ensure_ascii=False, indent=2) + "\\n",
+            json.dumps(checkpoint, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
         checkpoint_path.chmod(0o600)
