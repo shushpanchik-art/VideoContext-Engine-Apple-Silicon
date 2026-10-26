@@ -257,7 +257,7 @@ class PatchTests(unittest.TestCase):
         )
         legacy = legacy.replace(
             "await _vce_mlx_run(vlm_engine.describe_scene,",
-            "await asyncio.to_thread(\\n                                vlm_engine.describe_scene,",
+            "await asyncio.to_thread(\n                                vlm_engine.describe_scene,",
         )
         self.assertNotIn(patcher.MLX_THREAD_AFFINITY_MARKER, legacy)
         upgraded = patcher.patch_engine_text(legacy)
