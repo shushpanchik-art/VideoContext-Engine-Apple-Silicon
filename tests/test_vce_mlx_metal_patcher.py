@@ -151,6 +151,24 @@ class PatchTests(unittest.TestCase):
         self.assertIn('"whisper_vlm_overlap_seconds"', patched)
         self.assertEqual(patcher.patch_engine_text(patched), patched)
 
+    def test_whisper_block_with_custom_initializers_is_supported(self):
+        old = "                whisper_segments: List[Dict[str, Any]] = []\n\n                if not skip_audio:"
+        new = (
+            "                whisper_segments: List[Dict[str, Any]] = []\n"
+            "                _vce_whisper_task = None\n"
+            "                _vce_whisper_model = None\n"
+            "                whisper_audio_error = None\n"
+            "                whisper_infer_time = 0.0\n\n"
+            "                if not skip_audio:"
+        )
+        variant = FIXTURE.replace(old, new)
+        self.assertNotEqual(variant, FIXTURE)
+        patched = patcher.patch_engine_text(variant)
+        compile(patched, "patched_custom_whisper_init.py", "exec")
+        self.assertIn("async def _vce_run_whisper_cpu_stage", patched)
+        self.assertIn("_vce_whisper_model = None", patched)
+        self.assertIn("whisper_audio_error = None", patched)
+
     def test_custom_visual_condition_without_legacy_anchor_is_supported(self):
         variant = FIXTURE.replace(
             "if not skip_visual or generate_summary:",
