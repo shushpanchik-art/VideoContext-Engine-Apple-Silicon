@@ -25,7 +25,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 DEFAULT_PROJECTS = (
@@ -128,7 +128,12 @@ def scalar_form_value(value) -> str:
     return str(value)
 
 
-def build_form_fields(settings: dict, properties: dict) -> list[tuple[str, str]]:
+def build_form_fields(
+    settings: dict,
+    properties: dict,
+    adaptations: list[dict] | None = None,
+) -> list[tuple[str, str]]:
+    """Build the API form from current settings, respecting the live OpenAPI schema."""
     fields: list[tuple[str, str]] = []
     for pname, prop in properties.items():
         if pname == "video_file":
@@ -149,13 +154,34 @@ def build_form_fields(settings: dict, properties: dict) -> list[tuple[str, str]]
             value = prop["default"]
         else:
             continue
+
+        # The settings UI may store prompts longer than the API's Form(max_length=...)
+        # accepts. Apply the schema limit to this benchmark request only; never edit settings.
+        if isinstance(value, str) and isinstance(prop, dict):
+            max_length = prop.get("maxLength")
+            if isinstance(max_length, int) and len(value) > max_length:
+                original_length = len(value)
+                trimmed = value[:max_length]
+                # Avoid cutting a word in half when the previous word boundary is nearby.
+                boundary = trimmed.rfind(" ")
+                if boundary >= max_length - 80:
+                    trimmed = trimmed[:boundary].rstrip()
+                value = trimmed
+                if adaptations is not None:
+                    adaptations.append({
+                        "field": pname,
+                        "reason": "truncated_to_api_maxLength_for_request_only",
+                        "original_characters": original_length,
+                        "sent_characters": len(value),
+                        "api_maxLength": max_length,
+                    })
+
         if isinstance(value, list):
             for item in value:
                 fields.append((pname, scalar_form_value(item)))
         elif value is not None:
             fields.append((pname, scalar_form_value(value)))
     return fields
-
 
 def multipart_post(
     base_url: str,
@@ -390,6 +416,32 @@ def clean_metric_response(payload: dict) -> dict:
     }
 
 
+
+def safe_http_error(status: int, body: bytes) -> str:
+    """Summarize HTTP failures without copying prompts, file paths, or API input values."""
+    try:
+        payload = json.loads(body.decode("utf-8", errors="replace"))
+    except Exception:
+        return f"HTTP {status}: API error; response body omitted for privacy."
+    details = payload.get("detail") if isinstance(payload, dict) else None
+    safe_details = []
+    if isinstance(details, list):
+        for item in details:
+            if not isinstance(item, dict):
+                continue
+            entry = {}
+            location = item.get("loc")
+            if isinstance(location, (list, tuple)):
+                entry["field"] = ".".join(str(part) for part in location)
+            error_type = item.get("type")
+            if isinstance(error_type, str):
+                entry["type"] = error_type
+            if entry:
+                safe_details.append(entry)
+    if safe_details:
+        return f"HTTP {status}: validation failure " + json.dumps(safe_details, ensure_ascii=False)
+    return f"HTTP {status}: API error; response body omitted for privacy."
+
 def make_summary(report: dict) -> str:
     lines = [
         "# VideoContext Engine benchmark report",
@@ -454,11 +506,14 @@ GITHUB_REPOSITORY = "shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 
 
 def publish_report_to_github(out_dir: Path, report: dict, branch: str) -> dict:
-    """Publish only generated, privacy-reduced report files through an existing gh login."""
+    """Publish only generated, privacy-reduced report files through authenticated gh CLI."""
     if not shutil.which("gh"):
         raise RuntimeError("Не найден GitHub CLI (gh). Установите gh и выполните gh auth login.")
-    token = command_output(["gh", "auth", "token"], timeout=10)
-    if not token:
+    auth = subprocess.run(
+        ["gh", "auth", "status", "--hostname", "github.com"],
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    if auth.returncode != 0:
         raise RuntimeError("GitHub CLI не авторизован. Выполните gh auth login и повторите запуск.")
 
     stamp = out_dir.name.removeprefix("VCE-Benchmark-")
@@ -478,25 +533,25 @@ def publish_report_to_github(out_dir: Path, report: dict, branch: str) -> dict:
             "message": f"chore: add VCE benchmark report {stamp} ({name})",
             "content": base64.b64encode(local_path.read_bytes()).decode("ascii"),
             "branch": branch,
-        }).encode("utf-8")
-        request = Request(
-            "https://api.github.com/repos/" + GITHUB_REPOSITORY + "/contents/" + quote(remote_path, safe="/"),
-            data=body,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": "Bearer " + token,
-                "X-GitHub-Api-Version": "2022-11-28",
-                "Content-Type": "application/json",
-                "User-Agent": "VCE-Benchmark/1.0",
-            },
-            method="PUT",
+        })
+        result = subprocess.run(
+            [
+                "gh", "api",
+                f"repos/{GITHUB_REPOSITORY}/contents/{remote_path}",
+                "--method", "PUT",
+                "--input", "-",
+            ],
+            input=body,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
         )
-        try:
-            with urlopen(request, timeout=30) as response:
-                response.read()
-        except Exception as exc:
-            # Never display the token or request headers.
-            raise RuntimeError(f"GitHub не принял файл {name}: {type(exc).__name__}") from None
+        if result.returncode != 0:
+            # Do not expose credentials or any request body in a diagnostic.
+            detail = (result.stderr or result.stdout or "").strip().splitlines()
+            detail = detail[-1][:240] if detail else f"exit code {result.returncode}"
+            raise RuntimeError(f"gh api failed for {name}: {detail}")
 
     for name in ("summary.md", "resources.csv"):
         put_one(name)
@@ -513,7 +568,6 @@ def publish_report_to_github(out_dir: Path, report: dict, branch: str) -> dict:
     # Publish report.json last so it contains the predictable GitHub URLs for the bundle.
     put_one("report.json")
     return urls
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -560,7 +614,8 @@ def main() -> int:
             raise RuntimeError("VCE не слушает порт API. Запустите VideoContext Engine и повторите команду.")
         openapi = fetch_json(args.base_url.rstrip("/") + "/openapi.json", timeout=10)
         props = request_properties(openapi)
-        fields = build_form_fields(settings, props)
+        request_adaptations = []
+        fields = build_form_fields(settings, props, request_adaptations)
     except Exception as exc:
         print("ОШИБКА предварительной проверки: " + str(exc), file=sys.stderr)
         return 2
@@ -584,6 +639,12 @@ def main() -> int:
     print(f"VCE listener PID: {pid}; число прогонов: {args.runs}")
     print("Будет отправлен локальный запрос на /api/v1/analyze с текущими настройками.")
     print("Чтобы избежать побочных файлов, generate_txt/generate_json выключаются только в запросе.")
+    for item in request_adaptations:
+        print(
+            f"ПРЕДУПРЕЖДЕНИЕ: поле {item['field']} сокращено с {item['original_characters']} "
+            f"до {item['sent_characters']} символов (ограничение API {item['api_maxLength']}); "
+            "изменён только тестовый запрос, файл настроек не тронут."
+        )
     if warnings:
         for warning in warnings:
             print("ПРЕДУПРЕЖДЕНИЕ: " + warning)
@@ -614,6 +675,7 @@ def main() -> int:
         "machine": machine,
         "video": video_probe(video),
         "settings_summary": {key: settings.get(key) for key in SAFE_CONFIG_KEYS if key in settings},
+        "request_adaptations": request_adaptations,
         "engine_markers": {key: marker in engine_source for key, marker in MARKERS.items()},
         "engine_mtime_local": engine_mtime.isoformat(timespec="seconds"),
         "server_started_before_engine_mtime": bool(server_started and server_started.timestamp() < engine_path.stat().st_mtime),
@@ -640,9 +702,7 @@ def main() -> int:
             try:
                 status, body, client_wall = multipart_post(args.base_url, video, fields, timeout=args.timeout)
                 if status < 200 or status >= 300:
-                    excerpt = body[:1600].decode("utf-8", errors="replace")
-                    excerpt = excerpt.replace(str(video), "<video>").replace(str(project), "<project>")
-                    raise RuntimeError(f"HTTP {status}: {excerpt}")
+                    raise RuntimeError(safe_http_error(status, body))
                 payload = json.loads(body.decode("utf-8"))
                 metrics = clean_metric_response(payload)
                 metrics["http_status"] = status
@@ -689,7 +749,9 @@ def main() -> int:
                 writer.writeheader()
                 writer.writerows(all_samples)
 
-    if args.publish_github:
+    if args.publish_github and not any(run.get("metrics") for run in report["runs"]):
+        print("Публикация пропущена: ни один прогон не завершился успешно. Отчёт с ошибками остался локальным.")
+    elif args.publish_github:
         answer = input(
             "\nОпубликовать report.json, summary.md и resources.csv в GitHub? "
             "В отчёте нет пути/имени видео или текста транскрипции. Введите PUBLISH: "
