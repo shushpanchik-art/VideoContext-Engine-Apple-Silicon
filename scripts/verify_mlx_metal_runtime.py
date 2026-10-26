@@ -25,7 +25,8 @@ def main() -> int:
         "mlx": "mlx",
         "mlx-vlm": "mlx_vlm",
         "mlx-lm (optional)": "mlx_lm",
-        "openai-whisper": "whisper",
+        "mlx-whisper": "mlx_whisper",
+        "openai-whisper (legacy import)": "whisper",
     }
     result = {
         "python": sys.executable,
@@ -49,7 +50,7 @@ def main() -> int:
     print(json.dumps(result, indent=2, ensure_ascii=False))
     missing = [
         dist
-        for dist in ("mlx-vlm", "openai-whisper")
+        for dist in ("mlx-vlm", "mlx-whisper", "openai-whisper (legacy import)")
         if not result["packages"][dist]["installed"]
     ]
     return 1 if missing else 0
