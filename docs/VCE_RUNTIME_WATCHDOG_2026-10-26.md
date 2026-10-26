@@ -260,3 +260,15 @@ powermetrics не получил успешных сэмплов (0), поэто
 
 Результат подтверждает, что исправленный smoke test и полный pipeline работают; runtime snapshots сильнее указывают на GPU-bound VLM scene path. Для строгого доказательства выполнения каждого VLM оператора на Metal имеющихся данных недостаточно.
 
+## 13. Повторный прогон с успешными GPU power samples (20:02, 2026-10-26)
+
+Третий watchdog v2 run завершился HTTP 200: 108,23-секундный ролик, 14 сцен, VCE processing time 271,66 с. VLM inference — 158,682 с; Whisper CPU inference — 33,788 с; измеренное перекрытие Whisper/VLM — 31,982 с; финальный Text LLM — 90,056 с. Максимальный sampled RSS — 7 868,3 MiB (~7,68 GiB).
+
+После sudo -v все 19 вызовов powermetrics во время прогона завершились успешно. Начиная с elapsed 29,589 с, samples через интервалы примерно 14–16 с фиксировали GPU HW active residency 88,75–100%, обычно 98–100%, при частоте 1296 MHz. GPU Power в тех samples был примерно 34–53 W. Эти наблюдения покрывают значительную часть VLM scene inference и продолжаются во время финального Text LLM. Первые два samples (elapsed 0 и 15 с) показывали более низкую активность, что согласуется с переходом pipeline в тяжёлую модельную работу.
+
+Вместе с runtime trace из предыдущего полного прогона (60 из 60 scene-call snapshots показали Device(gpu, 0) и GPU generation streams, без scene-call CPU snapshots), это представляет сильную независимую корреляцию между GPU-настроенным scene path и реальной системной GPU activity. Однако powermetrics измеряет GPU на уровне всей системы, не может приписать активность непосредственно PID VCE, и отдельный GPU sample не определяет операторы MLX, породившие эту активность. Строгое per-operator attribution всё ещё требует profiler/instrumentation.
+
+Watchdog classification updated: when scene-call traces consistently observe GPU default device and GPU generation streams, Metal is reported, and successful power samples contain GPU activity labels, verdict is VLM_SCENE_GPU_WIRING_AND_SYSTEM_GPU_ACTIVITY_CORROBORATED_EXECUTION_NOT_PER_OPERATOR_PROVEN. If those power samples are absent, the less conclusive scene-trace verdict remains. Regression test covers both paths.
+
+Initial powermetrics failures were not GPU/sampler incompatibility: sudo had no cached authorization (sudo: a password is required). After interactive sudo -v, samples succeeded. The verification command/output and video response were not uploaded; this report contains aggregate resource numbers only.
+
