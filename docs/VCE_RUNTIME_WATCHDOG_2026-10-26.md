@@ -243,3 +243,20 @@ This reproduces the exact class of mismatch seen in the VCE log. MLX documents t
 - Regression tests cover explicit-stream probe generation and this device-target/default-snapshot discrepancy.
 
 **Scope limitation:** this corrects and improves diagnostics and the small GPU probe; it does not make MLX's process-global default device thread-local, nor does it prove that every operation during concurrent Whisper/VLM execution is routed to GPU. A separate runtime change—such as isolating the CPU Whisper workload in another process or temporarily serializing MLX CPU/GPU contexts—would be needed to eliminate that shared-state interaction rather than merely report it accurately. Keep PR #13 in Draft until a new target-Mac run confirms the revised fields and the actual inference placement is validated.
+
+## 12. Успешный прогон с runtime-трассировкой VLM (19:50, 2026-10-26)
+
+После исправления входного вектора GPU smoke test полный запуск watchdog v2 завершился HTTP 200: 108,233 с, 14 сцен, wall time клиента 281,353 с. VLM inference занял 158,086 с; Text LLM завершился успешно за 91,311 с. Whisper выполнялся на CPU 34,163 с, с измеренным перекрытием VLM 26,987 с. Максимальный RSS процесса в дискретных сэмплах — 7 077 MiB (~6,91 GiB); это не total unified-memory и не измерение Metal allocation.
+
+Runtime для VLM сообщает MLX 0.32.4, Metal available, explicit GPU stream smoke test passed, configured_device=DeviceType.gpu, gpu_probe_stream=Stream(Device(gpu, 0), 0). При этом default_device_observed=Device(cpu, 0) — это снимок на этапе конфигурации/загрузки модели.
+
+Трассировка вокруг actual scene calls дала 60 snapshots (vlm_scene_trace_snapshot_count=60), в которых mlx_default_device наблюдался как Device(gpu, 0); в показанных before/after snapshots обе ссылки mlx_vlm.generate.common.generation_stream и mlx_vlm.generate.dispatch.generation_stream указывали на ThreadLocalStream(Device(gpu, 0), 3). Text LLM before/after также показывал GPU и GPU generation streams. Следовательно, данные подтверждают GPU default-device observation и GPU generation-stream wiring во время вызовов анализа сцен, несмотря на одиночный CPU snapshot при загрузке.
+
+Watchdog v2 первоначально выдавал VLM_GPU_TARGET_CONFIGURED_BUT_DEFAULT_DEVICE_SNAPSHOT_CPU, потому что ставил load-time default_device_observed выше более релевантных snapshots вокруг describe_scene. Классификатор теперь сначала проверяет snapshots вокруг scene calls:
+- VLM_SCENE_TRACE_DEFAULT_AND_GENERATION_STREAM_GPU_EXECUTION_UNPROVEN — scene snapshots показывают GPU default device, и generation streams GPU, но это всё ещё не per-operator proof.
+- VLM_GPU_TARGET_CONFIGURED_BUT_DEFAULT_DEVICE_SNAPSHOT_CPU сохраняется, если хоть один доступный scene snapshot показывает CPU при GPU generation-stream wiring.
+
+powermetrics не получил успешных сэмплов (0), поэтому независимого системного подтверждения GPU activity в этом прогоне нет. Важно: before/after snapshots окружают вызов describe_scene, а не каждый отдельный MLX оператор. Они не исключают CPU-выполнение отдельных операций, fallback внутри библиотеки или различия между generation и пред-/постобработкой. Для подтверждения размещения отдельных операторов нужен профиль GPU/Metal, который связывает GPU execution с процессом, или более детальная инструментализация модели.
+
+Результат подтверждает, что исправленный smoke test и полный pipeline работают; runtime snapshots сильнее указывают на GPU-bound VLM scene path. Для строгого доказательства выполнения каждого VLM оператора на Metal имеющихся данных недостаточно.
+
