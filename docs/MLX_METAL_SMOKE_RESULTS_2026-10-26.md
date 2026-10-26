@@ -1,5 +1,7 @@
 # MLX/Metal + Whisper: интеграционные smoke-замеры (2026-10-26)
 
+> Полный отчёт по повторному прогону под Runtime Watchdog: [VCE_RUNTIME_WATCHDOG_2026-10-26.md](VCE_RUNTIME_WATCHDOG_2026-10-26.md). Он фиксирует второй end-to-end запуск, сравнение с первым, наблюдаемую RSS-динамику и дефект парсера watchdog.
+
 ## Назначение и границы результата
 
 Замеры собраны на пользовательском MacBook Pro M1 Max с 32 ГБ unified memory, macOS 27.0.1 arm64, Python 3.14.4, MLX 0.32.4, mlx-vlm 0.7.10 и mlx-whisper 0.4.3. Это короткие синтетические проверки интеграции после исправлений thread affinity / `wired_limit` / контракта результата Whisper, а не полноценный бенчмарк длинного производственного ролика.
@@ -115,6 +117,18 @@ Whisper-задача запускается до загрузки VLM, поэт�
 ### Неустранённая оговорка о VLM device
 
 В этом полном прогоне поле `vlm.runtime.device` сообщило `Device(cpu, 0)`, хотя runtime также указал `backend=MLX`, `accelerator=Metal`, `metal_smoke_test=passed`, а Text LLM сообщил `Device(gpu, 0)`. Реализация патчера в этом репозитории выставляет `mx.set_default_device(mx.gpu)`, создаёт GPU generation stream и переназначает aliases `generation_stream` и `wired_limit` внутри выделенного однопоточного executor для загрузки и генерации VLM. Следовательно, helper настройки VLM выбрал GPU, но поле `vlm.runtime.device` сообщает другое значение. Документация MLX 0.32.4 различает default device и thread-local streams ([Devices and Streams](https://ml-explore.github.io/mlx/build/html/python/devices_and_streams.html)); поэтому недостаточно объяснить CPU-поле тем, что диагностика читалась в другом потоке. Самое надёжное заключение сейчас: поле `vlm.runtime.device` не согласуется с логом GPU setup helper и, вероятно, формируется из другого runtime/source field либо перезаписывается позже. Точный producer этого поля не находится в overlay: для подтверждения нужен локальный исходник `VideoContextEngine_v3.19.py` и сырые логи. `metal_smoke_test=passed` сам по себе не доказывает, что каждый тензорный оператор VLM выполнялся на GPU. Следующий диагностический шаг: найти присваивание `vlm.runtime.device`, затем непосредственно перед первой генерацией и после неё залогировать `mx.default_device()`, объекты `generation_stream` из `mlx_vlm.generate.common` и `mlx_vlm.generate.dispatch`, их тип/описание и поток, переданный в generate. Это проверит wiring, но не заменит подтверждение фактического исполнения операторов на Metal.
+
+## Тест D — повторный end-to-end прогон под Runtime Watchdog (2026-10-26)
+
+- HTTP 200; исходное видео 108,233 с / 17,412 MiB; 14 сцен; все запрошенные ветви завершились (`skipped={}`).
+- VCE process time **269,630 с**, клиентский wall time **271,183 с**.
+- Whisper MLX CPU: 32,649 с, 18 сегментов; VLM load 2,343 с / inference 152,910 с; Text LLM stage 94,443 с; Apple OCR 0,065 с; FFmpeg/Tesseract OCR 9,608 с; Whisper/VLM scene-pass overlap 30,541 с.
+- В runtime JSON VLM по-прежнему сообщает `Device(cpu, 0)`, MLX/Metal и `metal_smoke_test=passed`; Text LLM сообщает `Device(gpu, 0)`.
+- Наибольший RSS в показанных runner-консольных сэмплах — **7 128,6 MiB (~6,96 GiB)** при финальной загрузке/генерации Text LLM. Это видимый sampled maximum, а не подтверждённый абсолютный максимум system_samples.
+- Watchdog завершил анализ и сформировал вердикт, но его собственная метрика RSS была `None`: аудит показал, что парсер `ps` не принимает CPU-проценты с локализованной десятичной запятой, например `528,2`. Из-за этого также вероятно не были выполнены запрошенные `vmmap`/stack-снимки, которым требуется успешно разобранная запись процесса. В присланном терминальном выводе нет подтверждения, что `powermetrics` действительно выдал успешные GPU power-сэмплы.
+- По сравнению с первым end-to-end прогоном process time вырос на 9,990 с (+3,85%), а клиентский wall time — на 10,314 с (+3,95%); Text LLM stage вырос на 7,551 с (+8,69%), VLM inference — на 2,268 с (+1,51%). Это описательное сравнение, а не контролируемый benchmark: второй запуск шёл под watchdog, а влияние диагностического overhead, кэшей и длины генерации не изолировано.
+
+Полные таймлайн, таблица сравнений, точная интерпретация runtime-маркеров и ограничения сбора данных описаны в [отдельном отчёте watchdog](VCE_RUNTIME_WATCHDOG_2026-10-26.md). Видео, полный API response и транскрипция остаются локальными.
 
 ## Вывод и ограничения
 
