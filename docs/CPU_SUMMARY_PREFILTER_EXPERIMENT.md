@@ -1,5 +1,7 @@
 # CPU fact prefilter: phase-1 experiment
 
+> **Status (2026-10-26): superseded for performance work.** The small CPU model completed a one-scene smoke test but took 106.117 seconds to generate at most 64 tokens on the test machine. The 3-chunk run was stopped by the user after more than 11 minutes. Do not rerun the generative CPU prefilter for this optimization experiment. Use [CPU_STRUCTURAL_INDEX_AB_EXPERIMENT.md](CPU_STRUCTURAL_INDEX_AB_EXPERIMENT.md) and the saved `evidence_checkpoint.json` instead.
+
 ## Goal
 
 Test the hypothesis that a small CPU model can turn long scene evidence into compact, source-linked fact cards, allowing the large GPU text model to prepare a better structured final summary from less input.
