@@ -165,10 +165,10 @@ class PatchTests(unittest.TestCase):
 
     def test_cleanup_anchor_allows_blank_lines(self):
         variant = FIXTURE.replace(
-            "    finally:\\n        if cap is not None:",
-            "    finally:\\n\\n        if cap is not None:",
+            "    finally:\n        if cap is not None:",
+            "    finally:\n\n        if cap is not None:",
         )
-        self.assertIn("    finally:\\n\\n        if cap is not None:", variant)
+        self.assertIn("    finally:\n\n        if cap is not None:", variant)
         patched = patcher.patch_engine_text(variant)
         compile(patched, "patched_blank_cleanup_engine.py", "exec")
         self.assertIn("_vce_pending_whisper_task", patched)
