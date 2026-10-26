@@ -166,6 +166,9 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
     vlm_runtime = vlm.get("runtime", {}) if isinstance(vlm.get("runtime"), dict) else {}
     llm_runtime = llm.get("runtime", {}) if isinstance(llm.get("runtime"), dict) else {}
     vlm_device, llm_device = str(vlm_runtime.get("device", "unknown")), str(llm_runtime.get("device", "unknown"))
+    vlm_configured_device = str(vlm_runtime.get("configured_device", vlm_device))
+    vlm_default_device_observed = str(vlm_runtime.get("default_device_observed", "not_recorded"))
+    vlm_device_source = str(vlm_runtime.get("device_source", "legacy_or_unspecified"))
     console = console_path.read_text(encoding="utf-8", errors="replace") if console_path.exists() else ""
     log_parts = [console]
     if observed_dir:
@@ -193,6 +196,8 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
                 "thread_name": obj.get("thread_name"),
                 "thread_ident": obj.get("thread_ident"),
                 "mlx_default_device": obj.get("mlx_default_device"),
+                "mlx_gpu_available": obj.get("mlx_gpu_available"),
+                "metal_available": obj.get("metal_available"),
                 "common_generation_stream": obj.get("mlx_vlm.generate.common.generation_stream"),
                 "dispatch_generation_stream": obj.get("mlx_vlm.generate.dispatch.generation_stream"),
                 "mlx_snapshot_error": obj.get("mlx_snapshot_error"),
@@ -200,6 +205,17 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
             })
         except Exception:
             pass
+    vlm_generation_stream_devices = sorted({
+        str(stream.get("device"))
+        for snap in trace_snapshots
+        for stream in (snap.get("common_generation_stream"), snap.get("dispatch_generation_stream"))
+        if isinstance(stream, dict) and stream.get("device")
+    })
+    vlm_scene_trace_snapshots = [
+        snap for snap in trace_snapshots
+        if "describe_scene" in str(snap.get("function", "")).lower()
+    ]
+    gpu_generation_stream_seen = any("gpu" in device.lower() for device in vlm_generation_stream_devices)
     maps = mappings_path.read_text(encoding="utf-8", errors="replace") if mappings_path.exists() else ""
     power_records = []
     if power_path.exists():
@@ -224,7 +240,13 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         status = "VLM_GPU_REPORTED"
     else:
         status = "VLM_DEVICE_UNKNOWN"
-    if status == "VLM_GPU_REPORTED" and mlx_reported and metal_reported and gpu_power_label:
+    explicit_gpu_target = (vlm_device_source == "explicit_gpu_target"
+                           and "gpu" in vlm_configured_device.lower())
+    if explicit_gpu_target and "cpu" in vlm_default_device_observed.lower() and gpu_generation_stream_seen:
+        overall = "VLM_GPU_TARGET_CONFIGURED_BUT_DEFAULT_DEVICE_SNAPSHOT_CPU"
+    elif explicit_gpu_target and gpu_generation_stream_seen:
+        overall = "VLM_GPU_TARGET_AND_GENERATION_STREAM_CONFIGURED_EXECUTION_UNPROVEN"
+    elif status == "VLM_GPU_REPORTED" and mlx_reported and metal_reported and gpu_power_label:
         overall = "MLX_METAL_AND_SYSTEM_GPU_ACTIVITY_CORROBORATED"
     elif "cpu" in vlm_device.lower() and gpu_stream_setup:
         overall = "VLM_DEVICE_CPU_CONFLICTS_WITH_GPU_STREAM_SETUP"
@@ -235,6 +257,12 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
     else:
         overall = "NO_DIRECT_MLX_RUNTIME_EVIDENCE"
     return {"overall_verdict": overall, "vlm_device": vlm_device, "text_llm_device": llm_device,
+            "vlm_configured_device": vlm_configured_device,
+            "vlm_device_source": vlm_device_source,
+            "vlm_default_device_observed": vlm_default_device_observed,
+            "vlm_generation_stream_devices": vlm_generation_stream_devices,
+            "vlm_scene_trace_snapshot_count": len(vlm_scene_trace_snapshots),
+            "gpu_generation_stream_seen": gpu_generation_stream_seen,
             "vlm_runtime": vlm_runtime, "text_llm_runtime": llm_runtime,
             "mlx_reported": mlx_reported, "metal_reported": metal_reported,
             "gpu_stream_setup_log_found": gpu_stream_setup,
@@ -244,7 +272,9 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
             "runtime_trace_snapshots": trace_snapshots[-16:],
             "limits": [
                 "Device values come from structured stage_timings.json, not from arbitrary stream-setup text.",
-                "A Metal smoke test proves only that its small arithmetic probe succeeded.",
+                "gpu_stream_smoke_test proves only that a small arithmetic probe was explicitly scheduled on the GPU stream.",
+                "configured_device records the chosen target; default_device_observed is a process-global snapshot and may reflect another thread's mx.stream context.",
+                "Generation-stream snapshots prove configuration, not that every VLM operator executed on GPU.",
                 "powermetrics is system-wide and cannot attribute GPU activity to the VCE PID.",
                 "vmmap proves mappings, not execution; sample captures CPU stacks, not GPU kernels.",
                 "Per-operator GPU execution needs VLM-side instrumentation or a profiler that can attribute GPU work to the process.",

@@ -221,3 +221,25 @@ Runtime-JSON всё ещё сообщает vlm.runtime.device=Device(cpu, 0), �
 5. Запустить watchdog v2 и после окончания читать watchdog_verdict.json / watchdog_verdict.md, включая runtime_trace_snapshot_count и runtime_trace_snapshots.
 
 Если новый trace по-прежнему отсутствует после подтверждённого перезапуска, надо проверить путь логирования или не прошёл ли trace wrapper через конкретный call path. Видео и полный API response по-прежнему не загружаются в GitHub.
+
+
+## 11. Reproduced MLX process-global default-device snapshot (2026-10-26)
+
+A short local reproducer was run on the target Mac after the instrumented end-to-end run:
+
+- Main thread called `mx.set_default_device(mx.gpu)`.
+- A second thread entered `with mx.stream(mx.new_thread_local_stream(mx.cpu))` and blocked inside that context.
+- While the CPU context was active, the main thread observed `mx.default_device() == Device(cpu, 0)`.
+- After the CPU context exited, the main thread observed `Device(gpu, 0)` again.
+
+This reproduces the exact class of mismatch seen in the VCE log. MLX documents that operations use an explicitly supplied `stream` when present, otherwise they use the default stream of the default device; its API exposes `set_default_device`, `default_device`, and `stream` as separate controls ([Using Streams](https://ml-explore.github.io/mlx/build/html/usage/using_streams.html), [Devices and Streams](https://ml-explore.github.io/mlx/build/html/python/devices_and_streams.html)). The test demonstrates the shared default-device observation in the installed MLX 0.32.4 runtime; it does not by itself prove where the full VLM model's operators execute.
+
+### Diagnostic correction in this change
+
+- The Metal smoke test now uses an explicit `mx.default_stream(mx.gpu)` and passes that stream to both `mx.ones` and `mx.multiply`; it no longer relies on an array created from the mutable default device.
+- Runtime JSON keeps `device` as the explicitly configured GPU target for compatibility, and adds `configured_device`, `device_source`, `default_device_observed`, `gpu_probe_stream`, and `gpu_stream_smoke_test`. The default-device snapshot is retained instead of being silently treated as the target-device truth.
+- The setup no longer fails solely because a cross-thread snapshot of `mx.default_device()` differs from the intended GPU target. The VLM compatibility helper reports the selected GPU and separately logs the process-global default snapshot.
+- The watchdog now differentiates an explicit GPU target plus GPU generation-stream configuration from a CPU value returned by the global default-device snapshot. Its verdict explicitly retains the caveat that stream wiring does not prove per-operator GPU execution.
+- Regression tests cover explicit-stream probe generation and this device-target/default-snapshot discrepancy.
+
+**Scope limitation:** this corrects and improves diagnostics and the small GPU probe; it does not make MLX's process-global default device thread-local, nor does it prove that every operation during concurrent Whisper/VLM execution is routed to GPU. A separate runtime change—such as isolating the CPU Whisper workload in another process or temporarily serializing MLX CPU/GPU contexts—would be needed to eliminate that shared-state interaction rather than merely report it accurately. Keep PR #13 in Draft until a new target-Mac run confirms the revised fields and the actual inference placement is validated.

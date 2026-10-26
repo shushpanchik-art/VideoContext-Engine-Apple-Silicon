@@ -126,14 +126,18 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     if not mx.metal.is_available() or not mx.is_available(mx.gpu):
         raise RuntimeError(f"[VCE MLX] {stage}: Metal GPU is unavailable; CPU fallback is disabled.")
     mx.set_default_device(mx.gpu)
-    if mx.default_device() != mx.gpu:
-        raise RuntimeError(f"[VCE MLX] {stage}: failed to select the MLX GPU device.")
 
-    probe = mx.array([1.0, 2.0, 3.0]) * 2
+    # mx.default_device() is process-global in MLX 0.32.4. A concurrent
+    # with mx.stream(cpu_stream) can temporarily make its value appear to be
+    # CPU in this thread. Do not use that shared snapshot as the probe target
+    # or as a fail-fast check. Pin the probe operations to the GPU stream.
+    gpu_probe_stream = mx.default_stream(mx.gpu)
+    probe = mx.ones((3,), stream=gpu_probe_stream)
+    probe = mx.multiply(probe, 2, stream=gpu_probe_stream)
     mx.eval(probe)
-    mx.synchronize(mx.gpu)
+    mx.synchronize(gpu_probe_stream)
     if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
-        raise RuntimeError(f"[VCE MLX] {stage}: Metal smoke test returned an unexpected result.")
+        raise RuntimeError(f"[VCE MLX] {stage}: explicit GPU-stream smoke test returned an unexpected result.")
 
     try:
         mlx_version = __import__("importlib.metadata", fromlist=["version"]).version("mlx")
@@ -143,16 +147,36 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         device_info = {str(k): str(v) for k, v in mx.device_info(mx.gpu).items()}
     except Exception:
         device_info = {}
+    default_device_observed = str(mx.default_device())
     info = {
         "backend": "MLX",
         "accelerator": "Metal",
         "stage": stage,
         "mlx_version": mlx_version,
-        "device": str(mx.default_device()),
+        # Backward-compatible field: this is the explicitly configured target,
+        # not a claim that every operator in the model ran on this device.
+        "device": str(mx.gpu),
+        "configured_device": str(mx.gpu),
+        "device_source": "explicit_gpu_target",
+        "default_device_observed": default_device_observed,
+        "device_semantics": "configured target; not per-operator execution proof",
+        "device_observation_note": (
+            "mx.default_device() is process-global and can temporarily reflect a concurrent "
+            "mx.stream(mx.cpu) context; see default_device_observed."
+        ),
+        "gpu_probe_stream": repr(gpu_probe_stream),
+        "gpu_stream_smoke_test": "passed",
         "device_info": device_info,
         "metal_smoke_test": "passed",
     }
     VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    if default_device_observed != str(mx.gpu):
+        print(
+            f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
+            f"but process-global mx.default_device() snapshot was {default_device_observed}. "
+            "This snapshot may reflect another thread's mx.stream() context.",
+            flush=True,
+        )
     print(f"[VCE runtime] {json.dumps(info, ensure_ascii=False, sort_keys=True)}")
     return info
 
@@ -263,8 +287,9 @@ def _vce_prepare_mlx_vlm_runtime():
     if not mx.metal.is_available() or not mx.is_available(mx.gpu):
         raise RuntimeError("VCE VLM requires the MLX/Metal GPU")
     mx.set_default_device(mx.gpu)
-    if mx.default_device() != mx.gpu:
-        raise RuntimeError("VCE VLM worker could not select the MLX GPU")
+    # Do not assert mx.default_device() here: MLX 0.32.4 exposes a process-global
+    # default, and another thread's mx.stream(mx.cpu) context can temporarily
+    # change the value observed here. The generation stream below is explicitly GPU.
 
     # mlx-vlm creates generation_stream at import time. Rebind the module-level
     # stream inside the dedicated executor thread used for model load/inference.
@@ -320,9 +345,10 @@ def _vce_prepare_mlx_vlm_runtime():
         # dispatch.py imports wired_limit by name, so replace that alias too.
         _vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit
 
+    _vce_default_device_observed = str(mx.default_device())
     print(
         "[VCE MLX] Applied GPU-aware wired_limit and rebound mlx-vlm generation stream "
-        f"on {mx.default_device()}."
+        f"to {mx.gpu}; process-global default observed={_vce_default_device_observed}."
     )
 
 '''

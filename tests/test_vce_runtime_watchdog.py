@@ -67,6 +67,60 @@ class RuntimeEvidenceTests(unittest.TestCase):
             self.assertEqual(result["overall_verdict"], "VLM_DEVICE_CPU_CONFLICTS_WITH_GPU_STREAM_SETUP")
             self.assertEqual(result["successful_powermetrics_samples"], 0)
 
+    def test_explicit_gpu_target_and_cpu_default_snapshot_are_distinguished(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            observed = root / "observed"
+            observed.mkdir()
+            (observed / "stage_timings.json").write_text(json.dumps({
+                "vlm": {"runtime": {
+                    "backend": "MLX",
+                    "accelerator": "Metal",
+                    "device": "Device(gpu, 0)",
+                    "configured_device": "Device(gpu, 0)",
+                    "device_source": "explicit_gpu_target",
+                    "default_device_observed": "Device(cpu, 0)",
+                    "gpu_stream_smoke_test": "passed",
+                    "metal_smoke_test": "passed",
+                }},
+            }), encoding="utf-8")
+            trace = {
+                "phase": "before",
+                "function": "__main__._vce_describe_scene_with_memory_fallback",
+                "mlx_default_device": "Device(gpu, 0)",
+                "mlx_gpu_available": True,
+                "metal_available": True,
+                "mlx_vlm.generate.common.generation_stream": {
+                    "device": "Device(gpu, 0)", "type": "ThreadLocalStream",
+                    "repr": "ThreadLocalStream(Device(gpu, 0), 5)",
+                },
+                "mlx_vlm.generate.dispatch.generation_stream": {
+                    "device": "Device(gpu, 0)", "type": "ThreadLocalStream",
+                    "repr": "ThreadLocalStream(Device(gpu, 0), 5)",
+                },
+            }
+            (observed / "server_events.jsonl").write_text(
+                json.dumps({"line": "[VCE MLX TRACE] " + json.dumps(trace)}) + "\n",
+                encoding="utf-8",
+            )
+            console = root / "console.log"
+            console.write_text("[VCE MLX] Applied GPU-aware wired_limit and rebound mlx-vlm generation stream to Device(gpu, 0).\n", encoding="utf-8")
+            mappings = root / "mappings.jsonl"
+            mappings.write_text("", encoding="utf-8")
+            power = root / "power.jsonl"
+            power.write_text("", encoding="utf-8")
+            result = watchdog.runtime_verdict(observed, console, mappings, power)
+            self.assertEqual(result["vlm_device"], "Device(gpu, 0)")
+            self.assertEqual(result["vlm_configured_device"], "Device(gpu, 0)")
+            self.assertEqual(result["vlm_default_device_observed"], "Device(cpu, 0)")
+            self.assertEqual(result["vlm_generation_stream_devices"], ["Device(gpu, 0)"])
+            self.assertTrue(result["gpu_generation_stream_seen"])
+            self.assertEqual(result["vlm_scene_trace_snapshot_count"], 1)
+            self.assertEqual(
+                result["overall_verdict"],
+                "VLM_GPU_TARGET_CONFIGURED_BUT_DEFAULT_DEVICE_SNAPSHOT_CPU",
+            )
+
     def test_trace_snapshot_is_loaded_from_server_events(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
