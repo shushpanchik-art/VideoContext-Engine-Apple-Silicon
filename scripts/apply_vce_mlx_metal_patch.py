@@ -255,7 +255,7 @@ def patch_engine_text(text: str) -> str:
     # whisper_audio_error between the segments list and the ASR gate. Anchor only
     # on the unique segments declaration; preserve indentation for boundary search.
     block_start_re = re.compile(
-        r"(?m)^(?P<indent>[ \\t]*)whisper_segments: List\\[Dict\\[str, Any\\]\\] = \\[\\][ \\t]*$"
+        r"(?m)^(?P<indent>[ \t]*)whisper_segments: List\[Dict\[str, Any\]\] = \[\][ \t]*$"
     )
     block_start_match = block_start_re.search(text)
     if not block_start_match:
@@ -265,7 +265,7 @@ def patch_engine_text(text: str) -> str:
 
     # Confirm this is the task's ASR block, not a stray annotation elsewhere.
     _vce_asr_gate_re = re.compile(
-        r"(?m)^" + re.escape(base_indent) + r"if not skip_audio:[ \\t]*$"
+        r"(?m)^" + re.escape(base_indent) + r"if not skip_audio:[ \t]*$"
     )
     _vce_asr_gate = _vce_asr_gate_re.search(text, block_start_match.end())
     if _vce_asr_gate is None:
