@@ -251,15 +251,27 @@ def patch_engine_text(text: str) -> str:
     text = _replace_once(text, llm_anchor, llm_replacement, "Text LLM Metal selection")
 
     # Replace the serial Whisper block using its discovered indentation.
+    # Local VCE variants may initialize _vce_whisper_task/_vce_whisper_model/
+    # whisper_audio_error between the segments list and the ASR gate. Anchor only
+    # on the unique segments declaration; preserve indentation for boundary search.
     block_start_re = re.compile(
-        r"(?m)^(?P<indent>[ \t]*)whisper_segments: List\[Dict\[str, Any\]\] = \[\]\r?\n"
-        r"\r?\n(?P=indent)if not skip_audio:\s*$"
+        r"(?m)^(?P<indent>[ \\t]*)whisper_segments: List\\[Dict\\[str, Any\\]\\] = \\[\\][ \\t]*$"
     )
     block_start_match = block_start_re.search(text)
     if not block_start_match:
-        raise PatchError("Could not locate the serial Whisper block. No file was changed.")
+        raise PatchError("Could not locate the Whisper segments declaration. No file was changed.")
     block_start = block_start_match.start()
     base_indent = block_start_match.group("indent")
+
+    # Confirm this is the task's ASR block, not a stray annotation elsewhere.
+    _vce_asr_gate_re = re.compile(
+        r"(?m)^" + re.escape(base_indent) + r"if not skip_audio:[ \\t]*$"
+    )
+    _vce_asr_gate = _vce_asr_gate_re.search(text, block_start_match.end())
+    if _vce_asr_gate is None:
+        raise PatchError("Found Whisper segments declaration but no following if not skip_audio gate. No file was changed.")
+    if _vce_asr_gate.start() - block_start_match.end() > 2400:
+        raise PatchError("Whisper initialization between declaration and ASR gate is unexpectedly large. No file was changed.")
 
     # Prefer the historic visual-stage condition. If local edits changed its
     # spelling, locate the visual-model load marker and derive its parent condition.
