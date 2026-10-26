@@ -466,24 +466,77 @@ def main() -> int:
         print("Cancelled.")
         return 0
 
-    started = time.perf_counter()
-    try:
-        status, body, api_wall = bench.multipart_post(api, video, fields, timeout=args.timeout)
-        if status < 200 or status >= 300:
-            raise RuntimeError(bench.safe_http_error(status, body))
-        payload = json.loads(body.decode("utf-8"))
-        rows, truncations = scene_records(payload, args.max_field_chars)
-    except Exception as exc:
-        message = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
-        print("ERROR during VCE baseline: " + message[:300], file=sys.stderr)
-        return 1
-    full_wall = time.perf_counter() - started
-    metadata = safe_metadata(payload)
+    checkpoint_path = None
+    if args.resume_evidence:
+        checkpoint_path = Path(args.resume_evidence).expanduser().resolve()
+        try:
+            saved = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            if saved.get("schema_version") != 1 or not isinstance(saved.get("rows"), list):
+                raise ValueError("unsupported or malformed evidence checkpoint")
+            rows = saved["rows"]
+            truncations = saved.get("truncations", {"audio": 0, "visual": 0, "ocr": 0})
+            metadata = saved.get("metadata", {})
+            api_wall = float(saved.get("api_wall_time_s", 0.0))
+            full_wall = float(saved.get("full_wall_time_s", api_wall))
+            baseline_summary = str(saved.get("existing_summary", ""))
+            request_adaptations = saved.get("request_adaptations", [])
+            checkpoint_large_model = saved.get("large_model")
+            print(f"Loaded checkpoint: {checkpoint_path.name}; scenes={len(rows)}.")
+        except Exception as exc:
+            print("ERROR reading evidence checkpoint: " + str(exc)[:300], file=sys.stderr)
+            return 2
+        if not rows:
+            print("ERROR: evidence checkpoint contains no scenes.", file=sys.stderr)
+            return 2
+        instruction = settings.get("summary_user_prompt", "")
+        if not isinstance(instruction, str):
+            instruction = ""
+    else:
+        started = time.perf_counter()
+        try:
+            status, body, api_wall = bench.multipart_post(api, video, fields, timeout=args.timeout)
+            if status < 200 or status >= 300:
+                raise RuntimeError(bench.safe_http_error(status, body))
+            payload = json.loads(body.decode("utf-8"))
+            rows, truncations = scene_records(payload, args.max_field_chars)
+        except Exception as exc:
+            message = str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__
+            print("ERROR during VCE baseline: " + message[:300], file=sys.stderr)
+            return 1
+        full_wall = time.perf_counter() - started
+        metadata = safe_metadata(payload)
+        baseline_summary = existing_summary(payload)
+        instruction = settings.get("summary_user_prompt", "")
+        if not isinstance(instruction, str):
+            instruction = ""
+        checkpoint_large_model = None
+        print(f"VCE baseline completed: {api_wall:.1f}s; scenes={len(rows)}.")
+
     text_llm = metadata.get("timings", {}).get("text_llm", {})
-    large_model = args.large_model or (text_llm.get("model") if isinstance(text_llm, dict) else None) or DEFAULT_LARGE_MODEL
+    large_model = args.large_model or checkpoint_large_model or (
+        text_llm.get("model") if isinstance(text_llm, dict) else None
+    ) or DEFAULT_LARGE_MODEL
+    if args.save_evidence_checkpoint and not args.resume_evidence:
+        checkpoint_path = outdir / "evidence_checkpoint.json"
+        checkpoint = {
+            "schema_version": 1,
+            "rows": rows,
+            "truncations": truncations,
+            "metadata": metadata,
+            "api_wall_time_s": round(api_wall, 3),
+            "full_wall_time_s": round(full_wall, 3),
+            "existing_summary": baseline_summary,
+            "large_model": large_model,
+            "request_adaptations": request_adaptations,
+        }
+        checkpoint_path.write_text(
+            json.dumps(checkpoint, ensure_ascii=False, indent=2) + "\\n",
+            encoding="utf-8",
+        )
+        checkpoint_path.chmod(0o600)
+        print(f"Evidence checkpoint saved locally (contains transcript/visual/OCR data): {checkpoint_path}")
     raw_context = full_evidence_context(rows)
     chunks = chunk_records(rows, args.chunk_scenes)
-    print(f"VCE baseline completed: {api_wall:.1f}s; scenes={len(rows)}.")
     print(f"CPU fact extraction: {len(chunks)} chunks.")
     try:
         cpu = run_worker("prefilter", "cpu", args.small_model, {"chunks": chunks},
