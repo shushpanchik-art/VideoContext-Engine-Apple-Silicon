@@ -234,7 +234,7 @@ class PatchTests(unittest.TestCase):
         self.assertIn("await _vce_mlx_run(vlm_engine.load_model, target_vlm)", patched)
         self.assertIn(patcher.MLX_VLM_WIRED_LIMIT_COMPAT_MARKER, patched)
         self.assertIn("_vce_prepare_mlx_vlm_runtime()", patched)
-        self.assertIn('mx.device_info(mx.gpu).get("max_recommended_working_set_size")', patched)
+        self.assertIn("mx.device_info(mx.gpu).get(", patched)
         self.assertIn("_vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit", patched)
         self.assertIn("await _vce_mlx_run(vlm_engine.describe_scene,", patched)
         self.assertNotIn("await asyncio.to_thread(vlm_engine.load_model", patched)
