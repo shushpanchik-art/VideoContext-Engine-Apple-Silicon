@@ -124,6 +124,68 @@ class RuntimeEvidenceTests(unittest.TestCase):
                 "VLM_SCENE_TRACE_DEFAULT_AND_GENERATION_STREAM_GPU_EXECUTION_UNPROVEN",
             )
 
+    def test_scene_gpu_trace_plus_successful_gpu_power_samples_corrobates_system_activity(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            observed = root / "observed"
+            observed.mkdir()
+            (observed / "stage_timings.json").write_text(json.dumps({
+                "vlm": {"runtime": {
+                    "backend": "MLX",
+                    "accelerator": "Metal",
+                    "device": "Device(gpu, 0)",
+                    "configured_device": "Device(gpu, 0)",
+                    "device_source": "explicit_gpu_target",
+                    "default_device_observed": "Device(cpu, 0)",
+                    "gpu_stream_smoke_test": "passed",
+                    "metal_smoke_test": "passed",
+                }},
+            }), encoding="utf-8")
+            trace = {
+                "phase": "before",
+                "function": "__main__._vce_describe_scene_with_memory_fallback",
+                "mlx_default_device": "Device(gpu, 0)",
+                "mlx_gpu_available": True,
+                "metal_available": True,
+                "mlx_vlm.generate.common.generation_stream": {
+                    "device": "Device(gpu, 0)", "type": "ThreadLocalStream",
+                    "repr": "ThreadLocalStream(Device(gpu, 0), 5)",
+                },
+                "mlx_vlm.generate.dispatch.generation_stream": {
+                    "device": "Device(gpu, 0)", "type": "ThreadLocalStream",
+                    "repr": "ThreadLocalStream(Device(gpu, 0), 5)",
+                },
+            }
+            (observed / "server_events.jsonl").write_text(
+                json.dumps({"line": "[VCE MLX TRACE] " + json.dumps(trace)}) + "\n",
+                encoding="utf-8",
+            )
+            console = root / "console.log"
+            console.write_text("", encoding="utf-8")
+            mappings = root / "mappings.jsonl"
+            mappings.write_text("", encoding="utf-8")
+            power = root / "power.jsonl"
+            power.write_text(json.dumps({
+                "status": "sampled",
+                "returncode": 0,
+                "elapsed_seconds": 45.0,
+                "stdout": (
+                    "GPU HW active residency: 99.00%\n"
+                    "GPU HW active frequency: 1296 MHz\n"
+                    "GPU Power: 36000 mW\n"
+                ),
+            }) + "\n", encoding="utf-8")
+
+            result = watchdog.runtime_verdict(observed, console, mappings, power)
+            self.assertEqual(result["vlm_scene_gpu_default_device_snapshot_count"], 1)
+            self.assertEqual(result["vlm_scene_cpu_default_device_snapshot_count"], 0)
+            self.assertEqual(result["successful_powermetrics_samples"], 1)
+            self.assertTrue(result["gpu_power_activity_label_found"])
+            self.assertEqual(
+                result["overall_verdict"],
+                "VLM_SCENE_GPU_WIRING_AND_SYSTEM_GPU_ACTIVITY_CORROBORATED_EXECUTION_NOT_PER_OPERATOR_PROVEN",
+            )
+
     def test_scene_cpu_snapshot_keeps_load_time_cpu_warning(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
