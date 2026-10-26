@@ -9,6 +9,7 @@ from pathlib import Path
 ENGINE_NAME = "VideoContextEngine_v3.19.py"
 RECOVERY_MARKER = "# VCE_METAL_MEMORY_AND_MP4_RECOVERY_V1"
 PATCH_MARKER = "# VCE_MP4_PREFLIGHT_RECOVERY_RETRY_V2"
+RECOVERY_ORDER_MARKER = "VCE_FRAGMENTED_MP4_REMUX_FIRST"
 
 CLASSIFIER = r'''
 def _vce_is_recoverable_container_error(exc):
@@ -51,21 +52,30 @@ def _vce_validate_video_with_remux(video_path, force_remux=False, prior_error=No
         raise HTTPException(status_code=400, detail=(
             "Ошибка контейнера/кодека, но FFmpeg недоступен. Исходник не изменён. " + detail[:700]
         ))
-    strategies = [
-        ("transcode-h264-aac", [
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
-            "-max_muxing_queue_size", "2048", "-movflags", "+faststart",
-        ]),
-        ("stream-copy-remux", ["-c", "copy", "-movflags", "+faststart"]),
-    ] if force_remux else [
-        ("stream-copy-remux", ["-c", "copy", "-movflags", "+faststart"]),
-        ("transcode-h264-aac", [
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
-            "-max_muxing_queue_size", "2048", "-movflags", "+faststart",
-        ]),
-    ]
+    # VCE_FRAGMENTED_MP4_REMUX_FIRST
+    transcode_strategy = ("transcode-h264-aac", [
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+        "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
+        "-max_muxing_queue_size", "2048", "-movflags", "+faststart",
+    ])
+    remux_strategy = ("stream-copy-remux", ["-c", "copy", "-movflags", "+faststart"])
+    detail_folded = detail.casefold()
+    fragmented_container_markers = (
+        "trun track id unknown", "no tfhd was found", "moov atom not found",
+        "error reading header", "invalid data found when processing input",
+        "invalid data", "could not find codec parameters",
+    )
+    fragmented_container_error = any(marker in detail_folded for marker in fragmented_container_markers)
+    if force_remux and fragmented_container_error:
+        # Container/fragment metadata is the problem: try the cheap packet remux first.
+        # If that fails, decode what FFmpeg can salvage and transcode to H.264/AAC.
+        strategies = [remux_strategy, transcode_strategy]
+        print("⚙️ [MP4 recovery] Обнаружена ошибка контейнера/фрагментов; сначала пробуем remux, затем H.264/AAC.")
+    elif force_remux:
+        # Unsupported decoders/codecs are more likely to need an actual transcode.
+        strategies = [transcode_strategy, remux_strategy]
+    else:
+        strategies = [remux_strategy, transcode_strategy]
     failures = []
     for label, codec_args in strategies:
         fd, candidate = tempfile.mkstemp(prefix="vce_mp4_recovery_", suffix=".mp4")
@@ -322,6 +332,12 @@ def patch_engine(source: str) -> str:
         missing = [x for x in required if x not in source]
         if missing:
             fail("Обнаружена частичная установка MP4/audio-only: " + ", ".join(missing))
+        # Upgrade older V2 installs in-place so rerunning the installer updates the
+        # recovery strategy, instead of silently leaving the old transcode-first code.
+        if RECOVERY_ORDER_MARKER in source:
+            return source
+        source = replace_function(source, "_vce_validate_video_with_remux", VALIDATE)
+        ast.parse(source, filename=ENGINE_NAME)
         return source
 
     source = replace_function(source, "_vce_is_recoverable_container_error", CLASSIFIER)

@@ -28,7 +28,7 @@ printf '%s\n' \
   "Проект: $PROJECT" \
   "Источник: GitHub / $BRANCH" \
   "Очередь предзагрузки: одна ожидающая сцена + максимум одна сцена в CPU worker" \
-  "MP4 fallback: H.264/AAC transcode → stream-copy remux → audio-only, если аудио читается" \
+  "MP4 fallback: trun/tfhd → stream-copy remux → H.264/AAC transcode → audio-only, если аудио читается" \
   ""
 
 [[ -d "$PROJECT" ]] || fail "Не найден проект: $PROJECT"
@@ -54,6 +54,7 @@ echo "[1/7] Загружаю патчеры из GitHub…"
 curl -fL --retry 3 "$MP4_RAW" -o "$WORK/patch_vce_mp4_recovery_retry.py"
 curl -fL --retry 3 "$PREFETCH_RAW" -o "$WORK/patch_vce_bounded_frame_prefetch.py"
 grep -q "VCE_MP4_PREFLIGHT_RECOVERY_RETRY_V2" "$WORK/patch_vce_mp4_recovery_retry.py" || fail "MP4-патчер не прошёл проверку содержимого."
+grep -q "VCE_FRAGMENTED_MP4_REMUX_FIRST" "$WORK/patch_vce_mp4_recovery_retry.py" || fail "MP4 recovery patch lacks updated trun/tfhd strategy."
 grep -q "VCE_BOUNDED_KEYFRAME_PREFETCH_V1" "$WORK/patch_vce_bounded_frame_prefetch.py" || fail "Prefetch-патчер не прошёл проверку содержимого."
 "$PYTHON" -m py_compile "$WORK/patch_vce_mp4_recovery_retry.py" "$WORK/patch_vce_bounded_frame_prefetch.py"
 

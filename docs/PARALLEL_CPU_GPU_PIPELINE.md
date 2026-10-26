@@ -88,3 +88,14 @@ A companion patch, `patches/patch_vce_bounded_frame_prefetch.py`, uses a dedicat
 The producer uses the existing keyframe sampler and the same adaptive per-scene frame limit as the synchronous path. If prefetch fails for a scene, that scene falls back to synchronous sampling; a background worker is stopped and joined before temporary-file cleanup. When `enable_stage_timing` is enabled, JSON `timings.stage_diagnostics` includes `frame_prefetch_worker_seconds`, `frame_prefetch_wait_seconds`, and `frame_prefetch_fallback_count`.
 
 This is an optimization hypothesis, not a guaranteed speedup. Compare at least three runs on the same video and settings. A low prefetch wait time means CPU preparation was mostly hidden; a high wait time means the VLM pipeline still had to wait for the producer. Also compare scene count, transcript/OCR completeness, and output quality.
+
+
+## Recovery for broken/unsupported MP4 streams
+
+The bundled installer applies MP4 recovery before bounded keyframe prefetch. For fragmented-container diagnostics such as `trun track id unknown` / `no tfhd was found`, recovery now attempts a stream-copy remux first, followed by H.264/AAC transcoding. For errors more likely caused by an unsupported decoder/codec, it keeps transcoding first and remux second. Both paths write to a temporary file and never overwrite the source.
+
+If a valid video stream cannot be recovered but audio is readable, VCE falls back to audio-only analysis: Whisper and the summary remain enabled; VLM, visual scene analysis and OCR are disabled for that file. If neither video nor audio is readable, the API returns a file-scoped diagnostic rather than pretending that analysis succeeded. Missing MP4 fragment metadata cannot always be reconstructed by a transcoder; in that case, re-download or re-export the source.
+
+The prefetch worker remains bounded to one queued scene plus at most one scene being prepared, consumes scenes in order, and is stopped before temporary media cleanup. VLM inference remains serial.
+
+The strategy-order/idempotency fixture is covered by `tests/test_patch_vce_mp4_recovery_retry.py`. Hardware validation still requires the original problematic file and a readable control video on macOS; no performance or recovery result is claimed without that run.

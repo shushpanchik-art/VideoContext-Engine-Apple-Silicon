@@ -55,6 +55,7 @@ echo "[1/6] Загружаю patchers из GitHub…"
 curl -fL --retry 3 "$REPO/patches/patch_vce_mp4_recovery_retry.py" -o "$RECOVERY"
 curl -fL --retry 3 "$REPO/patches/patch_vce_bounded_frame_prefetch.py" -o "$PREFETCH"
 grep -q "VCE_MP4_PREFLIGHT_RECOVERY_RETRY_V2" "$RECOVERY" || fail "MP4 recovery patcher имеет неожиданный формат."
+grep -q "VCE_FRAGMENTED_MP4_REMUX_FIRST" "$RECOVERY" || fail "MP4 recovery patch lacks updated trun/tfhd strategy."
 grep -q "VCE_BOUNDED_KEYFRAME_PREFETCH_V1" "$PREFETCH" || fail "Prefetch patcher имеет неожиданный формат."
 "$PYTHON" -m py_compile "$RECOVERY" "$PREFETCH"
 

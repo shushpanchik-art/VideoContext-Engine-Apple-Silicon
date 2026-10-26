@@ -74,6 +74,11 @@ def test_patch_is_valid_and_idempotent():
     assert "VCE_AUDIO_ONLY_FALLBACK_POLICY_V1" in patched
     assert "analysis_mode = \"audio_only_fallback\"" in patched
     assert "transcode-h264-aac" in patched
+    assert "VCE_FRAGMENTED_MP4_REMUX_FIRST" in patched
+    assert "trun track id unknown" in patched
+    assert "no tfhd was found" in patched
+    assert "strategies = [remux_strategy, transcode_strategy]" in patched
+    assert "strategies = [transcode_strategy, remux_strategy]" in patched
     assert "0:a:0" in patched
     assert mod.patch_engine(patched) == patched
 
