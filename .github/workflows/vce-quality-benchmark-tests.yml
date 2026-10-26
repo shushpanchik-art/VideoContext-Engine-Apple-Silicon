@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Compile observed-run script
-        run: python -m py_compile scripts/vce_observed_run.py
-      - name: Run benchmark and observed-run unit tests
+      - name: Compile observer, patcher and watchdog scripts
+        run: python -m py_compile scripts/vce_observed_run.py scripts/vce_runtime_watchdog.py scripts/apply_vce_mlx_metal_patch.py tests/test_vce_runtime_watchdog.py tests/test_vce_mlx_metal_patcher.py
+      - name: Run benchmark, observed-run and watchdog unit tests
         run: python -m unittest discover -s tests -p "test_vce_*.py" -v
