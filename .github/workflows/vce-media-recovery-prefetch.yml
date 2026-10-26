@@ -1,0 +1,28 @@
+name: VCE media recovery and prefetch validation
+
+on:
+  push:
+    branches: [feat/vce-parallel-cpu-asr-vlm-20261025]
+    paths:
+      - "patches/patch_vce_mp4_recovery_retry.py"
+      - "patches/patch_vce_bounded_frame_prefetch.py"
+      - "scripts/install_vce_prefetch_mp4_recovery.command"
+      - "tests/test_patch_vce_mp4_recovery_retry.py"
+      - ".github/workflows/vce-media-recovery-prefetch.yml"
+  pull_request:
+    branches: [main]
+
+jobs:
+  patch-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile patchers and tests
+        run: python -m py_compile patches/patch_vce_mp4_recovery_retry.py patches/patch_vce_bounded_frame_prefetch.py tests/test_patch_vce_mp4_recovery_retry.py
+      - name: Validate shell installer syntax
+        run: bash -n scripts/install_vce_prefetch_mp4_recovery.command
+      - name: Run recovery patch fixture tests
+        run: python tests/test_patch_vce_mp4_recovery_retry.py
