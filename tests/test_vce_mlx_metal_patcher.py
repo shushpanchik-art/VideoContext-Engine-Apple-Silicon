@@ -59,8 +59,9 @@ def run_text_llm_postprocess(model_path, source_name, video_duration, existing_s
     return {}
 
 async def analyze_video():
-    whisper_load_time = 0.0
     whisper_infer_time = 0.0
+    whisper_load_time = 0.0
+
     target_whisper = "large"
     final_segments = []
     try:
