@@ -5,11 +5,13 @@ on:
     branches: [feat/vce-parallel-cpu-asr-vlm-20261025]
     paths:
       - "scripts/benchmark_vce_macos.py"
+      - "tests/test_benchmark_vce_macos.py"
       - ".github/workflows/vce-benchmark-script.yml"
   pull_request:
     branches: [main]
     paths:
       - "scripts/benchmark_vce_macos.py"
+      - "tests/test_benchmark_vce_macos.py"
       - ".github/workflows/vce-benchmark-script.yml"
 
 jobs:
