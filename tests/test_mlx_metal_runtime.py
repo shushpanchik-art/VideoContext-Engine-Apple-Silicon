@@ -7,8 +7,10 @@ import types
 import unittest
 import threading
 from unittest import mock
+from pathlib import Path
 
-from scripts import mlx_metal_runtime as runtime
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+import mlx_metal_runtime as runtime  # noqa: E402
 
 
 class FakeDevice:
