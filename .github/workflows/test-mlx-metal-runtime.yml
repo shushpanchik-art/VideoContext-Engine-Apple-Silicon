@@ -1,0 +1,23 @@
+name: MLX Metal helper tests
+
+on:
+  push:
+    branches:
+      - feat/mlx-metal-runtime-20261026
+  pull_request:
+    branches:
+      - feat/vce-parallel-cpu-asr-vlm-20261025
+      - main
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile helper and tests
+        run: python -m compileall -q scripts/mlx_metal_runtime.py scripts/verify_mlx_metal_runtime.py tests/test_mlx_metal_runtime.py
+      - name: Run hardware-independent tests
+        run: python -m unittest discover -s tests -p 'test_mlx_metal_runtime.py' -v
