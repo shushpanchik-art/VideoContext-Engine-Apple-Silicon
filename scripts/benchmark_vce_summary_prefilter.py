@@ -40,6 +40,8 @@ def check_worker_environment(python_executable: str, timeout: float = 30.0) -> t
     probe = (
         "import mlx.core; import mlx_lm; "
         "from mlx_lm import load, generate; "
+        "from mlx_lm.sample_utils import make_sampler; "
+        "make_sampler(temp=0.0); "
         "print('MLX_LM_IMPORT_OK')"
     )
     try:
@@ -261,6 +263,8 @@ def worker_main(task: str, device: str, model_id: str, max_tokens: int) -> int:
     try:
         mx.set_default_device(mx.cpu if device == "cpu" else mx.gpu)
         from mlx_lm import load, generate
+        from mlx_lm.sample_utils import make_sampler
+        sampler = make_sampler(temp=0.0)
     except ImportError as exc:
         print(f"Missing MLX-LM import: {getattr(exc, 'name', None) or 'mlx_lm'}", file=sys.stderr)
         return 3
@@ -290,7 +294,7 @@ def worker_main(task: str, device: str, model_id: str, max_tokens: int) -> int:
             prompt = format_prompt(raw)
             tokens = count_tokens(prompt)
             t0 = time.perf_counter()
-            value = generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens, temp=0.0, verbose=False)
+            value = generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens, sampler=sampler, verbose=False)
             elapsed = time.perf_counter() - t0
             output = value.text if hasattr(value, "text") else str(value)
             return output.strip(), elapsed, tokens
@@ -328,7 +332,7 @@ def worker_main(task: str, device: str, model_id: str, max_tokens: int) -> int:
                                     "summary": "", "inference_time_s": 0.0})
                     continue
                 t0 = time.perf_counter()
-                value = generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens, temp=0.0, verbose=False)
+                value = generate(model, tokenizer, prompt=prompt, max_tokens=max_tokens, sampler=sampler, verbose=False)
                 seconds = time.perf_counter() - t0
                 output = value.text if hasattr(value, "text") else str(value)
                 results.append({"name": item["name"], "status": "ok",
