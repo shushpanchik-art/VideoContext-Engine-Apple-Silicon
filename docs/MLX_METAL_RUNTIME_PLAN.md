@@ -1,120 +1,40 @@
-# MLX + Metal runtime mode with CPU Whisper overlap
+# MLX/Metal VCE runtime with mlx-whisper CPU-stream overlap
 
 ## Target architecture
 
-This branch adds integration helpers for the customized local VCE engine under ~/VideoContext-Engine. The customized engine and its final-summary worker are not checked into this overlay repository, so the helpers are not yet wired into the production application. Do not replace that customized source with upstream v3.19.
+This overlay prepares a backup-safe patch for the customized local engine in `~/VideoContext-Engine`. The custom engine is not checked into this overlay repository; do not replace it with upstream VCE v3.19.
 
 | Component | Required runtime | Enforcement |
 |---|---|---|
-| Whisper ASR | OpenAI Whisper / PyTorch CPU | load_whisper_cpu passes device="cpu" and checks model placement |
-| VLM | mlx-vlm + MLX GPU / Metal | configure_mlx_gpu before mlx_vlm.load |
-| Final-summary LLM | mlx-lm + MLX GPU / Metal | configure_mlx_gpu in the summary worker before mlx_lm.load |
-| Overlap | CPU Whisper while GPU VLM scene pass runs | run_whisper_cpu_parallel_with_gpu(asr_fn, vlm_fn) |
+| Whisper ASR | `mlx-whisper` on a thread-local MLX CPU stream | `mx.new_thread_local_stream(mx.cpu)` scoped by `mx.stream`; synchronization targets that stream only |
+| Scene VLM | `mlx-vlm` + MLX GPU / Metal | configure and smoke-test MLX GPU before VLM load |
+| Final text analysis | MLX-backed text generation through the customized source's MLX-VLM path | configure and smoke-test MLX GPU in the text-analysis call path |
+| Parallelism | CPU-stream ASR while VLM scene analysis executes on Metal | asynchronous ASR worker plus measured overlap interval |
+| CPU assistance | CPU decode, frame preparation, OCR, prompts, I/O and orchestration remain available | independent CPU work should overlap GPU inference where the source pipeline permits it |
 
-On supported Apple Silicon builds, MLX GPU execution uses Metal. This overlay selects the GPU explicitly and fails closed instead of silently accepting CPU fallback. The smoke operation evaluates and synchronizes a tiny array; it proves that the MLX GPU path is callable, not that every application operation is GPU-bound. Per-stage telemetry is still required.
+## Implementation files
 
-## Files
+- `scripts/apply_vce_mlx_metal_patch.py`: source-aware patcher, dry-run default, compiles the candidate source before writing, creates timestamped backups on apply. Current v2 marker uses `mlx-whisper` CPU stream rather than PyTorch/OpenAI Whisper CPU.
+- `scripts/mlx_metal_runtime.py`: reusable MLX/Metal diagnostics, CPU-stream `mlx-whisper` helper, and generic CPU-ASR/GPU-stage overlap helper.
+- `scripts/verify_mlx_metal_runtime.py`: checks packages and runs the Metal smoke test.
+- `tests/test_vce_mlx_metal_patcher.py` and `tests/test_mlx_metal_runtime.py`: hardware-independent source patcher and stream-placement tests.
 
-- scripts/mlx_metal_runtime.py: strict GPU setup, CPU-only Whisper loader, and CPU/GPU overlap primitive.
-- scripts/verify_mlx_metal_runtime.py: reports installed runtimes and runs the GPU smoke test.
-- tests/test_mlx_metal_runtime.py: hardware-independent unit tests with mocked MLX plus Whisper placement and overlap tests.
+## Model selection and loading
 
-## Setup on the M1 Max
+The patch maps VCE's `large` preset to `mlx-community/whisper-large-v3-mlx` and `large-v3-turbo` / `turbo` to `mlx-community/whisper-large-v3-turbo`. Other common preset names map to corresponding MLX Community checkpoints. A local model path or explicit Hugging Face repo ID can be supplied with `VIDEOCONTEXT_MLX_WHISPER_MODEL`.
 
-Use native arm64 Python in every environment that actually imports models. Installing a package into a different environment does not change the runtime of an already-running API process.
+`mlx_whisper.transcribe()` uses a model-holder cache and loads weights lazily on first transcription. Therefore, the first-call inference timing includes the checkpoint's first load. RAM-minus mode explicitly attempts to clear the MLX Whisper model holder after transcription. Concurrent ASR calls are serialized around that process-wide cache to avoid concurrent cache switches.
 
-~~~bash
-cd ~/VideoContext-Engine
-source .venv/bin/activate
-python -c 'import platform,sys; print(platform.machine(), sys.executable)'
-python -m pip install -U mlx mlx-vlm mlx-lm openai-whisper
-~~~
+Install `mlx-whisper` in the exact Python environment running the API. The source snapshot imports OpenAI Whisper elsewhere at module import time, so keep that dependency until the target source can be safely refactored to remove that import. Do not upgrade every live dependency blindly; resolve to a compatible lockfile/environment first.
 
-The customized engine path shown in the source snapshot uses `mlx-vlm` both for scene VLM and the final text-analysis call, so its engine environment needs `mlx` and `mlx-vlm`. If the newer local branch has replaced the final summary with a standalone `mlx-lm` worker, that separate worker must call the same GPU setup before `mlx_lm.load()`; do not assume setting the device in another process configures it. Resolve dependencies against the project's current pinned versions before upgrading the live service.
+## CPU/GPU stream semantics
 
-## Wire into the customized engine
+A CPU stream is not Metal execution. It is MLX compute on the CPU, deliberately separate from the GPU/Metal stream for VLM/LLM. MLX documentation confirms independent operations can be assigned to CPU and GPU streams and executed concurrently: [devices and streams](https://ml-explore.github.io/mlx/build/html/python/devices_and_streams.html), [unified memory](https://github.com/ml-explore/mlx/blob/main/docs/src/usage/unified_memory.rst).
 
-### VLM process
+GPU selection is only strict for the VLM/LLM neural inference path; it does not prevent CPU preprocessing, OCR, Whisper or orchestration from running. MLX does not autonomously redirect arbitrary VLM transformer layers to idle CPU cores. Additional producer/consumer prefetch of scene decode/OCR should only be added after checking the exact local loop and profiling memory/speed; the patch preserves that loop rather than guessing at invasive refactors.
 
-Call the helper before loading the model:
+## Local verification
 
-~~~python
-from mlx_metal_runtime import configure_mlx_gpu
-runtime_info = configure_mlx_gpu()
-from mlx_vlm import load, generate
-model, processor = load(model_path, trust_remote_code=True)
-print("[VCE runtime]", runtime_info)
-~~~
+The customized engine/settings exist only on the target Mac, so the source apply and live runtime benchmark cannot be performed by GitHub Actions. After a clean dry-run, apply the patch on the Mac, restart the service, run `python scripts/verify_mlx_metal_runtime.py` in the API's actual environment and process one benchmark video.
 
-The upstream source uses mlx_vlm in its MLX VLM engine. The customized local source must call the helper in that same process before the load call.
-
-### Summary LLM worker
-
-At the start of the worker process, before mlx_lm.load(model_id):
-
-~~~python
-from mlx_metal_runtime import configure_mlx_gpu
-runtime_info = configure_mlx_gpu()
-from mlx_lm import load, generate
-model, tokenizer = load(model_id)
-print("[VCE summary runtime]", runtime_info)
-~~~
-
-Default-device selection must happen in the worker process before model load. Keep the generation calls and sampling logic already used by the local worker; this helper only selects the device and does not rewrite prompts or model generation.
-
-### Whisper CPU
-
-Replace every OpenAI Whisper model load in the customized engine with:
-
-~~~python
-import whisper
-from mlx_metal_runtime import load_whisper_cpu
-whisper_model = load_whisper_cpu(whisper, target_whisper)
-~~~
-
-The loader forces device="cpu" and checks the model's reported placement. Keep Whisper out of the MLX GPU worker.
-
-### CPU/GPU overlap
-
-After the audio path is available and scene/keyframe preparation is complete, start ASR in the CPU executor while the calling thread runs the MLX VLM scene pass:
-
-~~~python
-from mlx_metal_runtime import run_whisper_cpu_parallel_with_gpu
-
-audio_result, visual_result = run_whisper_cpu_parallel_with_gpu(
-    whisper_cpu_fn=lambda: whisper_model.transcribe(
-        temp_path,
-        condition_on_previous_text=False,
-        temperature=0.0,
-        compression_ratio_threshold=1.8,
-    ),
-    gpu_fn=lambda: analyze_scenes_with_mlx_vlm(scenes_raw),
-)
-~~~
-
-Merge transcripts into scenes after both results return, then run the final-summary worker. This overlaps CPU ASR with the GPU VLM stage; it does not prove that VLM and final LLM should run simultaneously. On a 32 GB M1 Max, avoid loading multiple large GPU models at once unless benchmarked evidence confirms adequate headroom.
-
-This is an integration layer, not a complete patch to VideoContextEngine_v3.19.py: the customized engine file and summary worker are local-only. They must be patched and tested against their exact current contents before the application can be described as fully migrated.
-
-## Verify
-
-~~~bash
-python scripts/verify_mlx_metal_runtime.py
-python -m unittest discover -s tests -p 'test_mlx_metal_runtime.py' -v
-~~~
-
-The verifier fails when MLX GPU is unavailable and reports package presence. Runtime integration is complete only after live logs show MLX/Metal for VLM and LLM, CPU for Whisper, and benchmark timestamps demonstrate overlapping intervals.
-
-## Evidence baseline
-
-- Latest corrected pipeline benchmark: results/vce-benchmark/20261026_085101/.
-- Structural-index A/B: results/vce-summary-structural-ab/20261026_105858/. That experiment increased token count by 77.82% and generation time by about 41%; do not combine it with the MLX/Metal runtime change.
-
-
-## Backup-safe source integration
-
-The implementation script `scripts/apply_vce_mlx_metal_patch.py` targets the customized engine in `~/VideoContext-Engine`. It defaults to a dry run, verifies the expected code anchors, compiles the candidate source in memory, and refuses to write when the source version differs. Applying it creates timestamped backups of both the engine and settings.
-
-The patch forces Whisper to CPU, starts its asynchronous transcription while VLM scene processing runs, restores transcript/audio-feature fields to each scene before the final summary, explicitly configures MLX GPU/Metal for VLM and text analysis, and records runtime diagnostics and measured overlap in the timing JSON. Settings are adjusted to CPU Whisper and Metal for MLX.
-
-GitHub Actions verifies the helper and patcher with hardware-independent tests. The actual source apply, service restart, and benchmark must run on the target Apple Silicon Mac, where the local project and model cache exist.
+Acceptance requires: VLM and final text analysis report MLX/Metal; Whisper reports `mlx-whisper` / `mx.cpu`; the timing JSON records positive Whisper/VLM overlap; transcripts and scene summaries remain correct; total elapsed time and memory pressure are compared against the baseline. Do not merge/release as runtime-verified based only on compile/unit tests.
