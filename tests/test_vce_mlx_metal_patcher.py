@@ -184,7 +184,7 @@ class PatchTests(unittest.TestCase):
 
     def test_legacy_patched_engine_is_upgraded_with_explicit_gpu_diagnostics(self):
         patched = patcher.patch_engine_text(FIXTURE)
-        legacy = patched.replace(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, "", 1)
+        legacy = patched.replace(patcher.MLX_EXPLICIT_GPU_PROBE_MARKER, "")
 
         old_probe = '''    mx.set_default_device(mx.gpu)
     if mx.default_device() != mx.gpu:
