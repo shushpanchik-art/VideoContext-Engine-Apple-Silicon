@@ -276,7 +276,14 @@ class PatchTests(unittest.TestCase):
 
     def test_existing_v2_patch_is_upgraded_to_thread_affinity(self):
         fully_patched = patcher.patch_engine_text(FIXTURE)
-        legacy = fully_patched.replace(patcher.MLX_THREAD_RUNTIME_HELPERS, "")
+        # Revert the new tracing layer to model a legacy V2 patch before removing
+        # the affinity helper. This keeps the upgrade fixture representative.
+        legacy = fully_patched.replace(patcher.MLX_VLM_RUNTIME_TRACE_HELPER + "\n", "")
+        legacy = legacy.replace(
+            "_vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)",
+            "_vce_mlx_functools.partial(fn, *args, **kwargs)",
+        )
+        legacy = legacy.replace(patcher.MLX_THREAD_RUNTIME_HELPERS, "")
         legacy = legacy.replace(
             "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
             "await asyncio.to_thread(vlm_engine.load_model, target_vlm)",
