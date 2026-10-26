@@ -37,6 +37,8 @@ def configure_mlx_gpu() -> dict[str, Any]:
 
     if not mx.is_available(mx.gpu):
         raise RuntimeError("MLX GPU backend is unavailable; refusing a CPU fallback.")
+    if not hasattr(mx, "metal") or not mx.metal.is_available():
+        raise RuntimeError("MLX Metal backend is unavailable; refusing a CPU fallback.")
 
     mx.set_default_device(mx.gpu)
     if mx.default_device() != mx.gpu:
@@ -44,7 +46,7 @@ def configure_mlx_gpu() -> dict[str, Any]:
 
     probe = mx.array([1.0, 2.0, 3.0]) * 2
     mx.eval(probe)
-    mx.synchronize(mx.gpu)
+    mx.synchronize()
     if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
         raise RuntimeError("MLX GPU smoke operation returned an unexpected result.")
 
