@@ -56,7 +56,7 @@ Optional overrides:
       --small-model "mlx-community/Qwen2.5-1.5B-Instruct-4bit" \
       --large-model "mlx-community/Qwen3.5-9B-MLX-4bit" \
       --chunk-scenes 6 \
-      --max-input-tokens 24000
+      --max-input-tokens 48000
 
 If the CPU worker reports that MLX-LM is unavailable, activate the VCE virtual environment and check python -m pip show mlx-lm before installing anything.
 
