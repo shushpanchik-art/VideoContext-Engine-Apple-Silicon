@@ -33,7 +33,7 @@ class StructuralIndexTests(unittest.TestCase):
         self.assertEqual(stats["scene_count"], 2)
         self.assertEqual(stats["scene_ids_preserved"], [1, 2])
         self.assertTrue(stats["duplicate_occurrences_collapsed"] >= 3)
-        self.assertIn("Температура 20 °C; дата 26.10.2026, ГОСТ 1234-2020.", index)
+        self.assertIn("Температура 20 °C; дата 26.10.2026, ГОСТ 1234-2020; объект «Северный поток».", index)
         self.assertIn('STANDARD "ГОСТ 1234-2020"', index)
         self.assertIn('DATE "26.10.2026"', index)
         self.assertIn('NUMBER "20 °C"', index)
