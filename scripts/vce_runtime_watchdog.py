@@ -226,7 +226,7 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         status = "VLM_DEVICE_UNKNOWN"
     if status == "VLM_GPU_REPORTED" and mlx_reported and metal_reported and gpu_power_label:
         overall = "MLX_METAL_AND_SYSTEM_GPU_ACTIVITY_CORROBORATED"
-    elif status == "VLM_CPU_REPORTED" and gpu_stream_setup:
+    elif "cpu" in vlm_device.lower() and gpu_stream_setup:
         overall = "VLM_DEVICE_CPU_CONFLICTS_WITH_GPU_STREAM_SETUP"
     elif mlx_reported and metal_reported:
         overall = "MLX_METAL_REPORTED_BUT_GPU_EXECUTION_NOT_PROVEN"
