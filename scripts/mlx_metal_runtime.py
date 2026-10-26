@@ -77,7 +77,10 @@ def load_whisper_cpu(whisper_module: Any, model_name: str, **kwargs: Any) -> Any
     """Load OpenAI Whisper explicitly on CPU and reject unexpected placement."""
     kwargs.pop("device", None)
     model = whisper_module.load_model(model_name, device="cpu", **kwargs)
-    actual = str(getattr(model, "device", "cpu")).lower()
+    reported_device = getattr(model, "device", None)
+    if reported_device is None:
+        raise RuntimeError("Whisper model does not expose its actual device; cannot verify CPU placement.")
+    actual = str(reported_device).lower()
     if actual not in {"cpu", "cpu:0"}:
         raise RuntimeError(f"Whisper was requested on CPU but reports device={actual!r}.")
     return model
