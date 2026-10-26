@@ -160,7 +160,7 @@ class PatchTests(unittest.TestCase):
     def test_existing_patched_engine_is_upgraded_with_runtime_trace(self):
         fully_patched = patcher.patch_engine_text(FIXTURE)
         self.assertIn(patcher.MLX_VLM_RUNTIME_TRACE_MARKER, fully_patched)
-        legacy = fully_patched.replace(patcher.MLX_VLM_RUNTIME_TRACE_HELPER + "\\n", "")
+        legacy = fully_patched.replace(patcher.MLX_VLM_RUNTIME_TRACE_HELPER + "\n", "")
         legacy = legacy.replace(
             "_vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)",
             "_vce_mlx_functools.partial(fn, *args, **kwargs)",
