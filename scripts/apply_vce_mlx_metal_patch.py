@@ -185,7 +185,6 @@ def patch_engine_text(text: str) -> str:
         "class MLXEngine(VLMProvider):",
         "from mlx_vlm import load, generate",
         "whisper_segments: List[Dict[str, Any]] = []",
-        "if not skip_visual or generate_summary:",
         'set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам"',
     ]
     for token in required_tokens:
@@ -195,7 +194,6 @@ def patch_engine_text(text: str) -> str:
     # by their stripped text rather than requiring a specific number of spaces.
     for line_text in (
         "whisper_segments: List[Dict[str, Any]] = []",
-        "if not skip_visual or generate_summary:",
     ):
         occurrences = [line for line in text.splitlines() if line.strip() == line_text]
         if len(occurrences) != 1:
@@ -253,11 +251,36 @@ def patch_engine_text(text: str) -> str:
     block_start = block_start_match.start()
     base_indent = block_start_match.group("indent")
 
-    block_end_re = re.compile(r"(?m)^[ \t]*if not skip_visual or generate_summary:\s*$")
+    # Prefer the historic visual-stage condition. If local edits changed its
+    # spelling, locate the visual-model load marker and derive its parent condition.
+    block_end_re = re.compile(r"(?m)^(?P<indent>[ \t]*)if not skip_visual or generate_summary:\s*$")
     block_end_match = block_end_re.search(text, block_start_match.end())
-    if not block_end_match:
-        raise PatchError("Could not locate the VLM stage following the Whisper block. No file was changed.")
-    block_end = block_end_match.start()
+    if block_end_match is None:
+        load_progress_re = re.compile(
+            r"""(?m)^(?P<indent>[ \t]*)set_job_progress\(job_id,\s*["']load_vlm["']"""
+        )
+        load_progress = load_progress_re.search(text, block_start_match.end())
+        if load_progress is None:
+            raise PatchError(
+                "Cannot locate the visual-model load boundary (no load_vlm progress marker). "
+                "No file was changed."
+            )
+        candidates = list(re.finditer(
+            r"(?m)^(?P<indent>[ \t]*)if\b[^\n]*:\s*$",
+            text[block_start_match.end():load_progress.start()],
+        ))
+        candidates = [m for m in candidates if m.group("indent") == base_indent]
+        if not candidates:
+            raise PatchError(
+                "Found load_vlm but no matching parent condition at the Whisper block indentation. "
+                "No file was changed."
+            )
+        candidate = candidates[-1]
+        block_end = block_start_match.end() + candidate.start()
+        if block_end <= block_start:
+            raise PatchError("Derived visual-stage boundary overlaps Whisper block. No file was changed.")
+    else:
+        block_end = block_end_match.start()
 
     parallel_block = '''                whisper_segments: List[Dict[str, Any]] = []
                 _vce_whisper_task = None
