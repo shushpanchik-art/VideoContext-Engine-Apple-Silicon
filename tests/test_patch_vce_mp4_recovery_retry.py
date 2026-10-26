@@ -31,33 +31,36 @@ def _vce_validate_video_with_remux(video_path):
 
 @app.post("/api/v1/analyze")
 async def analyze_video(temp_path, enable_mlx_whisper=False):
-    owns_temp_path = True
-    original_input_path = temp_path
-    prepared_path = await asyncio.to_thread(ensure_opencv_compatible_video, original_input_path)
-    if prepared_path != original_input_path:
-        temp_path = prepared_path
-    if enable_mlx_whisper:
-        pass
-    run_vlm = True
-    skip_visual = False
-    skip_audio = False
-    enable_apple_ocr = True
-    enable_ffmpeg_ocr = True
-    scenes_raw = [{"start": 0, "end": 1}]
-    final_segments = []
-    for idx, scene in enumerate(scenes_raw):
-        scene_id = idx + 1
-        visual_description = ""
-        final_segments.append(
-            {
-                "scene_id": scene_id,
-                "start": scene["start"],
-                "end": scene["end"],
-                "audio_transcript": "",
-                "visual_description": visual_description,
-            }
-        )
-    return final_segments
+    try:
+        owns_temp_path = True
+        original_input_path = temp_path
+        prepared_path = await asyncio.to_thread(ensure_opencv_compatible_video, original_input_path)
+        if prepared_path != original_input_path:
+            temp_path = prepared_path
+        run_vlm = True
+        skip_visual = False
+        skip_audio = False
+        enable_apple_ocr = True
+        enable_ffmpeg_ocr = True
+        if enable_mlx_whisper:
+            pass
+        scenes_raw = [{"start": 0, "end": 1}]
+        final_segments = []
+        if scenes_raw:
+            if run_vlm:
+                for idx, scene in enumerate(scenes_raw):
+                    scene_id = idx + 1
+                    visual_description = ""
+                    final_segments.append(
+                        {
+                            "scene_id": scene_id,
+                            "start": scene["start"],
+                            "end": scene["end"],
+                            "audio_transcript": "",
+                            "visual_description": visual_description,
+                        }
+                    )
+        return final_segments
 '''
 
 def test_patch_is_valid_and_idempotent():
