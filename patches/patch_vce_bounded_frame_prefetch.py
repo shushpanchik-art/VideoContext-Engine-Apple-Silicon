@@ -3,8 +3,8 @@
 """Add bounded background prefetch of scene keyframes to VideoContext Engine v3.19.
 
 A dedicated OpenCV VideoCapture in a single producer thread prepares images for
-up to two upcoming scenes while the main thread runs VLM/OCR on the current
-scene. Scene order is preserved. The worker is stopped and joined before the
+up to one queued scene plus at most one scene being prepared while the main
+thread runs VLM/OCR on the current scene. Scene order is preserved. The worker is stopped and joined before the
 temporary video can be deleted.
 
 Requires the previously installed VCE parallel ASR/VLM patch.
@@ -328,7 +328,7 @@ def main() -> int:
     print("".join(diff_lines[:320]))
     if len(diff_lines) > 320:
         print(f"... ({len(diff_lines) - 320} additional diff lines omitted)")
-    print("\nQueue depth: 2 scenes maximum; one producer thread; order-preserving fallback.")
+    print("\nQueue is bounded to one waiting scene plus at most one scene being prepared; one producer thread; order-preserving fallback.")
 
     if args.dry_run:
         print("\nDRY RUN: one file prepared; nothing written.")
