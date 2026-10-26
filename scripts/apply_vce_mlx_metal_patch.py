@@ -17,6 +17,7 @@ import textwrap
 from pathlib import Path
 
 MARKER = "# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2"
+MLX_THREAD_AFFINITY_MARKER = "# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1"
 
 
 class PatchError(RuntimeError):
@@ -167,6 +168,88 @@ def load_whisper_model(model_name: str, acceleration_enabled: bool = True):
 '''
 
 
+MLX_THREAD_RUNTIME_HELPERS = '''
+# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1
+import concurrent.futures as _vce_mlx_concurrent_futures
+import functools as _vce_mlx_functools
+
+# mlx-vlm creates a thread-local generation stream at import time. Keep model
+# loading and all generation calls on the same dedicated OS thread.
+_VCE_MLX_EXECUTOR = _vce_mlx_concurrent_futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="vce-mlx-metal"
+)
+
+
+async def _vce_mlx_run(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    call = _vce_mlx_functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+
+'''
+
+
+def patch_mlx_thread_affinity(text: str) -> str:
+    """Route MLX-VLM load/inference to one thread; safely upgrade an existing V2 patch."""
+    if MLX_THREAD_AFFINITY_MARKER in text:
+        return text
+    if MARKER not in text:
+        raise PatchError("Cannot add MLX thread affinity before the V2 runtime patch is present.")
+
+    diagnostics_anchor = "VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}\n"
+    if text.count(diagnostics_anchor) != 1:
+        raise PatchError("Expected one runtime diagnostics anchor for the MLX executor helper.")
+    text = text.replace(
+        diagnostics_anchor,
+        diagnostics_anchor + MLX_THREAD_RUNTIME_HELPERS,
+        1,
+    )
+
+    load_pattern = re.compile(
+        r"await asyncio\.to_thread\(\s*vlm_engine\.load_model\s*,\s*target_vlm\s*\)"
+    )
+    text, load_count = load_pattern.subn(
+        "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
+        text,
+    )
+    if load_count != 1:
+        raise PatchError(
+            f"Expected one VLM model-load dispatch through asyncio.to_thread, found {load_count}. "
+            "No file was changed."
+        )
+
+    scene_pattern = re.compile(
+        r"await asyncio\.to_thread\(\s*(?P<fn>_vce_describe_scene_with_memory_fallback|vlm_engine\.describe_scene)\s*,"
+    )
+    text, scene_count = scene_pattern.subn(
+        lambda match: "await _vce_mlx_run(" + match.group("fn") + ",",
+        text,
+    )
+    if scene_count < 1:
+        raise PatchError(
+            "Could not route any VLM scene-generation call to the dedicated MLX thread."
+        )
+
+    # The optional final text-LLM uses the same mlx-vlm internals.
+    text, text_llm_count = re.subn(
+        r"await asyncio\.to_thread\(\s*run_text_llm_postprocess\s*,",
+        "await _vce_mlx_run(run_text_llm_postprocess,",
+        text,
+    )
+
+    forbidden_patterns = (
+        r"await asyncio\.to_thread\(\s*vlm_engine\.load_model",
+        r"await asyncio\.to_thread\(\s*vlm_engine\.describe_scene",
+        r"await asyncio\.to_thread\(\s*_vce_describe_scene_with_memory_fallback",
+    )
+    for pattern in forbidden_patterns:
+        if re.search(pattern, text):
+            raise PatchError(f"Post-patch validation found a generic worker-thread MLX call: {pattern}")
+
+    if "_VCE_MLX_EXECUTOR" not in text or "_vce_mlx_run(" not in text:
+        raise PatchError("MLX thread-affinity runtime helper was not installed.")
+    return text
+
+
 def _replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
     if count != 1:
@@ -176,7 +259,7 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def patch_engine_text(text: str) -> str:
     if MARKER in text:
-        return text
+        return patch_mlx_thread_affinity(text)
     if "# VCE_MLX_METAL_CPU_PARALLEL_V1" in text:
         raise PatchError("Detected previous CPU/Metal patch version. Restore the pre-patch backup before applying MLX Whisper CPU-stream v2.")
     required_tokens = [
@@ -640,6 +723,10 @@ async def _vce_prepare_scene_keyframes_cpu(_scene: Dict[str, Any]):
     ):
         if marker not in text:
             raise PatchError(f"Post-patch validation failed: missing {marker!r}.")
+    text = patch_mlx_thread_affinity(text)
+    for marker in (MLX_THREAD_AFFINITY_MARKER, "_VCE_MLX_EXECUTOR", "_vce_mlx_run("):
+        if marker not in text:
+            raise PatchError(f"Post-patch MLX thread-affinity validation failed: missing {marker!r}.")
     return text
 
 
