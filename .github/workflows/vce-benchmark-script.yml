@@ -5,12 +5,16 @@ on:
     branches: [feat/vce-parallel-cpu-asr-vlm-20261025]
     paths:
       - "scripts/benchmark_vce_macos.py"
+      - "scripts/benchmark_vce_summary_prefilter.py"
+      - "tests/test_vce_summary_prefilter.py"
       - "tests/test_benchmark_vce_macos.py"
       - ".github/workflows/vce-benchmark-script.yml"
   pull_request:
     branches: [main]
     paths:
       - "scripts/benchmark_vce_macos.py"
+      - "scripts/benchmark_vce_summary_prefilter.py"
+      - "tests/test_vce_summary_prefilter.py"
       - "tests/test_benchmark_vce_macos.py"
       - ".github/workflows/vce-benchmark-script.yml"
 
@@ -22,7 +26,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Compile benchmark script and tests
-        run: python -m py_compile scripts/benchmark_vce_macos.py tests/test_benchmark_vce_macos.py
+      - name: Compile benchmark scripts and tests
+        run: python -m py_compile scripts/benchmark_vce_macos.py scripts/benchmark_vce_summary_prefilter.py tests/test_benchmark_vce_macos.py tests/test_vce_summary_prefilter.py
       - name: Run benchmark regression tests
-        run: python tests/test_benchmark_vce_macos.py
+        run: python tests/test_benchmark_vce_macos.py && python tests/test_vce_summary_prefilter.py
