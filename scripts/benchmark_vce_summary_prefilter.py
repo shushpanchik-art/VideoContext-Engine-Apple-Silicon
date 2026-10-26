@@ -340,7 +340,7 @@ def worker_main(task: str, device: str, model_id: str, max_tokens: int) -> int:
         print(SENTINEL + json.dumps(result, ensure_ascii=False))
         return 0
     except Exception as exc:
-        print(f"Worker error: {type(exc).__name__}", file=sys.stderr)
+        print(f"Worker error: {type(exc).__name__}: {str(exc)[:400]}", file=sys.stderr)
         return 4
 
 
@@ -595,7 +595,7 @@ def main() -> int:
             "api_wall_time_s": round(api_wall, 3),
             "full_script_wall_time_s": round(full_wall, 3),
             **metadata,
-            "existing_summary": existing_summary(payload),
+            "existing_summary": baseline_summary,
         },
         "experiment_result": {
             "cpu_prefilter": {
@@ -628,9 +628,10 @@ def main() -> int:
         },
         "privacy": {
             "source_path_saved": False, "source_filename_saved": False,
-            "raw_transcript_visual_description_and_ocr_saved": False,
+            "raw_transcript_visual_description_and_ocr_saved": checkpoint_path is not None,
+            "evidence_checkpoint_name": checkpoint_path.name if checkpoint_path is not None else None,
             "prompts_saved": False, "uploaded_to_github": False,
-            "note": "Local report includes derived fact cards and two candidate summaries.",
+            "note": ("An evidence checkpoint also contains raw scene transcript, visual descriptions, and OCR; delete it when no longer needed." if checkpoint_path is not None else "Local report includes derived fact cards and two candidate summaries."),
         },
         "output_directory": outdir.name,
     }
@@ -640,7 +641,7 @@ def main() -> int:
         f"- UTC: {report['timestamp_utc']}",
         f"- VCE wall time: {api_wall:.1f}s; scenes: {len(rows)}",
         "- Scope: offline A/B; does not measure concurrent CPU/GPU execution inside live VCE.",
-        "- Raw transcript, scene descriptions, OCR, source path and prompts are not saved.",
+        (f"- Raw transcript, scene descriptions and OCR are saved in the local checkpoint {checkpoint_path.name}; delete it when no longer needed." if checkpoint_path is not None else "- Raw transcript, scene descriptions, OCR, source path and prompts are not saved."),
         "",
         "## Timings and compression", "",
         "| Stage | Seconds |", "|---|---:|",
@@ -655,7 +656,7 @@ def main() -> int:
         f"- Context reduction: {reduction}%",
         f"- Full-context tokens: {baseline.get('prompt_tokens', baseline.get('status', 'n/a'))}",
         f"- Fact-card tokens: {optimized.get('prompt_tokens', optimized.get('status', 'n/a'))}", "",
-        "## Existing VCE summary", "", existing_summary(payload) or "_Not returned._", "",
+        "## Existing VCE summary", "", baseline_summary or "_Not returned._", "",
         "## Candidate A — full evidence", "", baseline.get("summary") or "_Skipped/not generated._", "",
         "## Candidate B — CPU fact cards", "", optimized.get("summary") or "_Skipped/not generated._", "",
         "## CPU fact cards", "", json.dumps(cards, ensure_ascii=False, indent=2), "",
