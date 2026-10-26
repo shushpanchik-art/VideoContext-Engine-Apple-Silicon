@@ -35,6 +35,7 @@ class FakeMlxCore(types.ModuleType):
         super().__init__("mlx.core")
         self.gpu = FakeDevice("gpu")
         self._default = FakeDevice("cpu")
+        self.metal = types.SimpleNamespace(is_available=lambda: True)
 
     def is_available(self, device):
         return device == self.gpu
