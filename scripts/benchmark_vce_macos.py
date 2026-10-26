@@ -697,39 +697,6 @@ def main() -> int:
         if answer == "PUBLISH":
             try:
                 urls = publish_report_to_github(out_dir, report, args.github_branch)
-                (out_dir / "summary.md").write_text(make_summary(report), encoding="utf-8")
-                # Refresh the summary after the URLs were added to the report.
-                if (out_dir / "summary.md").is_file():
-                    summary_path = f"results/vce-benchmark/{out_dir.name.removeprefix('VCE-Benchmark-')}/summary.md"
-                    # Update the already-published summary so it includes the links.
-                    report_summary_url = f"https://github.com/{GITHUB_REPOSITORY}/blob/{args.github_branch}/{summary_path}"
-                    report.setdefault("github_publication", {}).setdefault("files", {})["summary.md"] = report_summary_url
-                    (out_dir / "summary.md").write_text(make_summary(report), encoding="utf-8")
-                    # One extra PUT updates only the summary with final report links.
-                    token = command_output(["gh", "auth", "token"], timeout=10)
-                    if token:
-                        import base64 as _b64
-                        from urllib.parse import quote as _quote
-                        remote = summary_path
-                        request_body = json.dumps({
-                            "message": f"chore: update VCE benchmark summary links {out_dir.name}",
-                            "content": _b64.b64encode((out_dir / "summary.md").read_bytes()).decode("ascii"),
-                            "branch": args.github_branch,
-                        }).encode("utf-8")
-                        req = Request(
-                            "https://api.github.com/repos/" + GITHUB_REPOSITORY + "/contents/" + _quote(remote, safe="/"),
-                            data=request_body,
-                            headers={
-                                "Accept": "application/vnd.github+json",
-                                "Authorization": "Bearer " + token,
-                                "X-GitHub-Api-Version": "2022-11-28",
-                                "Content-Type": "application/json",
-                                "User-Agent": "VCE-Benchmark/1.0",
-                            },
-                            method="PUT",
-                        )
-                        with urlopen(req, timeout=30) as response:
-                            response.read()
                 print("\n✅ Отчёт опубликован в GitHub:")
                 for name, url in urls.items():
                     print(f"  {name}: {url}")
