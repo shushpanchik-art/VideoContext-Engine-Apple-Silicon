@@ -191,8 +191,9 @@ def safe_metadata(payload: dict) -> dict:
     return result
 
 
-def run_worker(task: str, device: str, model: str, data: dict, max_tokens: int, timeout: float) -> dict:
-    argv = [sys.executable, str(Path(__file__).resolve()),
+def run_worker(task: str, device: str, model: str, data: dict, max_tokens: int, timeout: float,
+               python_executable: str) -> dict:
+    argv = [python_executable, str(Path(__file__).resolve()),
             "--_worker-task", task, "--_worker-device", device,
             "--_worker-model", model, "--_worker-max-tokens", str(max_tokens)]
     env = os.environ.copy()
@@ -345,7 +346,10 @@ def main() -> int:
         if not bench.listener_pids(port):
             raise RuntimeError("VCE is not listening. Start VideoContext Engine first.")
         openapi = bench.fetch_json(api + "/openapi.json", timeout=10)
-        fields = bench.build_form_fields(settings, bench.request_properties(openapi), [])
+        request_adaptations = []
+        fields = bench.build_form_fields(settings, bench.request_properties(openapi), request_adaptations)
+        worker_venv_python = project / ".venv" / "bin" / "python"
+        worker_python = str(worker_venv_python) if worker_venv_python.is_file() else sys.executable
     except Exception as exc:
         print("ERROR during preflight: " + type(exc).__name__, file=sys.stderr)
         return 2
@@ -362,6 +366,12 @@ def main() -> int:
     print(f"Small CPU model: {args.small_model}")
     print("The installed engine and settings will not be modified; no GitHub upload is available.")
     print("One full VCE analysis will run, followed by local CPU fact extraction and two large-model summaries.")
+    print("MLX worker Python:", worker_python)
+    for item in request_adaptations:
+        print(
+            f"Request-only compatibility: {item['field']} {item['original_characters']} -> "
+            f"{item['sent_characters']} characters. Local settings remain unchanged."
+        )
     answer = input("For one full analysis plus model tests, enter RUN: ").strip()
     if answer != "RUN":
         print("Cancelled.")
@@ -388,7 +398,7 @@ def main() -> int:
     print(f"CPU fact extraction: {len(chunks)} chunks.")
     try:
         cpu = run_worker("prefilter", "cpu", args.small_model, {"chunks": chunks},
-                         args.prefilter_max_tokens, args.model_timeout)
+                         args.prefilter_max_tokens, args.model_timeout, worker_python)
     except Exception as exc:
         print("ERROR in CPU prefilter: " + str(exc)[:300], file=sys.stderr)
         return 1
@@ -412,7 +422,7 @@ def main() -> int:
     try:
         gpu = run_worker("summaries", "gpu", large_model,
                          {"prompts": prompts, "max_input_tokens": args.max_input_tokens},
-                         args.summary_max_tokens, args.model_timeout)
+                         args.summary_max_tokens, args.model_timeout, worker_python)
     except Exception as exc:
         print("ERROR in large-model summary worker: " + str(exc)[:300], file=sys.stderr)
         return 1
@@ -467,6 +477,11 @@ def main() -> int:
             },
             "reported_current_text_llm_time_s": text_llm.get("inference_time") if isinstance(text_llm, dict) else None,
             "warnings": warnings,
+            "request_only_prompt_adjustments": [
+                {"field": item["field"], "original_characters": item["original_characters"],
+                 "sent_characters": item["sent_characters"], "api_maxLength": item["api_maxLength"]}
+                for item in request_adaptations
+            ],
             "scope": "Offline feasibility A/B only; live CPU/GPU overlap is not measured.",
         },
         "privacy": {
