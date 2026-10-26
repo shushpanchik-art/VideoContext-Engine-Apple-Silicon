@@ -1,46 +1,33 @@
 # CPU + MLX/Metal execution model for VCE
 
-## Required mode
+## Intended execution plan
 
-The desired pipeline is:
+- **Whisper:** use the `mlx-whisper` inference implementation, but execute its MLX operations on a dedicated `mx.cpu` thread-local stream.
+- **Scene VLM:** use `mlx-vlm` with MLX GPU / Metal.
+- **Final text analysis (LLM):** use the MLX backend in the customized VCE source and require MLX GPU / Metal there too.
+- **CPU assistance:** while the VLM is generating, continue independent CPU work such as Whisper, video decode, scene/frame selection, resizing, OCR, prompt assembly, JSON and I/O. Keep queued frame work bounded to reduce unified-memory pressure.
 
-1. Whisper neural inference runs on CPU.
-2. VLM neural inference runs through MLX on the Apple GPU / Metal.
-3. While one VLM inference is running, CPU work can continue independently: Whisper ASR, decoding the next frames, resize/keyframe selection, OCR, tokenization/prompt formatting, input/output and orchestration.
-4. The final text-analysis model runs through MLX/Metal after ASR and scene analysis are joined.
+## Does mlx-whisper use Metal in this mode?
 
-## Can CPU Whisper use MLX/Metal at the same time?
+No: this patch intentionally assigns Whisper's MLX operations to a CPU stream so they can overlap with the VLM's GPU stream. MLX is the same framework/API family, but stream placement decides the device used for each operation. The official MLX docs describe using CPU and GPU streams for independent operations and explain Apple's unified memory model: [streams](https://ml-explore.github.io/mlx/build/html/usage/using_streams.html) and [unified memory](https://github.com/ml-explore/mlx/blob/main/docs/src/usage/unified_memory.rst).
 
-Not for the same CPU-only inference operations. If OpenAI Whisper is loaded with PyTorch on `device="cpu"`, that inference does not use MLX or Metal. The CPU can run Whisper while the VLM uses Metal concurrently.
+The CPU stream is created with `mx.new_thread_local_stream(mx.cpu)` and scoped with `mx.stream(cpu_stream)`. Synchronization targets that CPU stream, not the whole MLX runtime, so the Whisper worker should not wait for unrelated Metal work. The target Mac must verify that the installed MLX version and `mlx-whisper` build behave this way end-to-end.
 
-The separate `mlx-whisper` implementation runs the Whisper model through MLX, normally using the MLX default device (GPU/Metal on Apple Silicon). That is a different inference backend and makes Whisper a GPU workload, not the requested CPU Whisper workload. MLX can also run individual operations on a CPU or GPU stream, but mixed per-operation placement requires support/explicit placement in the implementation; installing MLX does not automatically split a regular PyTorch Whisper model across CPU and Metal.
+The standard `mlx_whisper.transcribe()` API loads a converted MLX checkpoint. The VCE patch maps named presets such as `large` to `mlx-community/whisper-large-v3-mlx`, and `large-v3-turbo` to `mlx-community/whisper-large-v3-turbo`. Model loading is lazy on first transcription, so its initial load time is included in that first inference measurement. A local checkpoint or full Hugging Face repo ID can be supplied via `VIDEOCONTEXT_MLX_WHISPER_MODEL`.
 
-## What "CPU assists the VLM" means
+## Why configure GPU explicitly?
 
-Explicitly selecting MLX GPU as the default device does not turn off CPU use by Python or other libraries. It selects where new MLX operations run by default and helps make the model's GPU path deterministic. CPU work remains available for:
+Selecting `mx.gpu` is a guard for the VLM and final text-model inference, not a global ban on CPU tasks. CPU stream placement for Whisper is explicit and local to its worker. The patch validates a real MLX/Metal GPU operation before the VLM/LLM stage and fails if Metal is unavailable rather than silently presenting CPU fallback as a GPU run.
 
-- OpenCV video decoding and frame sampling/resizing
-- Apple Vision OCR and text extraction
-- preparing prompts and image inputs
-- Whisper CPU transcription in parallel with VLM generation
-- Python orchestration, reading/writing files, JSON handling and response processing
+MLX does **not** automatically send idle CPU cores to accelerate arbitrary transformer layers currently running on the GPU. The CPU can help by performing independent pre-processing concurrently; assigning a portion of model operations to CPU requires explicit support and profiling because synchronization and unified-memory contention may make it slower.
 
-On Apple Silicon, CPU and GPU share unified memory. MLX also supports explicitly choosing CPU or GPU streams for individual MLX operations. Independent operations can be scheduled on different devices, but the VLM implementation does not automatically distribute arbitrary model layers between CPU and GPU simply because both resources exist. See the official MLX docs on [unified memory](https://github.com/ml-explore/mlx/blob/main/docs/src/usage/unified_memory.rst) and [streams](https://ml-explore.github.io/mlx/build/html/usage/using_streams.html), and the official [MLX Whisper example](https://github.com/ml-explore/mlx-examples/tree/main/whisper).
+## Safety and acceptance criteria
 
-## Why check Metal availability?
+- Use native arm64 Python and install `mlx`, `mlx-vlm`, `mlx-whisper` and the dependencies required by the customized engine in the same runtime environment.
+- VLM and final text LLM must log MLX/Metal runtime diagnostics.
+- Whisper logs `backend=mlx-whisper`, `device=cpu`, `stream=mx.cpu`; first inference time includes lazy model loading.
+- Compare timestamps and require a positive measured Whisper/VLM overlap.
+- Check transcript quality against the existing Whisper configuration and compare end-to-end latency; MLX Whisper on CPU may be slower as a standalone ASR backend even if overlap reduces total elapsed time.
+- Check memory pressure with the VLM and ASR loaded concurrently. MLX uses unified memory, so CPU placement does not imply a separate physical RAM pool.
 
-A startup check for Metal is a guard on the *required VLM backend*, not a ban on CPU work. The check must not reject ordinary CPU preprocessing or OCR. It should reject the run only if the requested MLX/Metal inference backend is unavailable, so a benchmark cannot silently report a failed GPU setup as a successful Metal run.
-
-## Best way to improve CPU/GPU overlap
-
-Start with the high-value independent work: CPU Whisper concurrently with VLM inference. For additional VLM-stage overlap, use a bounded producer/consumer pipeline: CPU decodes and prepares the next frame batch/OCR/prompt while the GPU processes the current batch. Keep the queue small to control unified-memory pressure on the 32 GB M1 Max. Do not try to offload arbitrary transformer layers to CPU without profiling; that can slow inference due to synchronization and contention.
-
-Benchmark at least:
-- total wall time;
-- Whisper CPU interval;
-- VLM Metal interval;
-- their measured overlap;
-- scene-analysis quality and any changes from missing ASR context during early scene prompts;
-- peak memory pressure.
-
-A run is accepted only when telemetry confirms Whisper's CPU placement, MLX/Metal availability and actual overlap. A Metal smoke test confirms the backend can execute; by itself it does not prove that every VLM operation ran on GPU.
+The source patch is backup-safe and dry-run by default. A passing GitHub unit test cannot prove device placement or speed on the target M1 Max; the live Mac benchmark remains the final acceptance test.
