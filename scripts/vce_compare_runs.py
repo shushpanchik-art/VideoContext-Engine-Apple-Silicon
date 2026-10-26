@@ -28,6 +28,27 @@ FIELDS = {
     "skip_audio", "skip_visual",
 }
 
+PROMPT_LIMITS = {
+    "visual_user_prompt": 1000,
+    "summary_user_prompt": 2000,
+}
+PROMPT_LABELS = {
+    "visual_user_prompt": "Визуальный промпт",
+    "summary_user_prompt": "Промпт резюме",
+}
+
+
+def validate_prompt_override(field, value, profile_name=None):
+    label = PROMPT_LABELS[field]
+    location = f" в профиле {profile_name!r}" if profile_name else ""
+    if not isinstance(value, str):
+        raise ValueError(f"{label}{location} должен быть строкой.")
+    limit = PROMPT_LIMITS[field]
+    if len(value) > limit:
+        raise ValueError(
+            f"{label}{location} превышает лимит API: {len(value)} символов; максимум {limit}."
+        )
+
 
 def value_for_form(value):
     if isinstance(value, bool):
@@ -61,6 +82,9 @@ def load_profiles(path):
         unknown = sorted(set(overrides) - FIELDS)
         if unknown:
             raise ValueError(f"Неизвестные настройки профиля {name!r}: {', '.join(unknown)}")
+        for field in PROMPT_LIMITS:
+            if field in overrides:
+                validate_prompt_override(field, overrides[field], profile_name=name)
         slug = slugify(name)
         if slug in slugs:
             raise ValueError(f"Имена профилей дают одинаковое имя папки: {slug}")
@@ -94,9 +118,22 @@ def get_server_settings(base_url, timeout):
 
 
 def effective_settings(base, overrides):
+    # Validate only prompts explicitly authored in this profile. Saved prompts can
+    # be longer than the analyze endpoint's Form limits, so do not resend them:
+    # omitting these fields makes FastAPI use the engine's persisted defaults.
+    for field in PROMPT_LIMITS:
+        if field in overrides:
+            validate_prompt_override(field, overrides[field])
+
     merged = {key: value for key, value in base.items() if key in FIELDS}
     merged.update(overrides)
-    form = {key: value_for_form(value) for key, value in merged.items() if key in FIELDS and value is not None}
+    form = {}
+    for key, value in merged.items():
+        if key not in FIELDS or value is None:
+            continue
+        if key in PROMPT_LIMITS and key not in overrides:
+            continue
+        form[key] = value_for_form(value)
     mode = form.get("analysis_mode", "full").strip().lower()
     if mode not in {"full", "whisper_ocr", "ocr_only"}:
         raise ValueError(f"Недопустимый analysis_mode: {mode!r}")
