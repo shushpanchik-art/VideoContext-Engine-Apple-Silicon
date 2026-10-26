@@ -207,6 +207,50 @@ class PatchTests(unittest.TestCase):
         self.assertNotIn("_vce_prepare_scene_keyframes_cpu", patched)
         self.assertIn('locals().get("_vce_frame_prefetch_stats", {})', patched)
 
+    def test_mlx_vlm_load_and_inference_share_dedicated_thread(self):
+        patched = patcher.patch_engine_text(FIXTURE)
+        compile(patched, "patched_thread_affinity_engine.py", "exec")
+        self.assertIn(patcher.MLX_THREAD_AFFINITY_MARKER, patched)
+        self.assertIn("_VCE_MLX_EXECUTOR", patched)
+        self.assertIn("max_workers=1, thread_name_prefix=\\"vce-mlx-metal\\"", patched)
+        self.assertIn("await _vce_mlx_run(vlm_engine.load_model, target_vlm)", patched)
+        self.assertIn("await _vce_mlx_run(vlm_engine.describe_scene,", patched)
+        self.assertNotIn("await asyncio.to_thread(vlm_engine.load_model", patched)
+        self.assertNotIn("await asyncio.to_thread(vlm_engine.describe_scene", patched)
+
+    def test_custom_memory_fallback_scene_call_uses_dedicated_executor(self):
+        variant = FIXTURE.replace(
+            "vlm_engine.describe_scene,",
+            "_vce_describe_scene_with_memory_fallback,",
+        )
+        patched = patcher.patch_engine_text(variant)
+        compile(patched, "patched_wrapper_thread_affinity_engine.py", "exec")
+        self.assertIn(
+            "await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,",
+            patched,
+        )
+        self.assertNotIn(
+            "await asyncio.to_thread(_vce_describe_scene_with_memory_fallback,",
+            patched,
+        )
+
+    def test_v2_engine_is_upgraded_when_thread_affinity_patch_is_added_later(self):
+        fully_patched = patcher.patch_engine_text(FIXTURE)
+        legacy = fully_patched.replace(patcher.MLX_THREAD_RUNTIME_HELPERS, "")
+        legacy = legacy.replace(
+            "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
+            "await asyncio.to_thread(vlm_engine.load_model, target_vlm)",
+        )
+        legacy = legacy.replace(
+            "await _vce_mlx_run(vlm_engine.describe_scene,",
+            "await asyncio.to_thread(\\n                                vlm_engine.describe_scene,",
+        )
+        self.assertNotIn(patcher.MLX_THREAD_AFFINITY_MARKER, legacy)
+        upgraded = patcher.patch_engine_text(legacy)
+        compile(upgraded, "upgraded_v2_engine.py", "exec")
+        self.assertIn(patcher.MLX_THREAD_AFFINITY_MARKER, upgraded)
+        self.assertIn("await _vce_mlx_run(vlm_engine.load_model, target_vlm)", upgraded)
+
     def test_settings_force_mlx_whisper_cpu_stream_and_metal(self):
         content = json.dumps({"whisper_acceleration": True, "enable_mlx_whisper": False, "mlx_device": "auto", "custom": "keep"})
         result = json.loads(patcher.patch_settings_text(content))
