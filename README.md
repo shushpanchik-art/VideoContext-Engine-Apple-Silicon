@@ -110,3 +110,9 @@
 ## Attribution
 
 Основой является [VideoContext Engine v3.19](https://github.com/dolphin-creator/VideoContext-Engine), автор upstream — `dolphin-creator`. Эта ветка содержит сторонний набор оптимизаций/интеграций для конкретного рабочего процесса. Перед публикацией исходного кода upstream изучите лицензию и условия оригинального репозитория. Этот репозиторий распространяет patch scripts и launcher templates, а не копию всего upstream source file.
+
+## MLX + Metal runtime migration (work in progress)
+
+The strict runtime helpers and integration checklist are in [docs/MLX_METAL_RUNTIME_PLAN.md](docs/MLX_METAL_RUNTIME_PLAN.md). The target is **Whisper on CPU concurrently with VLM on MLX/Metal**, followed by the final-summary LLM on MLX/Metal. The diagnostic script is [scripts/verify_mlx_metal_runtime.py](scripts/verify_mlx_metal_runtime.py).
+
+These are integration helpers and tests, not yet a complete production migration: the customized local engine and summary worker are not tracked in this overlay repository. See draft [PR #11](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/11) for scope and limitations.
