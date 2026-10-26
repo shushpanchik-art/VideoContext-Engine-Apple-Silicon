@@ -158,7 +158,11 @@ def build_form_fields(
         # The settings UI may store prompts longer than the API's Form(max_length=...)
         # accepts. Apply the schema limit to this benchmark request only; never edit settings.
         if isinstance(value, str) and isinstance(prop, dict):
+            # Fall back to VCE v3.19 limits if a patched OpenAPI schema omits maxLength.
+            known_limits = {"visual_user_prompt": 1000, "summary_user_prompt": 2000}
             max_length = prop.get("maxLength")
+            if not isinstance(max_length, int):
+                max_length = known_limits.get(pname)
             if isinstance(max_length, int) and len(value) > max_length:
                 original_length = len(value)
                 trimmed = value[:max_length]
@@ -465,6 +469,15 @@ def make_summary(report: dict) -> str:
         lines.append(f"| {key} | {'yes' if value else 'no'} |")
     lines += ["", "## Video metadata (no path/name)", ""]
     lines.append(json.dumps(report.get("video", {}), ensure_ascii=False, indent=2))
+    adaptations = report.get("request_adaptations", [])
+    if adaptations:
+        lines += ["", "## Request-only compatibility adjustments", ""]
+        lines.append("These fields were shortened to API limits for this benchmark request only; local settings were not changed.")
+        for item in adaptations:
+            lines.append(
+                f"- {item.get('field')}: {item.get('original_characters')} to "
+                f"{item.get('sent_characters')} characters (API maxLength {item.get('api_maxLength')})."
+            )
     lines += ["", "## Runs", ""]
     lines += [
         "| Run | HTTP wall (s) | Server processing (s) | Whisper (s) | VLM (s) | Scenes | Mean CPU % | Peak RSS (MB) | Prefetch wait (s) | Fallbacks |",
