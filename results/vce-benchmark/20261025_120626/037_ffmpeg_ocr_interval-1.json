@@ -1,0 +1,22 @@
+{
+  "run_id": "20261025_120626",
+  "index": 37,
+  "total": 47,
+  "name": "ffmpeg_ocr_interval-1",
+  "started_at": "2026-10-25T15:05:50-03:00",
+  "overrides": {
+    "ffmpeg_ocr_interval": 4.25
+  },
+  "settings_snapshot": {
+    "ffmpeg_ocr_interval": "4.25"
+  },
+  "video_filename": "🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4",
+  "video_size_bytes": 18257432,
+  "video_sha256": "66d6b95e69e2c1c151942a7f35540444a88bda50bf6b8d63ca81d22588ae515d",
+  "status": "error",
+  "http_status": 422,
+  "http_response_body": "{\"detail\":[{\"type\":\"int_parsing\",\"loc\":[\"body\",\"ffmpeg_ocr_interval\"],\"msg\":\"Input should be a valid integer, unable to parse string as an integer\",\"input\":\"4.25\"}]}",
+  "error": "HTTP 422 Unprocessable Content",
+  "duration_seconds": 0.05,
+  "finished_at": "2026-10-25T15:05:50-03:00"
+}

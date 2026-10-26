@@ -1,0 +1,328 @@
+{
+  "run_id": "20261025_114007",
+  "created_at": "2026-10-25T11:40:07-03:00",
+  "video_size_bytes": 18257432,
+  "video_sha256": "66d6b95e69e2c1c151942a7f35540444a88bda50bf6b8d63ca81d22588ae515d",
+  "base_settings": {
+    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "whisper_model": "large",
+    "vlm_resolution": 768,
+    "scene_threshold": 0.15,
+    "min_scene_duration": 1.5,
+    "max_scene_duration": 20,
+    "keyframes_per_scene": 1,
+    "vlm_max_tokens_scene": 768,
+    "vlm_max_tokens_summary": 2048,
+    "skip_audio": false,
+    "skip_visual": false,
+    "generate_txt": false,
+    "enable_audio_features": true,
+    "enable_apple_ocr": true,
+    "generate_summary": true,
+    "whisper_acceleration": true,
+    "generate_json": true,
+    "text_llm_enabled": true,
+    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "text_llm_max_tokens": 4096,
+    "analysis_mode": "full",
+    "enable_ffmpeg_ocr": true,
+    "ffmpeg_ocr_interval": 5,
+    "ffmpeg_ocr_workers": 3
+  },
+  "plan": [
+    {
+      "name": "baseline",
+      "overrides": {}
+    },
+    {
+      "name": "vlm_resolution-1",
+      "overrides": {
+        "vlm_resolution": 653
+      }
+    },
+    {
+      "name": "vlm_resolution-2",
+      "overrides": {
+        "vlm_resolution": 883
+      }
+    },
+    {
+      "name": "vlm_resolution-3",
+      "overrides": {
+        "vlm_resolution": 384
+      }
+    },
+    {
+      "name": "vlm_resolution-4",
+      "overrides": {
+        "vlm_resolution": 1382
+      }
+    },
+    {
+      "name": "vlm_resolution-5",
+      "overrides": {
+        "vlm_resolution": 1024
+      }
+    },
+    {
+      "name": "scene_threshold-1",
+      "overrides": {
+        "scene_threshold": 0.128
+      }
+    },
+    {
+      "name": "scene_threshold-2",
+      "overrides": {
+        "scene_threshold": 0.172
+      }
+    },
+    {
+      "name": "scene_threshold-3",
+      "overrides": {
+        "scene_threshold": 0.075
+      }
+    },
+    {
+      "name": "scene_threshold-4",
+      "overrides": {
+        "scene_threshold": 0.27
+      }
+    },
+    {
+      "name": "scene_threshold-5",
+      "overrides": {
+        "scene_threshold": 0.4
+      }
+    },
+    {
+      "name": "min_scene_duration-1",
+      "overrides": {
+        "min_scene_duration": 1.275
+      }
+    },
+    {
+      "name": "min_scene_duration-2",
+      "overrides": {
+        "min_scene_duration": 1.725
+      }
+    },
+    {
+      "name": "min_scene_duration-3",
+      "overrides": {
+        "min_scene_duration": 0.75
+      }
+    },
+    {
+      "name": "min_scene_duration-4",
+      "overrides": {
+        "min_scene_duration": 2.7
+      }
+    },
+    {
+      "name": "min_scene_duration-5",
+      "overrides": {
+        "min_scene_duration": 2
+      }
+    },
+    {
+      "name": "max_scene_duration-1",
+      "overrides": {
+        "max_scene_duration": 17
+      }
+    },
+    {
+      "name": "max_scene_duration-2",
+      "overrides": {
+        "max_scene_duration": 23
+      }
+    },
+    {
+      "name": "max_scene_duration-3",
+      "overrides": {
+        "max_scene_duration": 10
+      }
+    },
+    {
+      "name": "max_scene_duration-4",
+      "overrides": {
+        "max_scene_duration": 36
+      }
+    },
+    {
+      "name": "max_scene_duration-5",
+      "overrides": {
+        "max_scene_duration": 20
+      }
+    },
+    {
+      "name": "keyframes_per_scene-1",
+      "overrides": {
+        "keyframes_per_scene": 1
+      }
+    },
+    {
+      "name": "keyframes_per_scene-2",
+      "overrides": {
+        "keyframes_per_scene": 2
+      }
+    },
+    {
+      "name": "keyframes_per_scene-3",
+      "overrides": {
+        "keyframes_per_scene": 3
+      }
+    },
+    {
+      "name": "keyframes_per_scene-4",
+      "overrides": {
+        "keyframes_per_scene": 4
+      }
+    },
+    {
+      "name": "keyframes_per_scene-5",
+      "overrides": {
+        "keyframes_per_scene": 5
+      }
+    },
+    {
+      "name": "vlm_max_tokens_scene-1",
+      "overrides": {
+        "vlm_max_tokens_scene": 653
+      }
+    },
+    {
+      "name": "vlm_max_tokens_scene-2",
+      "overrides": {
+        "vlm_max_tokens_scene": 883
+      }
+    },
+    {
+      "name": "vlm_max_tokens_scene-3",
+      "overrides": {
+        "vlm_max_tokens_scene": 384
+      }
+    },
+    {
+      "name": "vlm_max_tokens_scene-4",
+      "overrides": {
+        "vlm_max_tokens_scene": 1024
+      }
+    },
+    {
+      "name": "vlm_max_tokens_scene-5",
+      "overrides": {
+        "vlm_max_tokens_scene": 128
+      }
+    },
+    {
+      "name": "vlm_max_tokens_summary-1",
+      "overrides": {
+        "vlm_max_tokens_summary": 1741
+      }
+    },
+    {
+      "name": "vlm_max_tokens_summary-2",
+      "overrides": {
+        "vlm_max_tokens_summary": 2048
+      }
+    },
+    {
+      "name": "vlm_max_tokens_summary-3",
+      "overrides": {
+        "vlm_max_tokens_summary": 1024
+      }
+    },
+    {
+      "name": "vlm_max_tokens_summary-4",
+      "overrides": {
+        "vlm_max_tokens_summary": 512
+      }
+    },
+    {
+      "name": "vlm_max_tokens_summary-5",
+      "overrides": {
+        "vlm_max_tokens_summary": 128
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_interval-1",
+      "overrides": {
+        "ffmpeg_ocr_interval": 4.25
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_interval-2",
+      "overrides": {
+        "ffmpeg_ocr_interval": 5.75
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_interval-3",
+      "overrides": {
+        "ffmpeg_ocr_interval": 2.5
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_interval-4",
+      "overrides": {
+        "ffmpeg_ocr_interval": 9
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_interval-5",
+      "overrides": {
+        "ffmpeg_ocr_interval": 5
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_workers-1",
+      "overrides": {
+        "ffmpeg_ocr_workers": 1
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_workers-2",
+      "overrides": {
+        "ffmpeg_ocr_workers": 2
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_workers-3",
+      "overrides": {
+        "ffmpeg_ocr_workers": 3
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_workers-4",
+      "overrides": {
+        "ffmpeg_ocr_workers": 4
+      }
+    },
+    {
+      "name": "ffmpeg_ocr_workers-5",
+      "overrides": {
+        "ffmpeg_ocr_workers": 6
+      }
+    },
+    {
+      "name": "enable_ffmpeg_ocr-opposite",
+      "overrides": {
+        "enable_ffmpeg_ocr": false
+      }
+    }
+  ],
+  "note": "Failed preflight attempt: baseline was rejected with HTTP 422 before video analysis. Full prompt text, absolute local paths, and unrelated settings are omitted from current metadata.",
+  "video_filename": "🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4",
+  "prompt_adjustments": {
+    "visual_user_prompt": {
+      "api_max_characters": 1000,
+      "effective_characters": 896,
+      "note": "Original over-limit prompt omitted from public metadata; benchmark will use a concise equivalent. Local settings unchanged."
+    },
+    "summary_user_prompt": {
+      "api_max_characters": 2000,
+      "effective_characters": 1223,
+      "note": "Original over-limit prompt omitted from public metadata; benchmark will use a concise equivalent. Local settings unchanged."
+    }
+  }
+}
