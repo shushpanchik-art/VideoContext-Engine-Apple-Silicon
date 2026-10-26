@@ -1,0 +1,23 @@
+name: VCE Runtime Watchdog tests
+
+on:
+  push:
+    branches: ["fix/mlx-vlm-thread-affinity-custom-20261026"]
+  pull_request:
+    branches: ["main", "feat/vce-parallel-cpu-asr-vlm-20261025"]
+  workflow_dispatch:
+
+jobs:
+  watchdog-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile watchdog, patcher and tests
+        run: python -m py_compile scripts/vce_runtime_watchdog.py scripts/apply_vce_mlx_metal_patch.py tests/test_vce_runtime_watchdog.py tests/test_vce_mlx_metal_patcher.py
+      - name: Test watchdog parsing and runtime evidence classification
+        run: python -m unittest discover -s tests -p "test_vce_runtime_watchdog.py" -v
+      - name: Test patcher generation and runtime trace upgrade
+        run: python -m unittest discover -s tests -p "test_vce_mlx_metal_patcher.py" -v

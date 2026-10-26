@@ -1,0 +1,21 @@
+name: VCE quality benchmark tests
+
+on:
+  push:
+    branches: [main, "feat/vce-quality-benchmark-harness", "fix/vce-benchmark-prompt-limits-and-icon", "fix/mlx-vlm-thread-affinity-custom-20261026"]
+  pull_request:
+    branches: [main, "feat/vce-parallel-cpu-asr-vlm-20261025"]
+  workflow_dispatch:
+
+jobs:
+  benchmark-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Compile observer, patcher and watchdog scripts
+        run: python -m py_compile scripts/vce_observed_run.py scripts/vce_runtime_watchdog.py scripts/apply_vce_mlx_metal_patch.py tests/test_vce_runtime_watchdog.py tests/test_vce_mlx_metal_patcher.py
+      - name: Run benchmark, observed-run and watchdog unit tests
+        run: python -m unittest discover -s tests -p "test_vce_*.py" -v

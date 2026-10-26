@@ -1,0 +1,110 @@
+{
+  "total_process_time": 271.659,
+  "total_request_time": 271.839,
+  "whisper": {
+    "model": "large",
+    "device": "cpu",
+    "acceleration": false,
+    "load_time": 0.013,
+    "inference_time": 33.788
+  },
+  "vlm": {
+    "model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "load_time": 2.117,
+    "inference_time": 158.682,
+    "runtime": {
+      "backend": "MLX",
+      "accelerator": "Metal",
+      "stage": "vlm",
+      "mlx_version": "0.32.4",
+      "device": "DeviceType.gpu",
+      "configured_device": "DeviceType.gpu",
+      "device_source": "explicit_gpu_target",
+      "default_device_observed": "Device(cpu, 0)",
+      "device_semantics": "configured target; not per-operator execution proof",
+      "device_observation_note": "mx.default_device() is process-global and can temporarily reflect a concurrent mx.stream(mx.cpu) context; see default_device_observed.",
+      "gpu_probe_stream": "Stream(Device(gpu, 0), 0)",
+      "gpu_stream_smoke_test": "passed",
+      "device_info": {
+        "device_name": "Apple M1 Max",
+        "max_recommended_working_set_size": "26800603136",
+        "memory_size": "34359738368",
+        "architecture": "applegpu_g13s",
+        "max_buffer_length": "20100448256",
+        "resource_limit": "499000"
+      },
+      "metal_smoke_test": "passed"
+    }
+  },
+  "parallelism": {
+    "whisper_backend": "mlx-whisper",
+    "whisper_device": "cpu",
+    "whisper_runtime": {
+      "backend": "mlx-whisper",
+      "device": "cpu",
+      "stream": "mx.cpu",
+      "model": "mlx-community/whisper-large-v3-mlx",
+      "inference_seconds_including_first_load": 33.787,
+      "model_load_included_in_first_inference": true
+    },
+    "whisper_vlm_overlap_seconds": 31.982,
+    "cpu_keyframe_prefetch_seconds": 2.858
+  },
+  "apple_ocr": {
+    "enabled": true,
+    "inference_time": 0.101
+  },
+  "ffmpeg_ocr": {
+    "requested": true,
+    "available": true,
+    "interval_seconds": 5,
+    "workers": 3,
+    "backend": "tesseract-cli",
+    "sample_count": 22,
+    "inference_time": 9.489,
+    "message": ""
+  },
+  "ram_mode": "ram-",
+  "stage_diagnostics": {
+    "scene_detection_seconds": 11.747,
+    "whisper_load_seconds": 0.013,
+    "whisper_inference_seconds": 33.788,
+    "vlm_load_seconds": 2.117,
+    "vlm_inference_seconds": 158.682,
+    "apple_ocr_seconds": 0.101,
+    "ffmpeg_ocr_seconds": 9.489,
+    "frame_prefetch_worker_seconds": 2.858,
+    "frame_prefetch_wait_seconds": 0.114,
+    "frame_prefetch_fallback_count": 0
+  },
+  "text_llm": {
+    "enabled": true,
+    "model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "status": "success",
+    "inference_time": 90.056,
+    "runtime": {
+      "backend": "MLX",
+      "accelerator": "Metal",
+      "stage": "text_llm",
+      "mlx_version": "0.32.4",
+      "device": "DeviceType.gpu",
+      "configured_device": "DeviceType.gpu",
+      "device_source": "explicit_gpu_target",
+      "default_device_observed": "Device(gpu, 0)",
+      "device_semantics": "configured target; not per-operator execution proof",
+      "device_observation_note": "mx.default_device() is process-global and can temporarily reflect a concurrent mx.stream(mx.cpu) context; see default_device_observed.",
+      "gpu_probe_stream": "Stream(Device(gpu, 0), 0)",
+      "gpu_stream_smoke_test": "passed",
+      "device_info": {
+        "device_name": "Apple M1 Max",
+        "max_recommended_working_set_size": "26800603136",
+        "memory_size": "34359738368",
+        "architecture": "applegpu_g13s",
+        "max_buffer_length": "20100448256",
+        "resource_limit": "499000"
+      },
+      "metal_smoke_test": "passed"
+    },
+    "error": null
+  }
+}

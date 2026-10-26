@@ -17,6 +17,8 @@ import textwrap
 from pathlib import Path
 
 MARKER = "# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2"
+MLX_THREAD_AFFINITY_MARKER = "# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1"
+MLX_VLM_WIRED_LIMIT_COMPAT_MARKER = "# VCE_MLX_VLM_WIRED_LIMIT_COMPAT_V1"
 
 
 class PatchError(RuntimeError):
@@ -112,6 +114,7 @@ class _VCEWhisperMLXCPU:
             gc.collect()
 
 
+# VCE_MLX_EXPLICIT_GPU_PROBE_V1
 def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     """Select the MLX GPU on native Apple Silicon and fail closed without Metal."""
     if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
@@ -124,14 +127,18 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     if not mx.metal.is_available() or not mx.is_available(mx.gpu):
         raise RuntimeError(f"[VCE MLX] {stage}: Metal GPU is unavailable; CPU fallback is disabled.")
     mx.set_default_device(mx.gpu)
-    if mx.default_device() != mx.gpu:
-        raise RuntimeError(f"[VCE MLX] {stage}: failed to select the MLX GPU device.")
 
-    probe = mx.array([1.0, 2.0, 3.0]) * 2
+    # mx.default_device() is process-global in MLX 0.32.4. A concurrent
+    # with mx.stream(cpu_stream) can temporarily make its value appear to be
+    # CPU in this thread. Do not use that shared snapshot as the probe target
+    # or as a fail-fast check. Pin the probe operations to the GPU stream.
+    gpu_probe_stream = mx.default_stream(mx.gpu)
+    probe = mx.arange(1, 4, stream=gpu_probe_stream)
+    probe = mx.multiply(probe, 2, stream=gpu_probe_stream)
     mx.eval(probe)
-    mx.synchronize(mx.gpu)
+    mx.synchronize(gpu_probe_stream)
     if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
-        raise RuntimeError(f"[VCE MLX] {stage}: Metal smoke test returned an unexpected result.")
+        raise RuntimeError(f"[VCE MLX] {stage}: explicit GPU-stream smoke test returned an unexpected result.")
 
     try:
         mlx_version = __import__("importlib.metadata", fromlist=["version"]).version("mlx")
@@ -141,16 +148,36 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         device_info = {str(k): str(v) for k, v in mx.device_info(mx.gpu).items()}
     except Exception:
         device_info = {}
+    default_device_observed = str(mx.default_device())
     info = {
         "backend": "MLX",
         "accelerator": "Metal",
         "stage": stage,
         "mlx_version": mlx_version,
-        "device": str(mx.default_device()),
+        # Backward-compatible field: this is the explicitly configured target,
+        # not a claim that every operator in the model ran on this device.
+        "device": str(mx.gpu),
+        "configured_device": str(mx.gpu),
+        "device_source": "explicit_gpu_target",
+        "default_device_observed": default_device_observed,
+        "device_semantics": "configured target; not per-operator execution proof",
+        "device_observation_note": (
+            "mx.default_device() is process-global and can temporarily reflect a concurrent "
+            "mx.stream(mx.cpu) context; see default_device_observed."
+        ),
+        "gpu_probe_stream": repr(gpu_probe_stream),
+        "gpu_stream_smoke_test": "passed",
         "device_info": device_info,
         "metal_smoke_test": "passed",
     }
     VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    if default_device_observed != str(mx.gpu):
+        print(
+            f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
+            f"but process-global mx.default_device() snapshot was {default_device_observed}. "
+            "This snapshot may reflect another thread's mx.stream() context.",
+            flush=True,
+        )
     print(f"[VCE runtime] {json.dumps(info, ensure_ascii=False, sort_keys=True)}")
     return info
 
@@ -167,6 +194,481 @@ def load_whisper_model(model_name: str, acceleration_enabled: bool = True):
 '''
 
 
+MLX_THREAD_RUNTIME_HELPERS = '''
+# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1
+import concurrent.futures as _vce_mlx_concurrent_futures
+import functools as _vce_mlx_functools
+
+# mlx-vlm creates a thread-local generation stream at import time. Keep model
+# loading and all generation calls on the same dedicated OS thread.
+_VCE_MLX_EXECUTOR = _vce_mlx_concurrent_futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="vce-mlx-metal"
+)
+
+
+async def _vce_mlx_run(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    call = _vce_mlx_functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+
+'''
+
+
+def patch_mlx_thread_affinity(text: str) -> str:
+    """Route MLX-VLM load/inference to one thread; safely upgrade an existing V2 patch."""
+    if MLX_THREAD_AFFINITY_MARKER in text:
+        return patch_mlx_vlm_runtime_compat(text)
+    if MARKER not in text:
+        raise PatchError("Cannot add MLX thread affinity before the V2 runtime patch is present.")
+
+    diagnostics_anchor = "VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}\n"
+    if text.count(diagnostics_anchor) != 1:
+        raise PatchError("Expected one runtime diagnostics anchor for the MLX executor helper.")
+    text = text.replace(
+        diagnostics_anchor,
+        diagnostics_anchor + MLX_THREAD_RUNTIME_HELPERS,
+        1,
+    )
+
+    load_pattern = re.compile(
+        r"await asyncio\.to_thread\(\s*vlm_engine\.load_model\s*,\s*target_vlm\s*\)"
+    )
+    text, load_count = load_pattern.subn(
+        "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
+        text,
+    )
+    if load_count != 1:
+        raise PatchError(
+            f"Expected one VLM model-load dispatch through asyncio.to_thread, found {load_count}. "
+            "No file was changed."
+        )
+
+    scene_pattern = re.compile(
+        r"await asyncio\.to_thread\(\s*(?P<fn>_vce_describe_scene_with_memory_fallback|vlm_engine\.describe_scene)\s*,"
+    )
+    text, scene_count = scene_pattern.subn(
+        lambda match: "await _vce_mlx_run(" + match.group("fn") + ",",
+        text,
+    )
+    if scene_count < 1:
+        raise PatchError(
+            "Could not route any VLM scene-generation call to the dedicated MLX thread."
+        )
+
+    # The optional final text-LLM uses the same mlx-vlm internals.
+    text, text_llm_count = re.subn(
+        r"await asyncio\.to_thread\(\s*run_text_llm_postprocess\s*,",
+        "await _vce_mlx_run(run_text_llm_postprocess,",
+        text,
+    )
+
+    forbidden_patterns = (
+        r"await asyncio\.to_thread\(\s*vlm_engine\.load_model",
+        r"await asyncio\.to_thread\(\s*vlm_engine\.describe_scene",
+        r"await asyncio\.to_thread\(\s*_vce_describe_scene_with_memory_fallback",
+    )
+    for pattern in forbidden_patterns:
+        if re.search(pattern, text):
+            raise PatchError(f"Post-patch validation found a generic worker-thread MLX call: {pattern}")
+
+    if "_VCE_MLX_EXECUTOR" not in text or "_vce_mlx_run(" not in text:
+        raise PatchError("MLX thread-affinity runtime helper was not installed.")
+    return patch_mlx_vlm_runtime_compat(text)
+
+
+VLM_RUNTIME_COMPAT_HELPER = '''
+# VCE_MLX_VLM_WIRED_LIMIT_COMPAT_V1
+import contextlib as _vce_mlx_contextlib
+
+
+def _vce_prepare_mlx_vlm_runtime():
+    """Repair mlx-vlm thread-local generation stream and wired_limit device-info lookup."""
+    import mlx.core as mx
+
+    if not mx.metal.is_available() or not mx.is_available(mx.gpu):
+        raise RuntimeError("VCE VLM requires the MLX/Metal GPU")
+    mx.set_default_device(mx.gpu)
+    # Do not assert mx.default_device() here: MLX 0.32.4 exposes a process-global
+    # default, and another thread's mx.stream(mx.cpu) context can temporarily
+    # change the value observed here. The generation stream below is explicitly GPU.
+
+    # mlx-vlm creates generation_stream at import time. Rebind the module-level
+    # stream inside the dedicated executor thread used for model load/inference.
+    import mlx_vlm.generate.common as _vce_mlx_vlm_common
+    import mlx_vlm.generate.dispatch as _vce_mlx_vlm_dispatch
+
+    _vce_generation_stream = mx.new_thread_local_stream(mx.gpu)
+    _vce_mlx_vlm_common.generation_stream = _vce_generation_stream
+    _vce_mlx_vlm_dispatch.generation_stream = _vce_generation_stream
+
+    # mlx-vlm 0.7.10 calls mx.device_info() with no device after checking only
+    # mx.metal.is_available(). CPU device_info lacks the GPU-only working-set key.
+    if not getattr(_vce_mlx_vlm_common.wired_limit, "_vce_gpu_info_compat", False):
+        @_vce_mlx_contextlib.contextmanager
+        def _vce_wired_limit(model, streams=None):
+            if not mx.metal.is_available():
+                yield
+                return
+            _vce_max_rec_size = mx.device_info(mx.gpu).get(
+                "max_recommended_working_set_size"
+            )
+            if _vce_max_rec_size is None:
+                # No recommended Metal working-set size: leave the current limit alone.
+                yield
+                return
+
+            _vce_model_bytes = _vce_mlx_vlm_common.tree_reduce(
+                lambda acc, x: acc + x.nbytes if isinstance(x, mx.array) else acc,
+                model,
+                0,
+            )
+            if _vce_model_bytes > 0.9 * _vce_max_rec_size:
+                _vce_model_mb = _vce_model_bytes // 2**20
+                _vce_max_rec_mb = _vce_max_rec_size // 2**20
+                print(
+                    f"[VCE MLX] Model needs {_vce_model_mb} MB, near recommended "
+                    f"Metal working-set limit {_vce_max_rec_mb} MB."
+                )
+
+            _vce_old_limit = mx.set_wired_limit(_vce_max_rec_size)
+            try:
+                yield
+            finally:
+                if streams is not None:
+                    for _vce_stream in streams:
+                        mx.synchronize(_vce_stream)
+                else:
+                    mx.synchronize()
+                mx.set_wired_limit(_vce_old_limit)
+
+        _vce_wired_limit._vce_gpu_info_compat = True
+        _vce_mlx_vlm_common.wired_limit = _vce_wired_limit
+        # dispatch.py imports wired_limit by name, so replace that alias too.
+        _vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit
+
+    _vce_default_device_observed = str(mx.default_device())
+    print(
+        "[VCE MLX] Applied GPU-aware wired_limit and rebound mlx-vlm generation stream "
+        f"to {mx.gpu}; process-global default observed={_vce_default_device_observed}."
+    )
+
+'''
+
+
+
+MLX_VLM_RUNTIME_TRACE_MARKER = "# VCE_MLX_VLM_RUNTIME_TRACE_V1"
+MLX_EXPLICIT_GPU_PROBE_MARKER = "# VCE_MLX_EXPLICIT_GPU_PROBE_V1"
+
+MLX_VLM_RUNTIME_TRACE_HELPER = '''# VCE_MLX_VLM_RUNTIME_TRACE_V1
+import sys as _vce_mlx_trace_sys
+import threading as _vce_mlx_trace_threading
+
+
+def _vce_mlx_trace_stream(value):
+    if value is None:
+        return None
+    try:
+        device = str(value.device)
+    except Exception:
+        device = None
+    return {"type": type(value).__name__, "repr": repr(value), "device": device}
+
+
+def _vce_mlx_trace_runtime(phase: str, function_name: str, error: str = "") -> None:
+    # Snapshot the executor thread around the VCE call into mlx-vlm.
+    # This records device/stream wiring, not per-operator GPU execution.
+    trace = {
+        "phase": phase,
+        "function": function_name,
+        "pid": os.getpid(),
+        "thread_name": _vce_mlx_trace_threading.current_thread().name,
+        "thread_ident": _vce_mlx_trace_threading.get_ident(),
+        "thread_native_id": getattr(_vce_mlx_trace_threading, "get_native_id", lambda: None)(),
+    }
+    if error:
+        trace["error"] = error[:1000]
+    try:
+        import mlx.core as mx
+        trace["mlx_default_device"] = str(mx.default_device())
+        trace["mlx_gpu_available"] = bool(mx.is_available(mx.gpu))
+        trace["metal_available"] = bool(mx.metal.is_available())
+        for label, getter in (
+            ("default_gpu_stream", lambda: mx.default_stream(mx.gpu)),
+            ("default_cpu_stream", lambda: mx.default_stream(mx.cpu)),
+        ):
+            try:
+                trace[label] = _vce_mlx_trace_stream(getter())
+            except Exception as exc:
+                trace[label] = {"error": repr(exc)[:500]}
+    except Exception as exc:
+        trace["mlx_snapshot_error"] = repr(exc)[:1000]
+
+    for module_name in ("mlx_vlm.generate.common", "mlx_vlm.generate.dispatch"):
+        module = _vce_mlx_trace_sys.modules.get(module_name)
+        if module is None:
+            trace[module_name + ".loaded"] = False
+            continue
+        trace[module_name + ".loaded"] = True
+        try:
+            trace[module_name + ".generation_stream"] = _vce_mlx_trace_stream(
+                getattr(module, "generation_stream", None)
+            )
+        except Exception as exc:
+            trace[module_name + ".generation_stream_error"] = repr(exc)[:500]
+    print("[VCE MLX TRACE] " + json.dumps(trace, ensure_ascii=False, sort_keys=True), flush=True)
+
+
+def _vce_mlx_invoke_traced(fn, *args, **kwargs):
+    function_name = (
+        str(getattr(fn, "__module__", "unknown")) + "." +
+        str(getattr(fn, "__qualname__", getattr(fn, "__name__", type(fn).__name__)))
+    )
+    lower_name = function_name.lower()
+    should_trace = any(token in lower_name for token in (
+        "load_model", "describe_scene", "run_text_llm_postprocess"
+    ))
+    if should_trace:
+        _vce_mlx_trace_runtime("before", function_name)
+    try:
+        result = fn(*args, **kwargs)
+    except BaseException as exc:
+        if should_trace:
+            _vce_mlx_trace_runtime("error", function_name, repr(exc))
+        raise
+    if should_trace:
+        _vce_mlx_trace_runtime("after", function_name)
+    return result
+
+'''
+
+
+def patch_mlx_vlm_runtime_trace(text: str) -> str:
+    """Add idempotent diagnostics around MLX-VLM work on the dedicated executor."""
+    if MLX_VLM_RUNTIME_TRACE_MARKER in text:
+        required = (
+            "_vce_mlx_invoke_traced",
+            '_vce_mlx_trace_runtime("before"',
+            "mlx_vlm.generate.common",
+            "mlx_vlm.generate.dispatch",
+        )
+        if not all(token in text for token in required):
+            raise PatchError("VLM trace marker exists but runtime instrumentation is incomplete.")
+        return text
+
+    anchor = (
+        "    call = _vce_mlx_functools.partial(fn, *args, **kwargs)\n"
+        "    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)\n"
+    )
+    if text.count(anchor) != 1:
+        raise PatchError("Could not locate exactly one MLX executor dispatch for runtime tracing.")
+    replacement = (
+        "    call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)\n"
+        "    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)\n\n"
+        + MLX_VLM_RUNTIME_TRACE_HELPER
+        + "\n"
+    )
+    text = text.replace(anchor, replacement, 1)
+    for token in (MLX_VLM_RUNTIME_TRACE_MARKER, "_vce_mlx_trace_runtime", "_vce_mlx_invoke_traced"):
+        if token not in text:
+            raise PatchError(f"VLM runtime trace validation failed: missing {token!r}.")
+    return text
+
+
+
+def patch_mlx_gpu_diagnostics(text: str) -> str:
+    """Upgrade an already-patched engine to explicit GPU-stream probe diagnostics."""
+    marker = MLX_EXPLICIT_GPU_PROBE_MARKER
+    if marker in text:
+        required = (
+            "gpu_probe_stream = mx.default_stream(mx.gpu)",
+            '"configured_device": str(mx.gpu)',
+            '"default_device_observed": default_device_observed',
+            '"device_source": "explicit_gpu_target"',
+            '"gpu_stream_smoke_test": "passed"',
+            "_vce_default_device_observed",
+        )
+        if not all(token in text for token in required):
+            raise PatchError("Explicit GPU-probe marker exists but diagnostic upgrade is incomplete.")
+        # V1 generated a constant ones vector but compared it to [2, 4, 6],
+        # so every patched engine failed its probe before loading the VLM.
+        # Repair that already-marked engine in place so --apply is a safe upgrade.
+        faulty_probe = "probe = mx.ones((3,), stream=gpu_probe_stream)"
+        if faulty_probe in text:
+            if text.count(faulty_probe) != 1:
+                raise PatchError("GPU probe repair: expected one faulty constant-vector probe.")
+            text = text.replace(
+                faulty_probe,
+                "probe = mx.arange(1, 4, stream=gpu_probe_stream)",
+                1,
+            )
+        return text
+
+    old_probe = '''    mx.set_default_device(mx.gpu)
+    if mx.default_device() != mx.gpu:
+        raise RuntimeError(f"[VCE MLX] {stage}: failed to select the MLX GPU device.")
+
+    probe = mx.array([1.0, 2.0, 3.0]) * 2
+    mx.eval(probe)
+    mx.synchronize(mx.gpu)
+    if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
+        raise RuntimeError(f"[VCE MLX] {stage}: Metal smoke test returned an unexpected result.")
+'''
+    new_probe = '''    mx.set_default_device(mx.gpu)
+
+    # mx.default_device() is process-global in MLX 0.32.4. A concurrent
+    # with mx.stream(cpu_stream) can temporarily make its value appear to be
+    # CPU in this thread. Do not use that shared snapshot as the probe target
+    # or as a fail-fast check. Pin the probe operations to the GPU stream.
+    gpu_probe_stream = mx.default_stream(mx.gpu)
+    probe = mx.arange(1, 4, stream=gpu_probe_stream)
+    probe = mx.multiply(probe, 2, stream=gpu_probe_stream)
+    mx.eval(probe)
+    mx.synchronize(gpu_probe_stream)
+    if [float(x) for x in probe.tolist()] != [2.0, 4.0, 6.0]:
+        raise RuntimeError(f"[VCE MLX] {stage}: explicit GPU-stream smoke test returned an unexpected result.")
+'''
+    old_info = '''    info = {
+        "backend": "MLX",
+        "accelerator": "Metal",
+        "stage": stage,
+        "mlx_version": mlx_version,
+        "device": str(mx.default_device()),
+        "device_info": device_info,
+        "metal_smoke_test": "passed",
+    }
+    VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    print(f"[VCE runtime] {json.dumps(info, ensure_ascii=False, sort_keys=True)}")
+'''
+    new_info = '''    default_device_observed = str(mx.default_device())
+    info = {
+        "backend": "MLX",
+        "accelerator": "Metal",
+        "stage": stage,
+        "mlx_version": mlx_version,
+        # Backward-compatible field: this is the explicitly configured target,
+        # not a claim that every operator in the model ran on this device.
+        "device": str(mx.gpu),
+        "configured_device": str(mx.gpu),
+        "device_source": "explicit_gpu_target",
+        "default_device_observed": default_device_observed,
+        "device_semantics": "configured target; not per-operator execution proof",
+        "device_observation_note": (
+            "mx.default_device() is process-global and can temporarily reflect a concurrent "
+            "mx.stream(mx.cpu) context; see default_device_observed."
+        ),
+        "gpu_probe_stream": repr(gpu_probe_stream),
+        "gpu_stream_smoke_test": "passed",
+        "device_info": device_info,
+        "metal_smoke_test": "passed",
+    }
+    VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    if default_device_observed != str(mx.gpu):
+        print(
+            f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
+            f"but process-global mx.default_device() snapshot was {default_device_observed}. "
+            "This snapshot may reflect another thread's mx.stream() context.",
+            flush=True,
+        )
+    print(f"[VCE runtime] {json.dumps(info, ensure_ascii=False, sort_keys=True)}")
+'''
+    old_compat_check = '''    mx.set_default_device(mx.gpu)
+    if mx.default_device() != mx.gpu:
+        raise RuntimeError("VCE VLM worker could not select the MLX GPU")
+
+    # mlx-vlm creates generation_stream at import time. Rebind the module-level
+'''
+    new_compat_check = '''    mx.set_default_device(mx.gpu)
+    # Do not assert mx.default_device() here: MLX 0.32.4 exposes a process-global
+    # default, and another thread's mx.stream(mx.cpu) context can temporarily
+    # change the value observed here. The generation stream below is explicitly GPU.
+
+    # mlx-vlm creates generation_stream at import time. Rebind the module-level
+'''
+    old_compat_log = '''    print(
+        "[VCE MLX] Applied GPU-aware wired_limit and rebound mlx-vlm generation stream "
+        f"on {mx.default_device()}."
+    )
+'''
+    new_compat_log = '''    _vce_default_device_observed = str(mx.default_device())
+    print(
+        "[VCE MLX] Applied GPU-aware wired_limit and rebound mlx-vlm generation stream "
+        f"to {mx.gpu}; process-global default observed={_vce_default_device_observed}."
+    )
+'''
+    for label, old, new in (
+        ("Metal probe", old_probe, new_probe),
+        ("runtime device fields", old_info, new_info),
+        ("VLM compatibility guard", old_compat_check, new_compat_check),
+        ("VLM compatibility log", old_compat_log, new_compat_log),
+    ):
+        count = text.count(old)
+        if count != 1:
+            raise PatchError(f"GPU diagnostics upgrade: expected one {label} anchor, found {count}.")
+        text = text.replace(old, new, 1)
+
+    anchor = "def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:\n"
+    if text.count(anchor) != 1:
+        raise PatchError("GPU diagnostics upgrade: expected one _vce_configure_mlx_metal definition.")
+    text = text.replace(anchor, marker + "\n" + anchor, 1)
+    required = (
+        marker,
+        "gpu_probe_stream = mx.default_stream(mx.gpu)",
+        '"configured_device": str(mx.gpu)',
+        '"default_device_observed": default_device_observed',
+        '"device_source": "explicit_gpu_target"',
+        '"gpu_stream_smoke_test": "passed"',
+        "_vce_default_device_observed",
+    )
+    if not all(token in text for token in required):
+        raise PatchError("GPU diagnostics upgrade did not install all required code.")
+    return text
+
+
+def patch_mlx_vlm_runtime_compat(text: str) -> str:
+    """Apply the mlx-vlm 0.7.10 CPU-device-info compatibility and stream rebinding."""
+    if MLX_VLM_WIRED_LIMIT_COMPAT_MARKER in text:
+        required = (
+            "_vce_prepare_mlx_vlm_runtime()",
+            "mx.device_info(mx.gpu).get(",
+            "_vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit",
+        )
+        if not all(item in text for item in required):
+            raise PatchError("The MLX-VLM compatibility marker exists but its implementation is incomplete.")
+        return patch_mlx_gpu_diagnostics(patch_mlx_vlm_runtime_trace(text))
+
+    executor_anchor = "    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)\n"
+    if text.count(executor_anchor) != 1:
+        raise PatchError("Could not locate the MLX executor body for the compatibility helper.")
+    text = text.replace(
+        executor_anchor,
+        executor_anchor + "\n" + VLM_RUNTIME_COMPAT_HELPER,
+        1,
+    )
+
+    load_anchor = (
+        '            _vce_configure_mlx_metal("vlm")\n'
+        '            from mlx_vlm import load, generate'
+    )
+    if text.count(load_anchor) != 1:
+        raise PatchError("Could not locate the VLM load hook for the compatibility helper.")
+    text = text.replace(
+        load_anchor,
+        '            _vce_configure_mlx_metal("vlm")\n'
+        '            _vce_prepare_mlx_vlm_runtime()\n'
+        '            from mlx_vlm import load, generate',
+        1,
+    )
+    for required in (
+        MLX_VLM_WIRED_LIMIT_COMPAT_MARKER,
+        "_vce_prepare_mlx_vlm_runtime()",
+        "mx.device_info(mx.gpu).get(",
+        "_vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit",
+    ):
+        if required not in text:
+            raise PatchError(f"MLX-VLM compatibility validation failed: missing {required!r}.")
+    return patch_mlx_gpu_diagnostics(patch_mlx_vlm_runtime_trace(text))
+
+
 def _replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
     if count != 1:
@@ -176,7 +678,7 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def patch_engine_text(text: str) -> str:
     if MARKER in text:
-        return text
+        return patch_mlx_thread_affinity(text)
     if "# VCE_MLX_METAL_CPU_PARALLEL_V1" in text:
         raise PatchError("Detected previous CPU/Metal patch version. Restore the pre-patch backup before applying MLX Whisper CPU-stream v2.")
     required_tokens = [
@@ -251,15 +753,27 @@ def patch_engine_text(text: str) -> str:
     text = _replace_once(text, llm_anchor, llm_replacement, "Text LLM Metal selection")
 
     # Replace the serial Whisper block using its discovered indentation.
+    # Local VCE variants may initialize _vce_whisper_task/_vce_whisper_model/
+    # whisper_audio_error between the segments list and the ASR gate. Anchor only
+    # on the unique segments declaration; preserve indentation for boundary search.
     block_start_re = re.compile(
-        r"(?m)^(?P<indent>[ \t]*)whisper_segments: List\[Dict\[str, Any\]\] = \[\]\r?\n"
-        r"\r?\n(?P=indent)if not skip_audio:\s*$"
+        r"(?m)^(?P<indent>[ \t]*)whisper_segments: List\[Dict\[str, Any\]\] = \[\][ \t]*$"
     )
     block_start_match = block_start_re.search(text)
     if not block_start_match:
-        raise PatchError("Could not locate the serial Whisper block. No file was changed.")
+        raise PatchError("Could not locate the Whisper segments declaration. No file was changed.")
     block_start = block_start_match.start()
     base_indent = block_start_match.group("indent")
+
+    # Confirm this is the task's ASR block, not a stray annotation elsewhere.
+    _vce_asr_gate_re = re.compile(
+        r"(?m)^" + re.escape(base_indent) + r"if not skip_audio:[ \t]*$"
+    )
+    _vce_asr_gate = _vce_asr_gate_re.search(text, block_start_match.end())
+    if _vce_asr_gate is None:
+        raise PatchError("Found Whisper segments declaration but no following if not skip_audio gate. No file was changed.")
+    if _vce_asr_gate.start() - block_start_match.end() > 2400:
+        raise PatchError("Whisper initialization between declaration and ASR gate is unexpectedly large. No file was changed.")
 
     # Prefer the historic visual-stage condition. If local edits changed its
     # spelling, locate the visual-model load marker and derive its parent condition.
@@ -628,6 +1142,10 @@ async def _vce_prepare_scene_keyframes_cpu(_scene: Dict[str, Any]):
     ):
         if marker not in text:
             raise PatchError(f"Post-patch validation failed: missing {marker!r}.")
+    text = patch_mlx_thread_affinity(text)
+    for marker in (MLX_THREAD_AFFINITY_MARKER, "_VCE_MLX_EXECUTOR", "_vce_mlx_run("):
+        if marker not in text:
+            raise PatchError(f"Post-patch MLX thread-affinity validation failed: missing {marker!r}.")
     return text
 
 
