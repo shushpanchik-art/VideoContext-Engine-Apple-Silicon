@@ -30,6 +30,11 @@ DEFAULT_LARGE_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
 SENTINEL = "__VCE_RESULT__="
 
 
+def normalize_worker_python(executable: str) -> str:
+    """Make an executable path absolute without following venv Python symlinks."""
+    return os.path.abspath(os.path.expanduser(executable))
+
+
 def check_worker_environment(python_executable: str, timeout: float = 30.0) -> tuple[bool, str]:
     """Check MLX + MLX-LM before spending time on a full VCE analysis."""
     probe = (
@@ -402,7 +407,7 @@ def main() -> int:
         fields = bench.build_form_fields(settings, bench.request_properties(openapi), request_adaptations)
         worker_venv_python = project / ".venv" / "bin" / "python"
         default_worker_python = str(worker_venv_python) if worker_venv_python.is_file() else sys.executable
-        # Do not resolve() the venv Python path: bin/python is often a symlink, and\n        # resolving it points at the base interpreter outside the venv, losing its packages.\n        worker_python = os.path.abspath(os.path.expanduser(args.worker_python)) if args.worker_python else default_worker_python
+        # Do not resolve() the venv Python path: bin/python is often a symlink, and\n        # resolving it points at the base interpreter outside the venv, losing its packages.\n        worker_python = normalize_worker_python(args.worker_python) if args.worker_python else default_worker_python
         if not Path(worker_python).is_file():
             raise FileNotFoundError("Worker Python executable does not exist.")
     except Exception as exc:
