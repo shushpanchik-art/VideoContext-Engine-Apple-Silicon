@@ -25,7 +25,8 @@ class PatchError(RuntimeError):
 
 RUNTIME_HELPERS = '''# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2
 VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
-_VCE_MLX_WHISPER_LOCK = threading.Lock()
+import threading as _vce_threading
+_VCE_MLX_WHISPER_LOCK = _vce_threading.Lock()
 
 
 def _vce_mlx_whisper_model_id(model_name: str) -> str:
@@ -170,7 +171,6 @@ def patch_engine_text(text: str) -> str:
         "def run_text_llm_postprocess(",
         "class MLXEngine(VLMProvider):",
         "from mlx_vlm import load, generate",
-        "enable_mlx_whisper",
         "whisper_segments: List[Dict[str, Any]] = []",
         "if not skip_visual or generate_summary:",
         'set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам"',
