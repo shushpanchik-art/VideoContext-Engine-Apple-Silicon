@@ -267,7 +267,16 @@ def worker_main(task: str, device: str, model_id: str, max_tokens: int) -> int:
                       "inference_time_s": round(sum(r["inference_time_s"] for r in results), 3), "chunks": results}
         elif task == "summaries":
             results = []
-            limit = int(data.get("max_input_tokens", 24000))
+            limit = int(data.get("max_input_tokens", 48000))
+            model_args = getattr(model, "args", None)
+            for attr in ("max_position_embeddings", "max_seq_len", "max_sequence_length", "n_positions"):
+                try:
+                    configured_context = int(getattr(model_args, attr))
+                    if configured_context > 0:
+                        limit = min(limit, max(1, configured_context - max_tokens))
+                        break
+                except (TypeError, ValueError, AttributeError):
+                    continue
             for item in data.get("prompts", []):
                 prompt = format_prompt(item["prompt"])
                 tokens = count_tokens(prompt)
@@ -304,7 +313,7 @@ def main() -> int:
     parser.add_argument("--max-field-chars", type=int, default=6000)
     parser.add_argument("--prefilter-max-tokens", type=int, default=900)
     parser.add_argument("--summary-max-tokens", type=int, default=2048)
-    parser.add_argument("--max-input-tokens", type=int, default=24000)
+    parser.add_argument("--max-input-tokens", type=int, default=48000)
     parser.add_argument("--timeout", type=float, default=14400)
     parser.add_argument("--model-timeout", type=float, default=7200)
     parser.add_argument("--report-dir")
@@ -512,7 +521,9 @@ def main() -> int:
         "",
         f"- Full evidence characters: {raw_chars}",
         f"- Fact-card characters: {compact_chars}",
-        f"- Context reduction: {reduction}%", "",
+        f"- Context reduction: {reduction}%",
+        f"- Full-context tokens: {baseline.get('prompt_tokens', baseline.get('status', 'n/a'))}",
+        f"- Fact-card tokens: {optimized.get('prompt_tokens', optimized.get('status', 'n/a'))}", "",
         "## Existing VCE summary", "", existing_summary(payload) or "_Not returned._", "",
         "## Candidate A — full evidence", "", baseline.get("summary") or "_Skipped/not generated._", "",
         "## Candidate B — CPU fact cards", "", optimized.get("summary") or "_Skipped/not generated._", "",
