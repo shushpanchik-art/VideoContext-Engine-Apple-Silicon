@@ -49,8 +49,14 @@ SAFE_CONFIG_KEYS = (
 
 
 def command_output(argv: list[str], timeout: float = 5.0) -> str:
+    # Keep ps/sysctl/vm_stat output predictable even when macOS uses a localized
+    # decimal separator or localized date format.
+    env = os.environ.copy()
+    env["LC_ALL"] = "C"
     try:
-        p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, check=False)
+        p = subprocess.run(
+            argv, capture_output=True, text=True, timeout=timeout, check=False, env=env
+        )
         return (p.stdout or "").strip()
     except Exception:
         return ""
@@ -255,7 +261,7 @@ def ps_process_tree(root_pid: int) -> tuple[float, float, int]:
             continue
         try:
             pid, ppid = int(parts[0]), int(parts[1])
-            cpu, rss_kb = float(parts[2]), float(parts[3])
+            cpu, rss_kb = float(parts[2].replace(",", ".")), float(parts[3])
         except ValueError:
             continue
         processes[pid] = (ppid, cpu, rss_kb)
