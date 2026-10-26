@@ -221,8 +221,21 @@ def build_structural_index(rows: list[dict], max_anchor_values: int = 180) -> tu
     return context, stats
 
 
-def load_summary_instruction(project_hint: str | None) -> tuple[str, str | None]:
-    """Read the same optional user summary instruction used by local VCE."""
+def apply_saved_prompt_adjustment(value: str, adjustments: list[dict] | None) -> str:
+    """Mirror the summary-prompt length cap applied during the saved VCE request."""
+    for item in adjustments or []:
+        if not isinstance(item, dict) or item.get("field") != "summary_user_prompt":
+            continue
+        limit = item.get("sent_characters")
+        if isinstance(limit, int) and limit >= 0:
+            return value[:limit]
+    return value
+
+
+def load_summary_instruction(
+    project_hint: str | None, adjustments: list[dict] | None = None
+) -> tuple[str, str | None]:
+    """Read the local VCE instruction and replay its saved request-only length cap."""
     if core.bench is None:
         return "", None
     try:
@@ -230,7 +243,8 @@ def load_summary_instruction(project_hint: str | None) -> tuple[str, str | None]
         settings_path = project / "videocontext_settings.json"
         settings = json.loads(settings_path.read_text(encoding="utf-8"))
         value = settings.get("summary_user_prompt", "")
-        return (value if isinstance(value, str) else ""), str(project)
+        value = value if isinstance(value, str) else ""
+        return apply_saved_prompt_adjustment(value, adjustments), str(project)
     except Exception:
         return "", None
 
@@ -353,7 +367,7 @@ def main() -> int:
     large_model = args.large_model or saved.get("large_model") or (
         text_llm.get("model") if isinstance(text_llm, dict) else None
     ) or DEFAULT_LARGE_MODEL
-    instruction, project_path = load_summary_instruction(args.project)
+    instruction, project_path = load_summary_instruction(args.project, saved.get("request_adaptations"))
 
     root = Path(args.report_dir).expanduser() if args.report_dir else (
         Path.home() / "Desktop" if (Path.home() / "Desktop").is_dir() else Path.home()
@@ -472,6 +486,7 @@ def main() -> int:
                 "anchor_values_are_regex_matches_not_semantic_facts": True,
             },
             "summary_instruction_loaded_from_project": Path(project_path).name if project_path else None,
+            "summary_instruction_characters": len(instruction),
             "quality_review": {
                 "automated_quality_score": None,
                 "manual_review_required": True,
