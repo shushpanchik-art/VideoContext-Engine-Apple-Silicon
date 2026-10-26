@@ -4,7 +4,7 @@ on:
   push:
     branches: ["fix/mlx-vlm-thread-affinity-custom-20261026"]
   pull_request:
-    branches: ["main"]
+    branches: ["main", "feat/vce-parallel-cpu-asr-vlm-20261025"]
   workflow_dispatch:
 
 jobs:
