@@ -14,7 +14,7 @@ import benchmark_vce_summary_structural_ab as exp  # noqa: E402
 
 class StructuralIndexTests(unittest.TestCase):
     def test_exact_duplicates_are_grouped_but_all_scene_references_remain(self):
-        text = "Температура 20 °C; дата 26.10.2026, ГОСТ 1234-2020."
+        text = "Температура 20 °C; дата 26.10.2026, ГОСТ 1234-2020; объект «Северный поток»."
         rows = [
             {
                 "scene_id": 1, "start": 0.0, "end": 2.0,
@@ -37,7 +37,8 @@ class StructuralIndexTests(unittest.TestCase):
         self.assertIn('STANDARD "ГОСТ 1234-2020"', index)
         self.assertIn('DATE "26.10.2026"', index)
         self.assertIn('NUMBER "20 °C"', index)
-        self.assertIn('A1 scenes=', index)
+        self.assertIn("A1 AUDIO [", index)
+        self.assertIn('QUOTED "«Северный поток»"', index)
         self.assertIn("S1@0.0-2.0s", index)
         self.assertIn("S2@2.0-4.0s", index)
 
@@ -57,7 +58,7 @@ class StructuralIndexTests(unittest.TestCase):
              "audio": "", "visual": "", "ocr": "", "visual_tags": {}},
         ]
         index, stats = exp.build_structural_index(rows)
-        self.assertIn('scene_id="scene-x"', index)
+        self.assertIn('S"scene-x"@time unknown', index)
         self.assertIn("no text evidence", index)
         self.assertEqual(stats["unique_evidence_strings"], 0)
         self.assertEqual(stats["scene_ids_preserved"], ["scene-x"])
