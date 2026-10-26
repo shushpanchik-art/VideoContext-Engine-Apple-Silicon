@@ -18,6 +18,7 @@ from pathlib import Path
 
 MARKER = "# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2"
 MLX_THREAD_AFFINITY_MARKER = "# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1"
+MLX_VLM_WIRED_LIMIT_COMPAT_MARKER = "# VCE_MLX_VLM_WIRED_LIMIT_COMPAT_V1"
 
 
 class PatchError(RuntimeError):
@@ -191,7 +192,7 @@ async def _vce_mlx_run(fn, *args, **kwargs):
 def patch_mlx_thread_affinity(text: str) -> str:
     """Route MLX-VLM load/inference to one thread; safely upgrade an existing V2 patch."""
     if MLX_THREAD_AFFINITY_MARKER in text:
-        return text
+        return patch_mlx_vlm_runtime_compat(text)
     if MARKER not in text:
         raise PatchError("Cannot add MLX thread affinity before the V2 runtime patch is present.")
 
@@ -247,6 +248,128 @@ def patch_mlx_thread_affinity(text: str) -> str:
 
     if "_VCE_MLX_EXECUTOR" not in text or "_vce_mlx_run(" not in text:
         raise PatchError("MLX thread-affinity runtime helper was not installed.")
+    return patch_mlx_vlm_runtime_compat(text)
+
+
+VLM_RUNTIME_COMPAT_HELPER = '''
+# VCE_MLX_VLM_WIRED_LIMIT_COMPAT_V1
+import contextlib as _vce_mlx_contextlib
+
+
+def _vce_prepare_mlx_vlm_runtime():
+    """Repair mlx-vlm thread-local generation stream and wired_limit device-info lookup."""
+    import mlx.core as mx
+
+    if not mx.metal.is_available() or not mx.is_available(mx.gpu):
+        raise RuntimeError("VCE VLM requires the MLX/Metal GPU")
+    mx.set_default_device(mx.gpu)
+    if mx.default_device() != mx.gpu:
+        raise RuntimeError("VCE VLM worker could not select the MLX GPU")
+
+    # mlx-vlm creates generation_stream at import time. Rebind the module-level
+    # stream inside the dedicated executor thread used for model load/inference.
+    import mlx_vlm.generate.common as _vce_mlx_vlm_common
+    import mlx_vlm.generate.dispatch as _vce_mlx_vlm_dispatch
+
+    _vce_generation_stream = mx.new_thread_local_stream(mx.gpu)
+    _vce_mlx_vlm_common.generation_stream = _vce_generation_stream
+    _vce_mlx_vlm_dispatch.generation_stream = _vce_generation_stream
+
+    # mlx-vlm 0.7.10 calls mx.device_info() with no device after checking only
+    # mx.metal.is_available(). CPU device_info lacks the GPU-only working-set key.
+    if not getattr(_vce_mlx_vlm_common.wired_limit, "_vce_gpu_info_compat", False):
+        @_vce_mlx_contextlib.contextmanager
+        def _vce_wired_limit(model, streams=None):
+            if not mx.metal.is_available():
+                yield
+                return
+            _vce_max_rec_size = mx.device_info(mx.gpu).get(
+                "max_recommended_working_set_size"
+            )
+            if _vce_max_rec_size is None:
+                # No recommended Metal working-set size: leave the current limit alone.
+                yield
+                return
+
+            _vce_model_bytes = _vce_mlx_vlm_common.tree_reduce(
+                lambda acc, x: acc + x.nbytes if isinstance(x, mx.array) else acc,
+                model,
+                0,
+            )
+            if _vce_model_bytes > 0.9 * _vce_max_rec_size:
+                _vce_model_mb = _vce_model_bytes // 2**20
+                _vce_max_rec_mb = _vce_max_rec_size // 2**20
+                print(
+                    f"[VCE MLX] Model needs {_vce_model_mb} MB, near recommended "
+                    f"Metal working-set limit {_vce_max_rec_mb} MB."
+                )
+
+            _vce_old_limit = mx.set_wired_limit(_vce_max_rec_size)
+            try:
+                yield
+            finally:
+                if streams is not None:
+                    for _vce_stream in streams:
+                        mx.synchronize(_vce_stream)
+                else:
+                    mx.synchronize()
+                mx.set_wired_limit(_vce_old_limit)
+
+        _vce_wired_limit._vce_gpu_info_compat = True
+        _vce_mlx_vlm_common.wired_limit = _vce_wired_limit
+        # dispatch.py imports wired_limit by name, so replace that alias too.
+        _vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit
+
+    print(
+        "[VCE MLX] Applied GPU-aware wired_limit and rebound mlx-vlm generation stream "
+        f"on {mx.default_device()}."
+    )
+
+'''
+
+
+def patch_mlx_vlm_runtime_compat(text: str) -> str:
+    """Apply the mlx-vlm 0.7.10 CPU-device-info compatibility and stream rebinding."""
+    if MLX_VLM_WIRED_LIMIT_COMPAT_MARKER in text:
+        required = (
+            "_vce_prepare_mlx_vlm_runtime()",
+            "mx.device_info(mx.gpu).get(",
+            "_vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit",
+        )
+        if not all(item in text for item in required):
+            raise PatchError("The MLX-VLM compatibility marker exists but its implementation is incomplete.")
+        return text
+
+    executor_anchor = "    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)\n"
+    if text.count(executor_anchor) != 1:
+        raise PatchError("Could not locate the MLX executor body for the compatibility helper.")
+    text = text.replace(
+        executor_anchor,
+        executor_anchor + "\n" + VLM_RUNTIME_COMPAT_HELPER,
+        1,
+    )
+
+    load_anchor = (
+        '            _vce_configure_mlx_metal("vlm")\n'
+        '            from mlx_vlm import load, generate'
+    )
+    if text.count(load_anchor) != 1:
+        raise PatchError("Could not locate the VLM load hook for the compatibility helper.")
+    text = text.replace(
+        load_anchor,
+        '            _vce_configure_mlx_metal("vlm")\n'
+        '            _vce_prepare_mlx_vlm_runtime()\n'
+        '            from mlx_vlm import load, generate',
+        1,
+    )
+    for required in (
+        MLX_VLM_WIRED_LIMIT_COMPAT_MARKER,
+        "_vce_prepare_mlx_vlm_runtime()",
+        "mx.device_info(mx.gpu).get(",
+        "_vce_mlx_vlm_dispatch.wired_limit = _vce_wired_limit",
+    ):
+        if required not in text:
+            raise PatchError(f"MLX-VLM compatibility validation failed: missing {required!r}.")
     return text
 
 
