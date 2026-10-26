@@ -40,15 +40,18 @@ class VLMProvider:
 
 class MLXEngine(VLMProvider):
     def load_model(self, model_path: str):
-        device_override = os.environ.get("VIDEOCONTEXT_MLX_DEVICE", str(setting("mlx_device", "auto"))).strip().lower()
-        if device_override == "cpu":
-            import mlx.core as mx
-            mx.set_default_device(mx.cpu)
-            print("CPU mode")
-        elif device_override != "auto":
-            raise ValueError("VIDEOCONTEXT_MLX_DEVICE must be auto or cpu")
-        from mlx_vlm import load, generate
-        return load(model_path)
+        try:
+            device_override = os.environ.get("VIDEOCONTEXT_MLX_DEVICE", str(setting("mlx_device", "auto"))).strip().lower()
+            if device_override == "cpu":
+                import mlx.core as mx
+                mx.set_default_device(mx.cpu)
+                print("CPU mode")
+            elif device_override != "auto":
+                raise ValueError("VIDEOCONTEXT_MLX_DEVICE must be auto or cpu")
+            from mlx_vlm import load, generate
+            return load(model_path)
+        except Exception:
+            raise
 
 def run_text_llm_postprocess(model_path, source_name, video_duration, existing_summary, segments, max_tokens=4096, progress_callback=None):
     """Load the selected MLX VLM-family checkpoint in text-only mode and return validated enrichment."""
@@ -57,55 +60,50 @@ def run_text_llm_postprocess(model_path, source_name, video_duration, existing_s
 
 async def analyze_video():
     whisper_load_time = 0.0
-
-    target_whisper = "large"
     whisper_infer_time = 0.0
-    _vce_whisper_started_at = None
-    _vce_whisper_finished_at = None
-    _vce_vlm_scene_started_at = None
-    _vce_vlm_scene_finished_at = None
+    target_whisper = "large"
     final_segments = []
-    if skip_audio and skip_visual:
-        pass
-    else:
-        async with gpu_lock:
-            whisper_segments: List[Dict[str, Any]] = []
-
-            if not skip_audio:
-                set_job_progress(job_id, "whisper", None, "Whisper")
-                w_model = load_whisper_model(target_whisper, acceleration_enabled=whisper_acceleration)
-                audio_res = await asyncio.to_thread(w_model.transcribe, temp_path)
-                whisper_segments = audio_res.get("segments", []) or []
-            else:
-                whisper_segments = []
-
-            if not skip_visual or generate_summary:
-                await asyncio.to_thread(vlm_engine.load_model, target_vlm)
-
-            set_job_progress(job_id, "scene_analysis", None, "Начинаем OCR и визуальный анализ сцен", indeterminate=True, stage_index=4, stage_count=6)
-            cap = cv2.VideoCapture(temp_path)
-            for idx, scene in enumerate(scenes_raw):
-                if cancel_event.is_set():
-                    raise RuntimeError("cancelled")
-                audio_text = transcript_for_scene(scene, whisper_segments) if not skip_audio and whisper_segments else ""
-                final_segments.append({"scene_id": idx + 1, "audio_transcript": audio_text, "audio_features": {}})
-            set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам", indeterminate=True, stage_index=5, stage_count=6)
-
-    timings = {
-        "vlm": {
-            "model": target_vlm,
-            "load_time": round(vlm_load_time, 3),
-            "inference_time": round(vlm_infer_time, 3),
-        },
-    }
-    timings["text_llm"] = {
-        "enabled": bool(text_llm_enabled),
-        "model": text_llm_model if text_llm_enabled else None,
-        "status": text_llm_status,
-        "inference_time": round(text_llm_infer_time, 3),
-        "error": text_llm_error or None,
-    }
     try:
+        if skip_audio and skip_visual:
+            pass
+        else:
+            async with gpu_lock:
+                whisper_segments: List[Dict[str, Any]] = []
+
+                if not skip_audio:
+                    set_job_progress(job_id, "whisper", None, "Whisper")
+                    w_model = load_whisper_model(target_whisper, acceleration_enabled=whisper_acceleration)
+                    audio_res = await asyncio.to_thread(w_model.transcribe, temp_path)
+                    whisper_segments = audio_res.get("segments", []) or []
+                else:
+                    whisper_segments = []
+
+                if not skip_visual or generate_summary:
+                    await asyncio.to_thread(vlm_engine.load_model, target_vlm)
+
+                set_job_progress(job_id, "scene_analysis", None, "Начинаем OCR и визуальный анализ сцен", indeterminate=True, stage_index=4, stage_count=6)
+                cap = cv2.VideoCapture(temp_path)
+                for idx, scene in enumerate(scenes_raw):
+                    if cancel_event.is_set():
+                        raise RuntimeError("cancelled")
+                    audio_text = transcript_for_scene(scene, whisper_segments) if not skip_audio and whisper_segments else ""
+                    final_segments.append({"scene_id": idx + 1, "audio_transcript": audio_text, "audio_features": {}})
+                set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам", indeterminate=True, stage_index=5, stage_count=6)
+
+        timings = {
+            "vlm": {
+                "model": target_vlm,
+                "load_time": round(vlm_load_time, 3),
+                "inference_time": round(vlm_infer_time, 3),
+            },
+        }
+        timings["text_llm"] = {
+            "enabled": bool(text_llm_enabled),
+            "model": text_llm_model if text_llm_enabled else None,
+            "status": text_llm_status,
+            "inference_time": round(text_llm_infer_time, 3),
+            "error": text_llm_error or None,
+        }
         return timings
     finally:
         if cap is not None:
