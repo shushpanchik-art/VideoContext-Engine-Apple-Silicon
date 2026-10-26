@@ -17,6 +17,7 @@ import textwrap
 from pathlib import Path
 
 MARKER = "# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2"
+MLX_THREAD_AFFINITY_MARKER = "# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1"
 
 
 class PatchError(RuntimeError):
@@ -167,6 +168,100 @@ def load_whisper_model(model_name: str, acceleration_enabled: bool = True):
 '''
 
 
+MLX_THREAD_RUNTIME_HELPERS = '''
+# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1
+import concurrent.futures as _vce_mlx_concurrent_futures
+import functools as _vce_mlx_functools
+
+# mlx-vlm creates a thread-local generation stream at import time. Keep model
+# loading and all generation calls on the same dedicated OS thread.
+_VCE_MLX_EXECUTOR = _vce_mlx_concurrent_futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="vce-mlx-metal"
+)
+
+
+async def _vce_mlx_run(fn, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    call = _vce_mlx_functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+
+'''
+
+
+def patch_mlx_thread_affinity(text: str) -> str:
+    """Upgrade VCE's V2 patch so mlx-vlm imports, loads, and generates on one thread."""
+    if MLX_THREAD_AFFINITY_MARKER in text:
+        return text
+    if MARKER not in text:
+        raise PatchError("Cannot add MLX thread affinity before the V2 runtime patch is present.")
+
+    diagnostics_anchor = "VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}\\n"
+    if text.count(diagnostics_anchor) != 1:
+        raise PatchError("Expected one runtime diagnostics anchor for the MLX executor helper.")
+    text = text.replace(
+        diagnostics_anchor,
+        diagnostics_anchor + MLX_THREAD_RUNTIME_HELPERS,
+        1,
+    )
+
+    load_pattern = re.compile(
+        r"await asyncio\\.to_thread\\(\\s*vlm_engine\\.load_model,\\s*target_vlm\\s*\\)"
+    )
+    text, load_count = load_pattern.subn(
+        "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
+        text,
+    )
+    if load_count != 1:
+        raise PatchError(
+            f"Expected one VLM load through asyncio.to_thread, found {load_count}. "
+            "No file was changed."
+        )
+
+    inference_patterns = (
+        (
+            re.compile(r"await asyncio\\.to_thread\\(\\s*_vce_describe_scene_with_memory_fallback\\s*,"),
+            "await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,",
+        ),
+        (
+            re.compile(r"await asyncio\\.to_thread\\(\\s*vlm_engine\\.describe_scene\\s*,"),
+            "await _vce_mlx_run(vlm_engine.describe_scene,",
+        ),
+    )
+    inference_count = 0
+    for pattern, replacement in inference_patterns:
+        text, count = pattern.subn(replacement, text)
+        inference_count += count
+    if inference_count < 1:
+        raise PatchError(
+            "Could not route any VLM scene-generation call to the dedicated MLX thread."
+        )
+
+    # The optional final text-LLM uses the same mlx-vlm internals and must share
+    # the same executor to keep its generation stream thread-affine as well.
+    text, text_llm_count = re.subn(
+        r"await asyncio\\.to_thread\\(\\s*run_text_llm_postprocess\\s*,",
+        "await _vce_mlx_run(run_text_llm_postprocess,",
+        text,
+    )
+
+    for forbidden in (
+        "await asyncio.to_thread(vlm_engine.load_model, target_vlm)",
+        "await asyncio.to_thread(vlm_engine.describe_scene,",
+        "await asyncio.to_thread(_vce_describe_scene_with_memory_fallback,",
+    ):
+        if forbidden in text:
+            raise PatchError(f"Post-patch validation found a generic worker-thread MLX call: {forbidden}")
+
+    if "_vce_mlx_run(run_text_llm_postprocess," not in text and "run_text_llm_postprocess" in text:
+        # Some local layouts call text post-processing directly; don't silently
+        # invent an async boundary, but make the layout visible in preflight.
+        print("WARNING: text-LLM call was not wrapped in asyncio.to_thread; inspect its execution context.")
+
+    if "_vce_mlx_run(" not in text or "_VCE_MLX_EXECUTOR" not in text:
+        raise PatchError("MLX thread-affinity runtime helper was not installed.")
+    return text
+
+
 def _replace_once(text: str, old: str, new: str, label: str) -> str:
     count = text.count(old)
     if count != 1:
@@ -176,7 +271,7 @@ def _replace_once(text: str, old: str, new: str, label: str) -> str:
 
 def patch_engine_text(text: str) -> str:
     if MARKER in text:
-        return text
+        return patch_mlx_thread_affinity(text)
     if "# VCE_MLX_METAL_CPU_PARALLEL_V1" in text:
         raise PatchError("Detected previous CPU/Metal patch version. Restore the pre-patch backup before applying MLX Whisper CPU-stream v2.")
     required_tokens = [
@@ -628,6 +723,10 @@ async def _vce_prepare_scene_keyframes_cpu(_scene: Dict[str, Any]):
     ):
         if marker not in text:
             raise PatchError(f"Post-patch validation failed: missing {marker!r}.")
+    text = patch_mlx_thread_affinity(text)
+    for marker in (MLX_THREAD_AFFINITY_MARKER, "_VCE_MLX_EXECUTOR", "_vce_mlx_run("):
+        if marker not in text:
+            raise PatchError(f"Post-patch MLX thread-affinity validation failed: missing {marker!r}.")
     return text
 
 
