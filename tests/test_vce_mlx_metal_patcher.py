@@ -121,6 +121,10 @@ class PatchTests(unittest.TestCase):
         patched = patcher.patch_engine_text(FIXTURE)
         compile(patched, "patched_engine.py", "exec")
         self.assertIn('return "cpu"', patched)
+        self.assertIn('mlx_whisper.transcribe(', patched)
+        self.assertIn('mx.new_thread_local_stream(mx.cpu)', patched)
+        self.assertIn('"backend": "mlx-whisper"', patched)
+        self.assertNotIn('w_model.to, "cpu"', patched)
         self.assertIn('_vce_configure_mlx_metal("vlm")', patched)
         self.assertIn('_vce_configure_mlx_metal("text_llm")', patched)
         self.assertIn('_vce_run_whisper_cpu_stage', patched)
@@ -128,12 +132,18 @@ class PatchTests(unittest.TestCase):
         self.assertIn('"whisper_vlm_overlap_seconds"', patched)
         self.assertEqual(patcher.patch_engine_text(patched), patched)
 
-    def test_settings_force_cpu_whisper_and_metal(self):
-        content = json.dumps({"whisper_acceleration": True, "mlx_device": "auto", "custom": "keep"})
+    def test_settings_force_mlx_whisper_cpu_stream_and_metal(self):
+        content = json.dumps({"whisper_acceleration": True, "enable_mlx_whisper": False, "mlx_device": "auto", "custom": "keep"})
         result = json.loads(patcher.patch_settings_text(content))
         self.assertFalse(result["whisper_acceleration"])
+        self.assertTrue(result["enable_mlx_whisper"])
         self.assertEqual(result["mlx_device"], "metal")
         self.assertEqual(result["custom"], "keep")
+
+    def test_previous_v1_patch_is_not_silently_repatched(self):
+        old_patch = FIXTURE + "\n# VCE_MLX_METAL_CPU_PARALLEL_V1\n"
+        with self.assertRaisesRegex(patcher.PatchError, "previous CPU/Metal patch version"):
+            patcher.patch_engine_text(old_patch)
 
 
 if __name__ == "__main__":
