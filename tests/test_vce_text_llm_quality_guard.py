@@ -86,7 +86,7 @@ class FinalSceneQualityGuardTests(unittest.TestCase):
         self.assertIn("Визуально показана финальная заставка «THE END».",
                       result["scene_enrichment"][0]["improved_description"])
         self.assertIn("speech", result["key_points"][0]["evidence"])
-        self.assertIn("В аудио говорится:", result["key_points"][0]["text"])
+        self.assertIn("В аудио сообщается:", result["key_points"][0]["text"])
 
     def test_no_repair_without_explicit_end_title_evidence(self):
         payload = {
