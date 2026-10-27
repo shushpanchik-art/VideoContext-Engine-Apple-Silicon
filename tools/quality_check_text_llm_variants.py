@@ -278,12 +278,19 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run, profil
     issues = []
     warnings = []
     output = output if isinstance(output, dict) else {}
-    required = ("executive_summary", "topics", "key_points", "entities", "scene_enrichment")
-    missing_fields = [key for key in required if key not in output or output.get(key) in (None, "", [])]
+    # Validate field presence/types, not semantic non-emptiness of optional arrays.
+    # A video can legitimately have no named entities or no uncertainty notes.
+    missing_fields = []
+    summary_value = output.get("executive_summary")
+    if not isinstance(summary_value, str) or not summary_value.strip():
+        missing_fields.append("executive_summary")
+    for key in ("topics", "key_points", "entities", "scene_enrichment", "uncertainties"):
+        if not isinstance(output.get(key), list):
+            missing_fields.append(key)
     if missing_fields:
         issues.append("missing_required_fields:" + ",".join(missing_fields))
 
-    summary = str(output.get("executive_summary") or "").strip()
+    summary = summary_value.strip() if isinstance(summary_value, str) else ""
     key_points = output_items(output, "key_points")
     # The default profile is video-agnostic: it does not know domain vocabulary,
     # title-card strings, or what a particular video is supposed to depict.
