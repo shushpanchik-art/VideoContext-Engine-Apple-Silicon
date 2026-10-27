@@ -135,7 +135,13 @@ def patch_source(source: str) -> tuple[str, bool]:
         1,
     )
     patched = source.replace(function_marker, "\n\n" + helper_source + "\n\n" + function_marker, 1)
-    patched = patched.replace(CALL_MARKER, CALL_MARKER + "\n        " + CALL_GUARD, 1)
+    marker_pos = patched.find(CALL_MARKER)
+    line_start = patched.rfind("\n", 0, marker_pos) + 1
+    indent = patched[line_start:marker_pos]
+    if indent.strip():
+        raise ValueError("Не удалось определить отступ вызова Text LLM; изменений не записано.")
+    insert_at = marker_pos + len(CALL_MARKER)
+    patched = patched[:insert_at] + "\n" + indent + CALL_GUARD + patched[insert_at:]
     compile(patched, ENGINE_NAME, "exec")
     return patched, True
 
