@@ -63,3 +63,42 @@ curl -fL --retry 3 \\
 Only if the dry run prints \`DRY RUN OK\`, apply it by repeating the command without \`--dry-run\`. The patch creates a timestamped backup before writing; restart VCE before using the modified engine. The benchmark harness applies the same guard to its pinned source snapshot so a new benchmark can measure the model outputs plus this deterministic post-parse guard without re-running the VLM video stage.
 
 The guard and audit tests pass in GitHub Actions. See the [quality benchmark test run](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/40442476959).
+
+
+## Focused rerun: baseline vs B/9B vs D/4B
+
+New run: [\`20261027T031718Z_607e6e\`](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/tree/main/artifacts/text-llm-benchmarks/20261027T031718Z_607e6e). All 9 runs succeeded with valid JSON, no repair passes, no parse failures and all 14 scene enrichments present. The guard repaired one final-scene output in every run, and the visible corrupted fragments were absent from the persisted reports afterward.
+
+| Variant | Median seconds | Improvement vs baseline | Decision |
+|---|---:|---:|---|
+| Baseline 9B | 81.713 | reference | Keep as control; manual review still required |
+| B — Fast Summary 9B | 59.999 | 26.6% faster | HOLD |
+| D — Fast Summary 4B | 42.244 | 48.3% faster | HOLD |
+
+D is 29.6% faster than B. This is a clear latency lead but not yet a quality approval.
+
+### Remaining quality blockers after the final-title guard
+
+- The guard fixes obvious malformed final-card strings, but it does not repair semantic contradictions across report fields.
+- Baseline repeat 3 still describes the final scene's enrichment as a detected collision/slope mismatch, while the final frame is the closing title.
+- B repeats 1 and 3 make claims that the result was shown at the end; repeat 3 contradicts itself by also saying the screen displays the closing title. Repeat 2's result claim should be explicitly attributed to speech if the local transcript supports it.
+- D reports that the collision was detected in CADLib, while scene 13 says the visible window does not conclusively prove the slope check. D repeat 3 has a likely OCR/wording artifact in a topic: \`АИ ИИ ПОМОЩНИК\`.
+- The reported technical-atom coverage is 5.33% for every variant, based on 169 extracted candidate atoms. Do **not** interpret this as a valid quality score: the extractor may be counting time values, OCR debris and identifiers as critical facts. The private source JSON must be checked locally.
+
+Full machine-readable review: [\`focused_run_review.json\`](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/blob/review/text-llm-quality-bundle-20261027/artifacts/text-llm-quality-review/20261027T031718Z_607e6e/focused_run_review.json).
+
+### Local audit against the private source JSON
+
+Download the updated checker from this PR branch and run it locally. This uses the new results but keeps the original source-scene/transcript/OCR JSON on the Mac:
+
+\`\`\`bash
+curl -fL --retry 3 \\
+  "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/6621f68ba6b036c52d92b2408783b426add166fc/tools/quality_check_text_llm_variants.py" \\
+  -o /tmp/quality_check_text_llm_variants.py
+
+"$HOME/VideoContext-Engine/.venv/bin/python" /tmp/quality_check_text_llm_variants.py \\
+  --results-dir "$HOME/Downloads/vce_text_llm_benchmarks/20261027T031718Z_607e6e" \\
+  --source-json "$HOME/Downloads/NSR Specification/Новые модули NSR Specification автоматизация проектирования _context.json"
+\`\`\`
+
+The audit is deterministic and heuristic; the output still needs a factual comparison with the private transcript/OCR evidence. The next code change should add a tested cross-field grounding check and preserve attribution of spoken claims rather than flattening them into visual results.
