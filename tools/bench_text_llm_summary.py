@@ -145,6 +145,7 @@ def build_output_record(iteration, output, raw_model_output, metrics, raw_model_
     return {
         "iteration": iteration,
         "output": output,
+        "finalized_output_available": bool(metrics.get("success", isinstance(output, dict)) and isinstance(output, dict)),
         "raw_model_output": raw_model_output,
         "raw_model_output_text": raw_model_output_text,
         "raw_model_output_parse_status": metrics.get("raw_model_output_parse_status", "not_recorded"),
@@ -687,7 +688,7 @@ def main():
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
                 m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,model,n,dict(flags)); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
+                if m.get("success") or raw_model_output_text: outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 write_json(outdir/"runs.partial.local.json",flat)
                 print("    ",m.get("total_seconds"),"s; success=",m.get("success"),"tokens=",m.get("output_tokens"))
         agg=med_agg(runs); base=agg.get("baseline",{}).get("total_seconds_median"); base_cov=agg.get("baseline",{}).get("critical_atom_coverage_median")
@@ -717,7 +718,7 @@ def main():
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
                 m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,MODEL4,n,dict(bestflags)); m["reference_9b_variant"]=best
                 runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
+                if m.get("success") or raw_model_output_text: outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 write_json(outdir/"runs.partial.local.json",flat)
         speculative={"status":"skipped","reason":"Disabled with --skip-speculative" if args.skip_speculative else "Not yet checked"}
         if not args.skip_speculative:
@@ -726,7 +727,7 @@ def main():
                 print(f"  {name} {n}/{args.repeats} (runtime compatibility checked before loading drafter)...",flush=True)
                 flags=dict(bestflags); flags["speculative"]=True
                 m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,MODEL9,n,flags); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
+                if m.get("success") or raw_model_output_text: outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 elif m.get("error"): reasons.append(m["error"])
                 write_json(outdir/"runs.partial.local.json",flat)
             n_ok=sum(bool(x.get("success")) for x in runs[name])

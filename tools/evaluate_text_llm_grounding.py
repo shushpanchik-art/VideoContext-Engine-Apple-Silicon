@@ -490,6 +490,8 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
             for run in runs:
                 if not isinstance(run, dict):
                     continue
+                if stage_name == "finalized_output" and run.get("finalized_output_available") is False:
+                    continue
                 output = run.get(output_key)
                 if stage_name == "raw_model_output" and not isinstance(output, dict):
                     continue
