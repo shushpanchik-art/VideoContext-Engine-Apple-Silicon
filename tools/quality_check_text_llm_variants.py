@@ -15,7 +15,7 @@ import statistics
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "2026.10.27.5-acronym-false-positive-fix"
+SCRIPT_VERSION = "2026.10.27.6-universal-default"
 DEFAULT_RESULTS = Path.home() / "Downloads" / "vce_text_llm_benchmarks" / "20261027T005522Z_2cb3f5"
 DEFAULT_SOURCE = (
     Path.home() / "Downloads" / "NSR Specification" /
@@ -61,6 +61,7 @@ GENERIC_RE = re.compile(
     r"сцена\s+содержит\s+результат\s+проверки\s+или\s+итоговый\s+вывод)"
 )
 TRAILING_FRAGMENT_RE = re.compile(r"(?i)(?:\bAND|\bTHE|\bNC|[,:;—-])\s*$")
+GENERIC_TRAILING_PUNCT_RE = re.compile(r"[,;:—-]\s*$")
 CLOSING_TITLE_RE = re.compile(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b")
 RESULT_OUTCOME_RE = re.compile(
     r"(?i)\b(?:коллизи\w*|несоответств\w*|не\s+соответств\w*|наруш\w*|превыш\w*|"
@@ -255,15 +256,18 @@ def source_scene_times(segments, ids):
     return result
 
 
-def is_garbled(text: str):
-    clean = re.sub(r"\s+", " ", str(text or "")).strip()
+def is_garbled(text: str, profile: str = "generic"):
+    """Detect encoding/control corruption generically; sample signatures are opt-in."""
+    raw = str(text or "")
+    if "\\ufffd" in raw:
+        return True
+    if any(ord(char) < 32 and char not in "\\n\\r\\t" for char in raw):
+        return True
+    clean = re.sub(r"\\s+", " ", raw).strip()
     if not clean:
         return False
-    # Known corruption signatures are hard blockers. Do not use a generic
-    # all-caps heuristic: it incorrectly flags legitimate acronyms such as КСИ
-    # and identifiers such as HDB_V5. OCR-like multiword topics are checked
-    # separately with a context-aware rule.
-    if GARBLED_RE.search(clean):
+    # Exact strings from a single benchmark sample must never be global rules.
+    if profile == "nsr-case-study" and GARBLED_RE.search(clean):
         return True
     return False
 
@@ -273,7 +277,9 @@ def output_items(output, key):
     return value if isinstance(value, list) else []
 
 
-def quality_run(output, source_segments, scene_ids, evidence, metric_run):
+def quality_run(output, source_segments, scene_ids, evidence, metric_run, profile="generic"):
+    if profile not in {"generic", "nsr-case-study"}:
+        raise ValueError(f"Unknown audit profile: {profile}")
     issues = []
     warnings = []
     output = output if isinstance(output, dict) else {}
@@ -284,63 +290,70 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
 
     summary = str(output.get("executive_summary") or "").strip()
     key_points = output_items(output, "key_points")
-    # The ending frame can be a title card while the narrator describes a result.
-    # Require speech attribution for result claims and block direct visual overclaims.
-    valid_source_scenes = []
-    for index, segment in enumerate(source_segments):
-        if not isinstance(segment, dict):
-            continue
-        try:
-            sid = int(segment.get("scene_id", index + 1))
-            start = float(segment.get("start", 0) or 0)
-            end = float(segment.get("end", start) or start)
-        except (TypeError, ValueError):
-            continue
-        valid_source_scenes.append((end, start, sid, segment))
-    closing_title_evidence = False
-    source_audio_text = ""
-    final_source_scene_id = None
-    if valid_source_scenes:
-        _end, _start, final_source_scene_id, final_source_scene = max(
-            valid_source_scenes, key=lambda item: (item[0], item[1], item[2])
-        )
-        final_visible_text = (
-            str(final_source_scene.get("ocr_text") or "") + "\n" +
-            str(final_source_scene.get("visual_description") or "")
-        )
-        closing_title_evidence = bool(CLOSING_TITLE_RE.search(final_visible_text))
-        source_audio_text = "\n".join(
-            str(segment.get("audio_transcript") or "")
-            for segment in source_segments if isinstance(segment, dict)
-        )
-    summary_has_result_claim = bool(RESULT_OUTCOME_RE.search(summary))
-    summary_has_audio_attribution = bool(AUDIO_ATTRIBUTION_RE.search(summary))
-    summary_visual_overclaim = bool(VISUAL_RESULT_OVERCLAIM_RE.search(summary))
-    if closing_title_evidence and summary_has_result_claim:
-        if summary_visual_overclaim:
-            issues.append("closing_title_conflicts_with_summary_visual_result_claim")
-        elif not summary_has_audio_attribution and RESULT_OUTCOME_RE.search(source_audio_text):
-            issues.append("summary_result_claim_not_attributed_to_speech")
-        elif not summary_has_audio_attribution:
-            issues.append("summary_result_claim_not_found_in_audio_despite_closing_title")
-    if closing_title_evidence:
-        final_enrichment_items = [
-            item for item in output_items(output, "scene_enrichment")
-            if isinstance(item, dict) and str(item.get("scene_id")) == str(final_source_scene_id)
+    # The default profile is video-agnostic: it does not know domain vocabulary,
+    # title-card strings, or what a particular video is supposed to depict.
+    closing_title_evidence = None
+    summary_has_result_claim = None
+    summary_has_audio_attribution = None
+    summary_visual_overclaim = None
+    suspected_topics = []
+    if profile == "nsr-case-study":
+        # Optional diagnostic profile for reproducing this particular NSR sample only.
+        valid_source_scenes = []
+        for index, segment in enumerate(source_segments):
+            if not isinstance(segment, dict):
+                continue
+            try:
+                sid = int(segment.get("scene_id", index + 1))
+                start = float(segment.get("start", 0) or 0)
+                end = float(segment.get("end", start) or start)
+            except (TypeError, ValueError):
+                continue
+            valid_source_scenes.append((end, start, sid, segment))
+        closing_title_evidence = False
+        source_audio_text = ""
+        final_source_scene_id = None
+        if valid_source_scenes:
+            _end, _start, final_source_scene_id, final_source_scene = max(
+                valid_source_scenes, key=lambda item: (item[0], item[1], item[2])
+            )
+            final_visible_text = (
+                str(final_source_scene.get("ocr_text") or "") + "\n" +
+                str(final_source_scene.get("visual_description") or "")
+            )
+            closing_title_evidence = bool(CLOSING_TITLE_RE.search(final_visible_text))
+            source_audio_text = "\n".join(
+                str(segment.get("audio_transcript") or "")
+                for segment in source_segments if isinstance(segment, dict)
+            )
+        summary_has_result_claim = bool(RESULT_OUTCOME_RE.search(summary))
+        summary_has_audio_attribution = bool(AUDIO_ATTRIBUTION_RE.search(summary))
+        summary_visual_overclaim = bool(VISUAL_RESULT_OVERCLAIM_RE.search(summary))
+        if closing_title_evidence and summary_has_result_claim:
+            if summary_visual_overclaim:
+                issues.append("closing_title_conflicts_with_summary_visual_result_claim")
+            elif not summary_has_audio_attribution and RESULT_OUTCOME_RE.search(source_audio_text):
+                issues.append("summary_result_claim_not_attributed_to_speech")
+            elif not summary_has_audio_attribution:
+                issues.append("summary_result_claim_not_found_in_audio_despite_closing_title")
+        if closing_title_evidence:
+            final_enrichment_items = [
+                item for item in output_items(output, "scene_enrichment")
+                if isinstance(item, dict) and str(item.get("scene_id")) == str(final_source_scene_id)
+            ]
+            for item in final_enrichment_items:
+                final_text = " ".join(
+                    str(item.get(field) or "") for field in ("topic", "improved_description")
+                ) + " " + " ".join(str(value or "") for value in output_items(item, "key_points"))
+                if RESULT_OUTCOME_RE.search(final_text):
+                    if not (CLOSING_TITLE_RE.search(final_text) and AUDIO_ATTRIBUTION_RE.search(final_text)):
+                        issues.append("final_scene_enrichment_claims_result_without_audio_attribution")
+        suspected_topics = [
+            str(value) for value in output_items(output, "topics")
+            if SUSPECTED_OCR_TOPIC_RE.search(str(value))
         ]
-        for item in final_enrichment_items:
-            final_text = " ".join(
-                str(item.get(field) or "") for field in ("topic", "improved_description")
-            ) + " " + " ".join(str(value or "") for value in output_items(item, "key_points"))
-            if RESULT_OUTCOME_RE.search(final_text):
-                if not (CLOSING_TITLE_RE.search(final_text) and AUDIO_ATTRIBUTION_RE.search(final_text)):
-                    issues.append("final_scene_enrichment_claims_result_without_audio_attribution")
-    suspected_topics = [
-        str(value) for value in output_items(output, "topics")
-        if SUSPECTED_OCR_TOPIC_RE.search(str(value))
-    ]
-    if suspected_topics:
-        issues.append("suspected_ocr_garbled_topic:" + ",".join(suspected_topics[:5]))
+        if suspected_topics:
+            issues.append("suspected_ocr_garbled_topic:" + ",".join(suspected_topics[:5]))
 
     enrichment = output_items(output, "scene_enrichment")
     expected = set(scene_ids)
@@ -417,13 +430,13 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
                 fragments.append((f"scene_enrichment[{item.get('scene_id', i)}].{field}", str(item.get(field) or "")))
             fragments.extend((f"scene_enrichment[{item.get('scene_id', i)}].key_points[{j}]", str(value))
                              for j, value in enumerate(output_items(item, "key_points")))
-    garbled_fragments = [{"field": field, "text": text} for field, text in fragments if is_garbled(text)]
+    garbled_fragments = [{"field": field, "text": text} for field, text in fragments if is_garbled(text, profile)]
     garbled_points = [item["text"] for item in garbled_fragments]
     if garbled_fragments:
         issues.append("garbled_or_truncated_output_text")
     if len(summary) < 80:
         warnings.append("executive_summary_short_or_incomplete")
-    if TRAILING_FRAGMENT_RE.search(summary):
+    if (TRAILING_FRAGMENT_RE if profile == "nsr-case-study" else GENERIC_TRAILING_PUNCT_RE).search(summary):
         warnings.append("executive_summary_may_be_truncated")
 
     # Timestamps are checked when supplied; they are not inferred from scene_id.
@@ -449,20 +462,43 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
         warnings.append("timestamps_differ_from_source_start:" + json.dumps(bad_times, ensure_ascii=False))
 
     all_text = output_text(output)
-    source_atoms = important_atoms(evidence)
-    generated_atoms = find_claim_numbers(all_text)
-    allowed_term_atoms = {normalize_atom(term) for term in KNOWN_TERMS if term.casefold() in evidence.casefold()}
-    output_term_atoms = {normalize_atom(term) for term in KNOWN_TERMS if term.casefold() in all_text.casefold()}
-    missing_atoms = sorted(source_atoms - generated_atoms - output_term_atoms)
-    unsupported_atoms = sorted(generated_atoms - source_atoms)
-    if unsupported_atoms:
-        warnings.append("numeric_or_identifier_claims_not_found_in_source:" + ",".join(unsupported_atoms[:30]))
-    if missing_atoms:
-        warnings.append("important_source_atoms_missing:" + ",".join(missing_atoms[:30]))
-    if allowed_term_atoms - output_term_atoms:
-        missing_terms = sorted(allowed_term_atoms - output_term_atoms)
-        warnings.append("important_named_terms_missing:" + ",".join(missing_terms[:30]))
-    atom_coverage = 1.0 if not source_atoms else len(source_atoms & (generated_atoms | output_term_atoms)) / len(source_atoms)
+    if profile == "nsr-case-study":
+        source_atoms = important_atoms(evidence)
+        generated_atoms = find_claim_numbers(all_text)
+        allowed_term_atoms = {normalize_atom(term) for term in KNOWN_TERMS if term.casefold() in evidence.casefold()}
+        output_term_atoms = {normalize_atom(term) for term in KNOWN_TERMS if term.casefold() in all_text.casefold()}
+        missing_atoms = sorted(source_atoms - generated_atoms - output_term_atoms)
+        unsupported_atoms = sorted(generated_atoms - source_atoms)
+        if unsupported_atoms:
+            warnings.append("numeric_or_identifier_claims_not_found_in_source:" + ",".join(unsupported_atoms[:30]))
+        if missing_atoms:
+            warnings.append("important_source_atoms_missing:" + ",".join(missing_atoms[:30]))
+        if allowed_term_atoms - output_term_atoms:
+            missing_terms = sorted(allowed_term_atoms - output_term_atoms)
+            warnings.append("important_named_terms_missing:" + ",".join(missing_terms[:30]))
+        atom_coverage = (
+            1.0 if not source_atoms
+            else len(source_atoms & (generated_atoms | output_term_atoms)) / len(source_atoms)
+        )
+        overclaims = [match.group(0) for match in OVERCLAIM_RE.finditer(all_text)]
+        if overclaims:
+            warnings.append("claims_of_visual_confirmation_need_manual_evidence_check")
+        generic_texts = [str(item.get(field) or "") for item in enrichment if isinstance(item, dict)
+                         for field in ("topic", "improved_description")]
+        generic_hits = [text for text in generic_texts if GENERIC_RE.search(text)]
+        if generic_hits:
+            warnings.append(f"generic_scene_enrichment_texts:{len(generic_hits)}")
+    else:
+        source_atoms = set()
+        generated_atoms = set()
+        allowed_term_atoms = set()
+        output_term_atoms = set()
+        missing_atoms = []
+        unsupported_atoms = []
+        atom_coverage = None
+        overclaims = []
+        generic_hits = []
+        warnings.append("semantic_grounding_and_domain_facts_not_evaluated_by_generic_profile")
 
     overclaims = [match.group(0) for match in OVERCLAIM_RE.finditer(all_text)]
     if overclaims:
@@ -495,7 +531,7 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
     # Score is a screening heuristic. Gate issues override a high score.
     completeness_score = 30.0 * scene_coverage * point_timestamps_present
     structure_score = 15.0 if json_valid and not missing_fields and not invalid_key_point_ids and not invalid_enrichment_ids else 5.0
-    technical_score = 25.0 * max(0.0, min(1.0, atom_coverage))
+    technical_score = 25.0 * max(0.0, min(1.0, atom_coverage)) if profile != "generic" else 0.0
     integrity_score = 15.0
     if garbled_fragments:
         integrity_score -= min(15.0, 8.0 * len(garbled_fragments))
@@ -508,7 +544,10 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
     grounding_score -= min(8.0, 1.5 * len(unsupported_atoms))
     grounding_score -= min(7.0, 3.5 * len(overclaims))
     grounding_score = max(0.0, grounding_score)
-    score = round(completeness_score + structure_score + technical_score + integrity_score + grounding_score, 1)
+    grounding_score = grounding_score if profile != "generic" else 0.0
+    score = (round((completeness_score + structure_score + integrity_score) / 60.0 * 100.0, 1)
+             if profile == "generic"
+             else round(completeness_score + structure_score + technical_score + integrity_score + grounding_score, 1))
 
     critical = bool(issues)
     if critical:
@@ -519,6 +558,8 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
         status = "MANUAL_REVIEW_REQUIRED"
 
     return {
+        "audit_profile": profile,
+        "quality_score_scope": ("structure_and_text_integrity_only" if profile == "generic" else "nsr_case_study_heuristics"),
         "quality_score_heuristic": score,
         "status": status,
         "hard_issues": sorted(set(issues)),
@@ -541,11 +582,12 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
         "summary_visual_overclaim": summary_visual_overclaim,
         "missing_timestamps_scene_ids": sorted(set(missing_times)),
         "timestamp_deviation_examples": bad_times[:10],
-        "technical_atom_coverage_pct": round(atom_coverage * 100, 1),
-        "source_technical_atoms_count": len(source_atoms),
+        "technical_atom_coverage_pct": round(atom_coverage * 100, 1) if atom_coverage is not None else None,
+        "source_technical_atoms_count": len(source_atoms) if profile != "generic" else None,
         "missing_source_atoms": missing_atoms,
         "unsupported_numeric_or_identifier_atoms": unsupported_atoms,
         "visual_overclaim_phrases": overclaims,
+        "domain_specific_checks_enabled": profile != "generic",
         "generic_enrichment_snippets": generic_hits[:10],
         "near_output_token_limit": near_limit,
         "json_repair_passes": repair_passes,
@@ -591,9 +633,11 @@ def build_report(report):
         f"- Audited at: {report['audited_at']}",
         f"- Source scenes: {report['source_scene_count']}",
         "- Policy: quality gate first; runtime is only a tie-breaker after defects are reviewed.",
+        f"- Audit profile: {report.get('profile', 'generic')}",
+        "- Generic profile checks structure and basic text integrity only; it does not apply video-specific keywords or semantics.",
         "- This is a deterministic heuristic audit, not proof of semantic correctness.",
         "",
-        "| Variant | Quality heuristic | Status | Scene enrichment coverage | Key-point scene refs | Technical atom coverage | Hard issues | Median seconds |",
+        "| Variant | Score (scope below) | Status | Scene enrichment coverage | Key-point scene refs | Domain atom coverage | Hard issues | Median seconds |",
         "|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for name, row in sorted(rows.items(), key=lambda item: (
@@ -604,7 +648,7 @@ def build_report(report):
         lines.append(
             f"| {name} | {row['quality_score_heuristic']:.1f}/100 | {row['status']} | "
             f"{row['scene_coverage_pct']:.1f}% | {row['key_point_scene_coverage_pct']:.1f}% | "
-            f"{row['technical_atom_coverage_pct']:.1f}% | {len(row['hard_issues'])} | "
+            f"{(str(row['technical_atom_coverage_pct']) + '%') if row['technical_atom_coverage_pct'] is not None else 'not run'} | {len(row['hard_issues'])} | "
             f"{row.get('median_seconds') if row.get('median_seconds') is not None else '—'} |"
         )
     lines += ["", "## Variant detail", ""]
@@ -613,7 +657,7 @@ def build_report(report):
             f"### {name}",
             "",
             f"- Status: **{row['status']}**",
-            f"- Heuristic quality score: {row['quality_score_heuristic']:.1f}/100",
+            f"- Heuristic score: {row['quality_score_heuristic']:.1f}/100 ({row.get('quality_score_scope', 'unspecified scope')})",
             f"- Median seconds: {row.get('median_seconds') if row.get('median_seconds') is not None else 'not recorded'}",
             f"- Hard issues: {', '.join(row['hard_issues']) if row['hard_issues'] else 'none detected by automatic checks'}",
             f"- Warnings: {', '.join(row['warnings']) if row['warnings'] else 'none detected by automatic checks'}",
@@ -627,11 +671,12 @@ def build_report(report):
     lines += [
         "## Interpretation",
         "",
-        "- Scene completeness is measured from scene_enrichment because the production prompt requires one enrichment per source scene.",
+        "- Scene completeness is measured from scene_enrichment because this VCE output schema requires one enrichment per source scene; this is a schema contract, not a content-specific rule.",
         "- key_points are selective summary theses (the prompt allows up to 18); a scene without a key_points entry is informational, not a completeness blocker.",
         "- HOLD means at least one automatic integrity/completeness blocker exists; do not adopt that variant yet.",
         "- REVIEW means the structure passed the hard gate but warnings need human review.",
         "- MANUAL_REVIEW_REQUIRED means no blocker was detected; it is not an automatic quality approval.",
+        "- The generic profile does not apply sample-specific vocabulary or claim patterns. Optional profile diagnostics must be selected explicitly.",
         "- Compare the actual summary, scene enrichment, OCR/transcript facts and uncertain claims against the source JSON before promoting any candidate.",
         "",
     ]
@@ -645,6 +690,8 @@ def main():
                         help="Completed benchmark result directory containing metrics.local.json and llm_outputs.json")
     parser.add_argument("--source-json", type=Path, default=DEFAULT_SOURCE,
                         help="Local VCE context JSON whose segments[] are the source evidence")
+    parser.add_argument("--profile", choices=("generic", "nsr-case-study"), default="generic",
+                        help="generic validates schema/text integrity only; nsr-case-study enables sample-specific lexical diagnostics")
     parser.add_argument("--output-dir", type=Path,
                         help="Where to save the quality audit; defaults to RESULTS_DIR/quality_audit")
     args = parser.parse_args()
@@ -671,6 +718,7 @@ def main():
             "results_dir": str(results_dir),
             "source_scene_count": len(scene_ids),
             "policy": "quality_gate_first_speed_tiebreak_only",
+            "profile": args.profile,
             "variants": {},
         }
         for variant, runs in output_variants.items():
@@ -679,7 +727,7 @@ def main():
             for item in runs if isinstance(runs, list) else []:
                 iteration = item.get("iteration", 0)
                 model_run = find_metrics_run(metrics_doc, variant, iteration)
-                audit = quality_run(item.get("output"), source_segments, scene_ids, evidence, model_run)
+                audit = quality_run(item.get("output"), source_segments, scene_ids, evidence, model_run, profile=args.profile)
                 run_seconds = model_run.get("total_seconds")
                 if isinstance(run_seconds, (int, float)):
                     durations.append(float(run_seconds))
