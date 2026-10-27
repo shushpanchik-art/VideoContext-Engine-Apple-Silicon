@@ -364,13 +364,18 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
           "output_tokens":out_tokens,"primary_output_tokens":primary.get("output_tokens") if primary else None,
           "primary_output_near_token_limit":bool(primary and primary.get("output_tokens",0)>=4094),
           "decode_tokens_per_second":round(rate,3) if rate else None,"thinking_tokens_observed":think_tokens,
-          "thinking_off_requested":bool(flags.get("thinking_off")),"thinking_fallback_used":st.thinking_fallback,"stream_calls":st.stream_calls,
+          "thinking_off_requested":bool(flags.get("thinking_off")),"thinking_off_applied_both":bool(flags.get("thinking_off") and st.template_thinking is False and st.stream_thinking is False and not st.thinking_fallback),"thinking_fallback_used":st.thinking_fallback,"stream_calls":st.stream_calls,
           "generate_calls":st.generate_calls,"stream_errors":st.stream_error,"nonstream_fallbacks":st.fallback,"json_repair_passes":st.repair,"json_repair_helper_calls":st.json_repair_helper,
           "json_parse_failures":st.parse_fail,"json_parse_seconds":round(st.parse,4),"reconciliation_seconds":round(st.reconcile,4),
           "primary_raw_json_parseable":isinstance(raw_obj,dict),"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
           "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,
           "quality":q,"call_metrics":st.calls}
-        return metrics,st.result or {}
+        result_out=st.result or {}
+        st.processor=None; st.drafter=None
+        try: import mlx.core as mx; mx.clear_cache()
+        except Exception: pass
+        import gc; gc.collect()
+        return metrics,result_out
 
 def med_agg(runs):
     agg={}
@@ -384,6 +389,7 @@ def med_agg(runs):
         row["all_json_valid"]=bool(ok) and all(r.get("quality",{}).get("valid_json_object") for r in ok)
         row["all_scene_ids_valid"]=bool(ok) and all(r.get("quality",{}).get("valid_scene_ids") for r in ok)
         row["source_preserved_all"]=bool(ok) and all(r.get("quality",{}).get("source_segments_unmodified") for r in ok)
+        row["thinking_off_applied_all"]=bool(ok) and all(r.get("thinking_off_applied_both") is True for r in ok) if name=="A_thinking_off" else None
         row["prompt_rewrite_ok_all"]=bool(ok) and all(r.get("prompt_rewrite_ok") is True for r in ok) if name=="B_fast_summary" else None
         row["generated_enrichment_empty_all"]=bool(ok) and all(r.get("generated_scene_enrichment_empty") is True for r in ok) if name=="B_fast_summary" else None
         agg[name]=row
@@ -455,6 +461,7 @@ def main():
         for name in ("A_thinking_off","B_fast_summary","C_compact_context"):
             r=agg.get(name,{})
             good=r.get("successful_runs",0)>0 and r.get("all_json_valid") and r.get("all_scene_ids_valid") and r.get("source_preserved_all")
+            if name=="A_thinking_off": good=good and r.get("thinking_off_applied_all")
             if name=="B_fast_summary": good=good and r.get("prompt_rewrite_ok_all") and r.get("generated_enrichment_empty_all")
             cov=r.get("critical_atom_coverage_median")
             if base_cov is not None and cov is not None and cov<base_cov-0.05: good=False
