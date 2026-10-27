@@ -259,9 +259,9 @@ def source_scene_times(segments, ids):
 def is_garbled(text: str, profile: str = "generic"):
     """Detect encoding/control corruption generically; sample signatures are opt-in."""
     raw = str(text or "")
-    if "\\ufffd" in raw:
+    if "\ufffd" in raw:
         return True
-    if any(ord(char) < 32 and char not in "\\n\\r\\t" for char in raw):
+    if any(ord(char) < 32 and char not in "\n\r\t" for char in raw):
         return True
     clean = re.sub(r"\\s+", " ", raw).strip()
     if not clean:
