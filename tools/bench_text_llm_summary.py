@@ -14,7 +14,7 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.5-universal-guard"
+SCRIPT_VERSION = "2026.10.27.6-raw-final-provenance"
 
 def validate_text_llm_payload(payload, segments, state=None):
     """Generic schema/integrity check. Deliberately does not rewrite generated content."""
@@ -101,6 +101,43 @@ def validate_text_llm_payload(payload, segments, state=None):
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+def parse_primary_model_output(primary_raw: str | None) -> dict | None:
+    """Parse the primary model JSON before VCE finalization, excluding private think blocks."""
+    if not isinstance(primary_raw, str) or not primary_raw.strip():
+        return None
+    raw = re.sub(r"<think>.*?</think>", "", primary_raw, flags=re.I | re.S).strip()
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        match = re.search(r"\{.*\}", raw, flags=re.S)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except Exception:
+            return None
+
+def build_output_record(iteration, output, raw_model_output, metrics):
+    """Keep model-authored JSON distinct from the finalized VCE payload."""
+    return {
+        "iteration": iteration,
+        "output": output,
+        "raw_model_output": raw_model_output,
+        "output_provenance": {
+            "output": "vce_finalized_payload_after_postprocess",
+            "raw_model_output": "parsed_primary_model_json_before_vce_finalize",
+            "prompt_rewrite_applied": metrics.get("prompt_rewrite_ok"),
+            "raw_scene_enrichment_count": metrics.get("generated_scene_enrichment_count"),
+            "raw_scene_enrichment_empty": metrics.get("generated_scene_enrichment_empty"),
+        },
+        "metrics": {
+            key: metrics.get(key)
+            for key in ("total_seconds", "output_tokens", "decode_tokens_per_second")
+        },
+    }
 
 def file_sha(path):
     h=hashlib.sha256()
@@ -478,16 +515,8 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
         st.total=time.perf_counter()-locals().get("t",st.start)
         after=hashlib.sha256(json.dumps(segments,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         q=audit(st.result,segments,summary,before==after)
-        raw_obj=None
-        if st.primary_raw:
-            raw=re.sub(r"<think>.*?</think>","",st.primary_raw,flags=re.I|re.S).strip()
-            try: raw_obj=json.loads(raw)
-            except Exception:
-                m=re.search(r"\{.*\}",raw,flags=re.S)
-                if m:
-                    try: raw_obj=json.loads(m.group(0))
-                    except Exception: pass
-        raw_enrich=raw_obj.get("scene_enrichment") if isinstance(raw_obj,dict) else None
+        raw_obj = parse_primary_model_output(st.primary_raw)
+        raw_enrich = raw_obj.get("scene_enrichment") if isinstance(raw_obj, dict) else None
         out_tokens=st.out_tokens; primary=next((c for c in st.calls if c.get("kind")=="stream"),None); rate=out_tokens/st.decode if st.decode>0 else None
         think_tokens=0
         for txt in st.out_text:
@@ -512,7 +541,7 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
         try: import mlx.core as mx; mx.clear_cache()
         except Exception: pass
         import gc; gc.collect()
-    return metrics,result_out
+    return metrics, result_out, raw_obj
 
 def med_agg(runs):
     agg={}
@@ -612,8 +641,8 @@ def main():
             runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
-                m,o=run_variant(mod,segments,summary,source,duration,name,model,n,dict(flags)); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append({"iteration":n,"output":o,"metrics":{k:m.get(k) for k in ("total_seconds","output_tokens","decode_tokens_per_second")}})
+                m,o,raw_model_output=run_variant(mod,segments,summary,source,duration,name,model,n,dict(flags)); runs[name].append(m); flat.append(m)
+                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m))
                 write_json(outdir/"runs.partial.local.json",flat)
                 print("    ",m.get("total_seconds"),"s; success=",m.get("success"),"tokens=",m.get("output_tokens"))
         agg=med_agg(runs); base=agg.get("baseline",{}).get("total_seconds_median"); base_cov=agg.get("baseline",{}).get("critical_atom_coverage_median")
@@ -634,9 +663,9 @@ def main():
             name="D_Qwen3_5_4B_vs_"+best; runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
-                m,o=run_variant(mod,segments,summary,source,duration,name,MODEL4,n,dict(bestflags)); m["reference_9b_variant"]=best
+                m,o,raw_model_output=run_variant(mod,segments,summary,source,duration,name,MODEL4,n,dict(bestflags)); m["reference_9b_variant"]=best
                 runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append({"iteration":n,"output":o,"metrics":{k:m.get(k) for k in ("total_seconds","output_tokens","decode_tokens_per_second")}})
+                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m))
                 write_json(outdir/"runs.partial.local.json",flat)
         speculative={"status":"skipped","reason":"Disabled with --skip-speculative" if args.skip_speculative else "Not yet checked"}
         if not args.skip_speculative:
@@ -644,8 +673,8 @@ def main():
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} (runtime compatibility checked before loading drafter)...",flush=True)
                 flags=dict(bestflags); flags["speculative"]=True
-                m,o=run_variant(mod,segments,summary,source,duration,name,MODEL9,n,flags); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append({"iteration":n,"output":o,"metrics":{k:m.get(k) for k in ("total_seconds","output_tokens","decode_tokens_per_second")}})
+                m,o,raw_model_output=run_variant(mod,segments,summary,source,duration,name,MODEL9,n,flags); runs[name].append(m); flat.append(m)
+                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m))
                 elif m.get("error"): reasons.append(m["error"])
                 write_json(outdir/"runs.partial.local.json",flat)
             n_ok=sum(bool(x.get("success")) for x in runs[name])
@@ -655,7 +684,7 @@ def main():
             if name=="baseline": continue
             ref=best if name.startswith(("D_","E_")) else "baseline"
             deltas[name]={"reference_variant":ref,**delta(agg.get(ref,{}).get("total_seconds_median"),row.get("total_seconds_median"))}
-        manifest={"run_id":run_id,"started_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),"video_basename":args.video.name if not args.input_json else source,
+        manifest={"run_id":run_id,"benchmark_script_version":SCRIPT_VERSION,"output_provenance_schema_version":"raw-and-final-output-v1","started_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),"video_basename":args.video.name if not args.input_json else source,
            "video_sha256":file_sha(args.video) if not args.input_json else None,"scene_count":len(segments),"repeats":args.repeats,"source_snapshot_sha":SOURCE_SHA,
            "noise_threshold_pct":NOISE,"python":sys.version,"platform":platform.platform(),"machine":platform.machine(),"focused_quality_run":bool(args.focused_quality),"quality_guard_enabled":True,"raw_video_and_vce_scene_payload_uploaded":False,"input_segments_sha256_local_only":input_hash}
         doc={"manifest":manifest,"models":{"baseline":MODEL9,"4b":MODEL4,"speculative_target":MODEL9,"speculative_drafter":DRAFTER9},"aggregates":agg,"speed_deltas":deltas,
