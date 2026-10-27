@@ -105,6 +105,7 @@ class UniversalIntegrityGuardTests(unittest.TestCase):
 
     def test_patch_source_compiles_and_is_idempotent(self):
         source = (
+            "import sys\n\n"
             "def run_text_llm_postprocess():\n"
             "    parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n"
             "    return parsed\n\n"
