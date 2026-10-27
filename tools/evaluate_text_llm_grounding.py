@@ -319,14 +319,25 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
         global_recall = global_detail["claim_token_recall"]
         if local_recall is not None and local_recall < min_token_recall <= global_recall:
             findings.append("overlap_found_elsewhere_in_video_not_in_referenced_scene")
-    if not findings:
-        findings.append("lexical_overlap_found_manual_review_still_required")
+    has_low_overlap = "low_lexical_overlap_requires_manual_review" in findings
+    has_scope_mismatch = "overlap_found_elsewhere_in_video_not_in_referenced_scene" in findings
+    if not tokens:
+        diagnostic_status = "insufficient_tokens_for_lexical_check"
+    elif not scoped_evidence or scoped["textual_evidence_items"] == 0:
+        diagnostic_status = "no_textual_source_evidence_in_scope"
+    elif has_low_overlap and has_scope_mismatch:
+        diagnostic_status = "low_overlap_with_possible_scene_mismatch"
+    elif has_low_overlap:
+        diagnostic_status = "low_overlap_review_cue"
+    else:
+        diagnostic_status = "lexical_overlap_observed_semantics_unverified"
     claim.update({
         "claim_token_count": len(tokens),
         "scope": "scene" if sid is not None else "whole_video",
         "lexical_evidence": scoped,
         "whole_video_lexical_evidence": global_detail if sid is not None else None,
         "findings": findings,
+        "diagnostic_status": diagnostic_status,
         "manual_review_required": True,
     })
     return claim
@@ -408,7 +419,7 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
     return report
 
 
-def build_markdown(report: dict[str, Any]) -> str:
+def build_markdown(report: dict[str, Any], *, include_all_claims: bool = False) -> str:
     lines = [
         "# VCE Text LLM — source-aware lexical overlap review",
         "",
@@ -418,6 +429,8 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- Text evidence items: {report['source_text_evidence_count']}",
         f"- Review threshold: {report['min_token_recall_review_threshold']:.2f} claim-token coverage",
         "- **Semantic correctness is not evaluated by this report. There is no semantic quality score.**",
+        "- All claims remain semantically unverified; this report identifies lexical review cues only.",
+        "- The Markdown view shows claims with diagnostic findings by default; use --all-claims for the full detail table. JSON always contains all claims.",
         "",
         "| Variant | Runs | Claims | Low-overlap cues | Cue rate |",
         "|---|---:|---:|---:|---:|",
@@ -435,13 +448,29 @@ def build_markdown(report: dict[str, Any]) -> str:
                 "",
                 f"- Claims: {run['claim_count']}; evaluable: {run['evaluable_claim_count']}; low-overlap cues: {run['low_overlap_review_cue_count']}",
                 "",
-                "| Output field | Scene | Lexical coverage in scope | Review cues | Claim excerpt | Best evidence pointer |",
+                "| Output field | Scene | Lexical coverage in scope | Diagnostic status | Claim excerpt | Best evidence pointer |",
                 "|---|---:|---:|---|---|---|",
             ])
+            omitted = sum(1 for claim in run["claims"] if not claim["findings"]) if not include_all_claims else 0
+            if omitted:
+                lines.append(
+                    f"- {omitted} claims omitted from this compact view because no lexical review cue was detected; "
+                    "they remain semantically unverified. Full claims and evidence pointers are preserved in JSON."
+                )
+                lines.append("")
             for claim in run["claims"]:
+                if not include_all_claims and not claim["findings"]:
+                    continue
                 coverage = claim["lexical_evidence"]["claim_token_recall"]
                 coverage_label = "not evaluated" if coverage is None else f"{coverage * 100:.1f}%"
-                cues = ", ".join(claim["findings"])
+                status_labels = {
+                    "insufficient_tokens_for_lexical_check": "INSUFFICIENT TOKENS",
+                    "no_textual_source_evidence_in_scope": "NO SOURCE TEXT IN SCOPE",
+                    "low_overlap_with_possible_scene_mismatch": "LOW OVERLAP + POSSIBLE SCENE MISMATCH",
+                    "low_overlap_review_cue": "LOW OVERLAP — REVIEW",
+                    "lexical_overlap_observed_semantics_unverified": "TEXT OVERLAP — SEMANTICS UNVERIFIED",
+                }
+                diagnostic = status_labels.get(claim["diagnostic_status"], claim["diagnostic_status"])
                 best = claim["lexical_evidence"]["best_evidence"]
                 pointer = "; ".join(
                     f"{e['field_path']} ({e['modality']}, recall {e['claim_token_recall']:.2f})"
@@ -450,7 +479,7 @@ def build_markdown(report: dict[str, Any]) -> str:
                 text = claim["text"].replace("|", "\\|").replace("\n", " ")
                 lines.append(
                     f"| {claim['output_field']} | {claim['scene_id'] if claim['scene_id'] is not None else 'whole video'} | "
-                    f"{coverage_label} | {cues} | {text[:180]} | {pointer} |"
+                    f"{coverage_label} | {diagnostic} | {text[:180]} | {pointer} |"
                 )
     lines += [
         "",
@@ -463,6 +492,7 @@ def build_markdown(report: dict[str, Any]) -> str:
         "- This screen is content-agnostic: it does not search for particular titles, brands, acronyms, outcomes, or domain facts.",
         "- The source context may omit evidence present in the actual image or waveform. This tool does not load or inspect the raw video.",
         "- Every claim remains marked for manual review; do not compare this diagnostic to a semantic pass/fail score.",
+        "- A row omitted from the compact Markdown view is not automatically approved; it only had no lexical review cue.",
         "",
     ]
     return "\n".join(lines)
@@ -478,6 +508,8 @@ def main() -> int:
                         help="Output directory; defaults to RESULTS_DIR/quality_grounding_audit")
     parser.add_argument("--min-token-recall", type=float, default=0.15,
                         help="Low-overlap review-cue threshold from 0 to 1; not a truth threshold (default: 0.15)")
+    parser.add_argument("--all-claims", action="store_true",
+                        help="Include every claim in Markdown/console output, not only claims with diagnostic findings.")
     args = parser.parse_args()
     try:
         if not 0.0 <= args.min_token_recall <= 1.0:
@@ -498,8 +530,9 @@ def main() -> int:
         json_path = out_dir / "quality_grounding_audit.json"
         md_path = out_dir / "quality_grounding_audit.md"
         json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        md_path.write_text(build_markdown(report), encoding="utf-8")
-        print(build_markdown(report))
+        markdown = build_markdown(report, include_all_claims=args.all_claims)
+        md_path.write_text(markdown, encoding="utf-8")
+        print(markdown)
         print(f"\nJSON: {json_path}")
         print(f"Markdown: {md_path}")
         print("Local-only: source context and generated text are not uploaded; generated content is not modified.")
