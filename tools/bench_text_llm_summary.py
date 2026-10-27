@@ -14,7 +14,7 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.6-raw-final-provenance"
+SCRIPT_VERSION = "2026.10.27.7-full-output-4b-benchmark"
 
 def validate_text_llm_payload(payload, segments, state=None):
     """Generic schema/integrity check. Deliberately does not rewrite generated content."""
@@ -711,7 +711,7 @@ def main():
            "video_sha256":file_sha(args.video) if not args.input_json else None,"scene_count":len(segments),"repeats":args.repeats,"source_snapshot_sha":SOURCE_SHA,
            "noise_threshold_pct":NOISE,"python":sys.version,"platform":platform.platform(),"machine":platform.machine(),"focused_quality_run":bool(args.focused_quality),"quality_guard_enabled":True,"raw_video_and_vce_scene_payload_uploaded":False,"input_segments_sha256_local_only":input_hash}
         doc={"manifest":manifest,"models":{"baseline":MODEL9,"4b":MODEL4,"speculative_target":MODEL9,"speculative_drafter":DRAFTER9},"aggregates":agg,"speed_deltas":deltas,
-          "best_9b_variant_for_D_E":best,"speculative_decoding":speculative,"threshold_pct":NOISE,
+          "best_9b_variant_for_D_E":best,"four_b_comparison_reference_variant":best,"speculative_decoding":speculative,"threshold_pct":NOISE,
           "quality_policy":{"timing_differences_within_5pct_are_noise":True,"manual_review_required":True},"runs":flat}
         public=copy.deepcopy(doc); public["manifest"].pop("input_segments_sha256_local_only",None)
         outputs_doc={"manifest":{k:v for k,v in manifest.items() if k!="input_segments_sha256_local_only"},
@@ -720,7 +720,7 @@ def main():
         csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","quality_guard_flags","error"]
         with csvpath.open("w",encoding="utf-8-sig",newline="") as f:
             w=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore"); w.writeheader(); w.writerows(flat)
-        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Focused quality run: {bool(args.focused_quality)}",f"- Video-agnostic non-mutating integrity guard: enabled",f"- Selected 9B candidate for D/E: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
+        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Focused quality run: {bool(args.focused_quality)}",f"- Video-agnostic non-mutating integrity guard: enabled",f"- D/E 9B reference profile: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
           "> Raw video and raw scene/transcript/OCR input remain local. Generated Text LLM outputs are uploaded separately.","",
           "| Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Source fact grounding | Runs with integrity flags |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for n,r in agg.items():
