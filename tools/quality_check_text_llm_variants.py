@@ -15,7 +15,7 @@ import statistics
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "2026.10.27.1-quality-audit"
+SCRIPT_VERSION = "2026.10.27.2-quality-anchors"
 DEFAULT_RESULTS = Path.home() / "Downloads" / "vce_text_llm_benchmarks" / "20261027T005522Z_2cb3f5"
 DEFAULT_SOURCE = (
     Path.home() / "Downloads" / "NSR Specification" /
