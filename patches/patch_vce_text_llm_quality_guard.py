@@ -90,7 +90,8 @@ def repair_final_scene_artifacts(payload, segments):
             claims_result = bool(result_re.search(text))
             evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
             visual_only = bool(set(map(str, evidence)) & {"visual", "ocr"}) and "speech" not in evidence
-            should_rewrite = sid == last_id and (has_bad_fragment or (claims_result and (not audio_supports_result or visual_only)))
+            has_audio_attribution = bool(re.search(r"(?i)по словам диктора|в аудио|в речи|диктор\s+(?:сообщает|говорит|уточняет)|согласно аудио", text))
+            should_rewrite = sid == last_id and (has_bad_fragment or (claims_result and (not audio_supports_result or visual_only or not has_audio_attribution)))
             if not should_rewrite:
                 continue
             item["text"] = safe_description
