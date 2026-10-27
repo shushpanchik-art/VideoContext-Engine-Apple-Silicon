@@ -122,6 +122,15 @@ class UniversalIntegrityGuardTests(unittest.TestCase):
         self.assertFalse(changed_again)
         self.assertEqual(patched_again, patched)
 
+    def test_refuses_legacy_mutating_sample_guard(self):
+        source = (
+            "def run_text_llm_postprocess():\\n"
+            "    parsed = _vce_v5_repair_final_scene_artifacts(parsed, segments)\\n"
+            "    return parsed\\n"
+        )
+        with self.assertRaisesRegex(ValueError, "sample-specific rewriting guard v5"):
+            guard_module.patch_source(source)
+
     def test_refuses_partial_patch_state(self):
         source = (
             "def _vce_v6_validate_text_llm_payload(payload, segments):\n"
