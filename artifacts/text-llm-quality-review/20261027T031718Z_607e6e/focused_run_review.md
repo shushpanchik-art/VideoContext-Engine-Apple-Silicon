@@ -44,3 +44,32 @@ All three final-scene key points and enrichments consistently describe the “TH
 4. Re-run B and D only after the cross-field grounding rule is covered by unit tests. Select D only if it preserves factual attribution as well as its roughly 42.24-second median latency.
 
 No run output in this review has been edited. The timing and generated-output artifacts on \`main\` are preserved as historical evidence.
+
+
+## Follow-up from the local audit (checker v4)
+
+The audit run on the Mac reported:
+
+- Baseline: HOLD — final-scene enrichment conflict plus a garbled-text flag.
+- B/9B: HOLD — closing-title/summary visual conflict, result claim without explicit audio attribution, and a garbled-text flag.
+- D/4B: HOLD — result claim without explicit audio attribution, suspicious topic \`АИ ИИ ПОМОЩНИК\`, and a garbled-text flag.
+
+Manual inspection of the checker rule found two false-positive cases: ordinary acronym \`КСИ\` and identifier \`HDB_V5\` were flagged merely because they were short uppercase text. Checker v5 removes the generic uppercase-fragment heuristic while preserving explicit detection of \`AND JU\`, \`NC END\`, \`D_\` and the context-specific suspicious topic. Regression tests cover this behavior and the closing-title/audio-attribution gate.
+
+The many \`important_source_atoms_missing\` warnings should also not be treated as a precise quality percentage. The rule is a heuristic based on contextual number extraction; dates, dimensions, OCR identifiers, and incidental on-screen values may be candidates that are not all required in the report's executive summary. Use it to guide manual review, not as an automatic failure reason.
+
+### Refresh the local audit
+
+Re-run the same command with the latest checker v5 from this PR branch. It consumes existing outputs, does not re-run the models, and does not upload the private source JSON:
+
+\`\`\`bash
+curl -fL --retry 3 \\
+  "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/review/text-llm-quality-bundle-20261027/tools/quality_check_text_llm_variants.py" \\
+  -o /tmp/quality_check_text_llm_variants.py
+
+"$HOME/VideoContext-Engine/.venv/bin/python" /tmp/quality_check_text_llm_variants.py \\
+  --results-dir "$HOME/Downloads/vce_text_llm_benchmarks/20261027T031718Z_607e6e" \\
+  --source-json "$HOME/Downloads/NSR Specification/Новые модули NSR Specification автоматизация проектирования _context.json"
+\`\`\`
+
+The expected correction is that \`КСИ\` and \`HDB_V5\` no longer appear as generic garbled snippets. This does not mean B or D will pass the gate: the separate grounding and result-attribution checks are intentional blockers until the report distinguishes spoken claims from visual evidence.
