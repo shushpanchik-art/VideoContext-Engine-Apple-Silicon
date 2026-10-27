@@ -617,13 +617,13 @@ def main():
         candidates=[]
         for name in ("A_thinking_off","B_fast_summary","C_compact_context"):
             r=agg.get(name,{})
-            good=r.get("successful_runs",0)>0 and r.get("all_json_valid") and r.get("all_scene_ids_valid") and r.get("source_preserved_all")
+            good=r.get("successful_runs",0)>0 and r.get("all_json_valid") and r.get("all_scene_ids_valid") and r.get("source_preserved_all") and r.get("runs_with_quality_guard_flags",0)==0
             if name=="A_thinking_off": good=good and r.get("thinking_off_applied_all")
             if name=="B_fast_summary": good=good and r.get("prompt_rewrite_ok_all") and r.get("generated_enrichment_empty_all")
             cov=r.get("critical_atom_coverage_median")
             if base_cov is not None and cov is not None and cov<base_cov-0.05: good=False
             if good and isinstance(r.get("total_seconds_median"),(int,float)): candidates.append((r["total_seconds_median"],name))
-        if not candidates: candidates=[(agg[n]["total_seconds_median"],n) for n in ("A_thinking_off","B_fast_summary","C_compact_context") if agg.get(n,{}).get("successful_runs") and isinstance(agg[n].get("total_seconds_median"),(int,float)) and agg[n].get("all_json_valid")]
+        if not candidates: candidates=[(agg[n]["total_seconds_median"],n) for n in ("A_thinking_off","B_fast_summary","C_compact_context") if agg.get(n,{}).get("successful_runs") and isinstance(agg[n].get("total_seconds_median"),(int,float)) and agg[n].get("all_json_valid") and agg[n].get("all_scene_ids_valid") and agg[n].get("source_preserved_all") and agg[n].get("runs_with_quality_guard_flags",0)==0]
         best=min(candidates)[1] if candidates else "baseline"
         bestflags=dict(next((f for n,m,f in variants if n==best),{}))
         print("[5/6] Выбранный 9B вариант для D/E:",best)
