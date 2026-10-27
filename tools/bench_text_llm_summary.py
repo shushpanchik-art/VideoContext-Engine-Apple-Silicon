@@ -598,6 +598,22 @@ def benchmark_variants(focused_quality=False):
     return all_variants
 
 
+def comparison_reference_variant(best_9b_variant: str, *, focused_quality: bool = False) -> str:
+    """Use the full-output baseline as the 4B reference in focused quality mode.
+
+    Fast Summary intentionally removes per-scene generation, so using its flags
+    for D would not compare equivalent report-generation tasks.
+    """
+    return "baseline" if focused_quality else best_9b_variant
+
+
+def flags_for_variant(variants, variant_name: str) -> dict:
+    for name, _model, flags in variants:
+        if name == variant_name:
+            return dict(flags)
+    raise ValueError(f"Benchmark variant is missing: {variant_name}")
+
+
 def main():
     ap=argparse.ArgumentParser(description="Run VCE Text LLM optimization benchmarks with quality-first guard.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {SCRIPT_VERSION}")
@@ -657,8 +673,15 @@ def main():
             if good and isinstance(r.get("total_seconds_median"),(int,float)): candidates.append((r["total_seconds_median"],name))
         if not candidates: candidates=[(agg[n]["total_seconds_median"],n) for n in ("A_thinking_off","B_fast_summary","C_compact_context") if agg.get(n,{}).get("successful_runs") and isinstance(agg[n].get("total_seconds_median"),(int,float)) and agg[n].get("all_json_valid") and agg[n].get("all_scene_ids_valid") and agg[n].get("source_preserved_all") and agg[n].get("runs_with_quality_guard_flags",0)==0]
         best=min(candidates)[1] if candidates else "baseline"
-        bestflags=dict(next((f for n,m,f in variants if n==best),{}))
-        print("[5/6] Выбранный 9B вариант для D/E:",best)
+        comparison_reference = comparison_reference_variant(best, focused_quality=args.focused_quality)
+        bestflags = flags_for_variant(variants, comparison_reference)
+        if args.focused_quality and comparison_reference != best:
+            print(
+                "[5/6] Для честного 4B quality-сравнения использую baseline-профиль: "
+                "Fast Summary отключает генерацию scene_enrichment."
+            )
+        print("[5/6] Выбранный 9B вариант для D/E:",comparison_reference)
+        best = comparison_reference
         if not args.skip_4b:
             name="D_Qwen3_5_4B_vs_"+best; runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
