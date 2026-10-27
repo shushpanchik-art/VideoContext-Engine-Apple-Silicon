@@ -14,112 +14,83 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.4-grounded-final-scene"
+SCRIPT_VERSION = "2026.10.27.5-universal-guard"
 
-def repair_final_scene_artifacts(payload, segments, state=None):
-    """Repair final-scene corruption/conflicting visual claims using source evidence."""
-    if not isinstance(payload, dict) or not isinstance(segments, list) or not segments:
+def validate_text_llm_payload(payload, segments, state=None):
+    """Generic schema/integrity check. Deliberately does not rewrite generated content."""
+    flags = []
+    if not isinstance(payload, dict):
+        flags.append("output_not_json_object")
+        if state is not None:
+            state.quality_guard_flags += len(flags)
+        print("⚠️ [Benchmark integrity guard] Output is not a JSON object; content not rewritten.")
         return payload
-    valid = []
-    for index, segment in enumerate(segments):
-        if not isinstance(segment, dict):
-            continue
-        try:
-            sid = int(segment.get("scene_id", index + 1))
-            start = float(segment.get("start", 0) or 0)
-            end = float(segment.get("end", start) or start)
-        except (TypeError, ValueError):
-            continue
-        valid.append((end, start, sid, segment))
-    if not valid:
-        return payload
-    _end, _start, last_id, last_scene = max(valid, key=lambda item: (item[0], item[1], item[2]))
-    ocr = str(last_scene.get("ocr_text") or "")
-    visual = str(last_scene.get("visual_description") or "")
-    audio = re.sub(r"\s+", " ", str(last_scene.get("audio_transcript") or "")).strip()
-    visible_source = ocr + "\n" + visual
-    marker = re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visible_source)
-    if marker is None:
-        return payload
-    title = "THE END" if re.search(r"(?i)\bTHE\s+END\b", marker.group(0)) else "КОНЕЦ"
-    clean_title = f"Финальная заставка с текстом «{title}»."
-    visual_title = f"Визуально показана финальная заставка «{title}»."
-    corrupt_re = re.compile(r"(?i)\bAND\s+JU\b|\bNC\s+END\b|(?<!\w)D_(?!\w)")
-    result_re = re.compile(r"(?i)\b(?:коллиз\w*|несоответств\w*|не\s+соответств\w*|наруш\w*|превыш\w*|mismatch\w*|collision\w*)\b")
-    audio_supports_result = bool(audio and result_re.search(audio))
-    audio_quote = audio
-    if len(audio_quote) > 240:
-        audio_quote = audio_quote[:237].rsplit(" ", 1)[0].rstrip() + "…"
-    channels = []
-    if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", ocr):
-        channels.append("ocr")
-    if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visual):
-        channels.append("visual")
-    if not channels:
-        return payload
-
-    if audio_supports_result:
-        safe_description = f"В аудио сообщается: «{audio_quote}». {visual_title}"
-        safe_points = [f"В аудио говорится: «{audio_quote}».", visual_title]
-    else:
-        safe_description = clean_title
-        safe_points = [f"Видео завершается финальной заставкой «{title}»."]
-
-    before = json.dumps(payload, ensure_ascii=False, sort_keys=True)
-    points = payload.get("key_points")
-    if isinstance(points, list):
-        for point in points:
-            if not isinstance(point, dict):
+    expected_ids = set()
+    if isinstance(segments, list):
+        for index, segment in enumerate(segments):
+            if not isinstance(segment, dict):
+                flags.append(f"source_scene[{index}]_not_object")
                 continue
             try:
-                sid = int(point.get("scene_id"))
+                expected_ids.add(int(segment.get("scene_id", index + 1)))
             except (TypeError, ValueError):
-                continue
-            text = str(point.get("text") or point.get("description") or "")
-            has_bad_fragment = bool(corrupt_re.search(text))
-            claims_result = bool(result_re.search(text))
-            evidence = point.get("evidence") if isinstance(point.get("evidence"), list) else []
-            visual_only = bool(set(map(str, evidence)) & {"visual", "ocr"}) and "speech" not in evidence
-            has_audio_attribution = bool(re.search(r"(?i)по словам диктора|в аудио|в речи|диктор\s+(?:сообщает|говорит|уточняет)|согласно аудио", text))
-            should_rewrite = sid == last_id and (has_bad_fragment or (claims_result and (not audio_supports_result or visual_only or not has_audio_attribution)))
-            if not should_rewrite:
-                continue
-            point["text"] = safe_description
-            point.pop("description", None)
-            new_evidence = list(channels)
-            if audio_supports_result and "speech" not in new_evidence:
-                new_evidence.insert(0, "speech")
-            point["evidence"] = new_evidence
+                flags.append(f"source_scene[{index}]_invalid_id")
 
-    enrichment = payload.get("scene_enrichment")
-    if isinstance(enrichment, list):
-        for item in enrichment:
-            if not isinstance(item, dict):
+    for field, require_all in (("key_points", False), ("scene_enrichment", True)):
+        records = payload.get(field)
+        if not isinstance(records, list):
+            flags.append(f"{field}_not_array")
+            continue
+        ids = []
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                flags.append(f"{field}[{index}]_not_object")
                 continue
             try:
-                sid = int(item.get("scene_id"))
+                ids.append(int(record.get("scene_id")))
             except (TypeError, ValueError):
-                continue
-            if sid != last_id:
-                continue
-            fields = [str(item.get("topic") or ""), str(item.get("improved_description") or "")]
-            child_points = item.get("key_points")
-            if isinstance(child_points, list):
-                fields.extend(str(value or "") for value in child_points)
-            combined = "\n".join(fields)
-            has_bad_fragment = bool(corrupt_re.search(combined))
-            claims_result = bool(result_re.search(combined))
-            mentions_closing_title = bool(re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", combined))
-            should_rewrite = has_bad_fragment or claims_result or (not mentions_closing_title and not combined.strip())
-            if not should_rewrite:
-                continue
-            item["topic"] = "Завершение видео"
-            item["improved_description"] = safe_description
-            item["key_points"] = safe_points
+                flags.append(f"{field}[{index}]_invalid_scene_id")
+        if len(ids) != len(set(ids)):
+            flags.append(f"{field}_duplicate_scene_ids")
+        unexpected = sorted(set(ids) - expected_ids)
+        if unexpected:
+            flags.append(f"{field}_unexpected_scene_ids:{unexpected}")
+        if require_all:
+            missing = sorted(expected_ids - set(ids))
+            if missing:
+                flags.append(f"{field}_missing_scene_ids:{missing}")
 
-    if state is not None and json.dumps(payload, ensure_ascii=False, sort_keys=True) != before:
-        state.quality_guard_repairs += 1
-        print("🛡️ [Benchmark quality guard] normalized the final scene against title/audio evidence.")
+    summary = payload.get("executive_summary")
+    if not isinstance(summary, str) or not summary.strip():
+        flags.append("executive_summary_empty_or_missing")
+
+    texts = [summary] if isinstance(summary, str) else []
+    for field in ("topics", "entities", "uncertainties"):
+        values = payload.get(field)
+        if isinstance(values, list):
+            texts.extend(item if isinstance(item, str) else str(item) for item in values)
+    for field in ("key_points", "scene_enrichment"):
+        values = payload.get(field)
+        if isinstance(values, list):
+            for item in values:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("text", "description", "topic", "improved_description"):
+                    if isinstance(item.get(key), str):
+                        texts.append(item[key])
+                child = item.get("key_points")
+                if isinstance(child, list):
+                    texts.extend(str(value) for value in child)
+    for index, value in enumerate(texts):
+        if "\ufffd" in value:
+            flags.append(f"text[{index}]_unicode_replacement_character")
+        if any(ord(char) < 32 and char not in "\n\r\t" for char in value):
+            flags.append(f"text[{index}]_control_character")
+
+    if state is not None:
+        state.quality_guard_flags += len(flags)
+    if flags:
+        print(f"⚠️ [Benchmark integrity guard] {len(flags)} generic integrity flags; generated content was not rewritten.")
     return payload
 
 
@@ -237,7 +208,7 @@ class State:
         self.ttft=None; self.decode=0.; self.wall=0.; self.out_tokens=0; self.out_text=[]; self.calls=[]; self.repair=0; self.parse_fail=0
         self.stream_calls=0; self.generate_calls=0; self.fallback=0; self.stream_error=0; self.thinking_fallback=False; self.json_repair_helper=0
         self.prompt_rewrite=None; self.template_thinking=None; self.stream_thinking=None; self.primary_raw=""; self.result=None; self.error=None; self.drafter=None; self.draft_kind=None
-        self.compact_info={}; self.draft_load=0.; self.quality_guard_repairs=0
+        self.compact_info={}; self.draft_load=0.; self.quality_guard_flags=0
 
 def function_supported(fn,key):
     try:
@@ -285,7 +256,7 @@ def install_hooks(mod, state):
     s_draft=function_supported(real_stream,"draft_model"); s_draft_kind=function_supported(real_stream,"draft_kind")
     g_think=function_supported(real_gen,"enable_thinking")
     mod.BENCH=state
-    mod.BENCH_quality_guard = lambda payload, segments: repair_final_scene_artifacts(payload, segments, state=state)
+    mod.BENCH_quality_guard = lambda payload, segments: validate_text_llm_payload(payload, segments, state=state)
     def wload(*a,**k):
         t=time.perf_counter(); value=real_load(*a,**k); state.load+=time.perf_counter()-t
         try: state.processor=value[1]
@@ -421,24 +392,54 @@ def evidence(segments, summary):
     return "\n".join(vals)
 
 def audit(result, segments, summary, unchanged):
-    if not isinstance(result,dict): return {"valid_json_object":False,"valid_scene_ids":False,"source_segments_unmodified":unchanged,"critical_atom_coverage":None}
-    valid={int(s.get("scene_id",0) or 0) for s in segments}; invalid=[]
-    for key in ("key_points","scene_enrichment"):
-        for x in result.get(key,[]) if isinstance(result.get(key),list) else []:
-            if isinstance(x,dict) and x.get("scene_id") is not None:
-                try:
-                    if int(x["scene_id"]) not in valid: invalid.append(x.get("scene_id"))
-                except Exception: invalid.append(x.get("scene_id"))
-    src=evidence(segments,summary)
-    atoms=set(re.findall(r"(?i)\b(?:ГОСТ|СП|СНиП|ISO|IEC|EN|DIN|ASTM)\s*[-№:]?\s*[0-9A-ZА-ЯЁ./_-]+",src))
-    atoms.update(x for x in re.findall(r"\b(?=[A-Za-zА-Яа-яЁё0-9._/-]*\d)[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9._/-]{1,}\b",src) if len(x)>2)
-    glob=json.dumps({k:result.get(k) for k in ("executive_summary","topics","key_points","entities","uncertainties")},ensure_ascii=False).casefold()
-    covered=[a for a in atoms if a.casefold() in glob]
-    nums=set(re.findall(r"(?<!\w)\d[\w./%-]*",glob)); evidence_nums=set(re.findall(r"(?<!\w)\d[\w./%-]*",src))
-    return {"valid_json_object":True,"valid_scene_ids":not invalid,"invalid_scene_ids":invalid,"source_segments_unmodified":unchanged,
-            "critical_atom_count":len(atoms),"critical_atom_coverage":len(covered)/len(atoms) if atoms else None,
-            "critical_atoms_missing_count":len(atoms)-len(covered),"unsupported_numeric_claims_proxy":sorted(nums-evidence_nums)[:100],
-            "manual_review_required":True}
+    """Universal structural checks only; semantics require source-aware review."""
+    if not isinstance(result, dict):
+        return {"valid_json_object": False, "valid_scene_ids": False,
+                "source_segments_unmodified": unchanged, "critical_atom_coverage": None}
+    valid = set()
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        try:
+            valid.add(int(segment.get("scene_id", index + 1)))
+        except (TypeError, ValueError):
+            pass
+    invalid = []
+    for key in ("key_points", "scene_enrichment"):
+        for item in result.get(key, []) if isinstance(result.get(key), list) else []:
+            if not isinstance(item, dict):
+                invalid.append(f"{key}:not_object")
+                continue
+            try:
+                if int(item.get("scene_id")) not in valid:
+                    invalid.append(item.get("scene_id"))
+            except (TypeError, ValueError):
+                invalid.append(item.get("scene_id"))
+    scene_ids = []
+    for item in result.get("scene_enrichment", []) if isinstance(result.get("scene_enrichment"), list) else []:
+        if isinstance(item, dict):
+            try:
+                scene_ids.append(int(item.get("scene_id")))
+            except (TypeError, ValueError):
+                pass
+    missing_scene_enrichment = sorted(valid - set(scene_ids))
+    duplicate_scene_enrichment = sorted({sid for sid in scene_ids if scene_ids.count(sid) > 1})
+    valid_text = isinstance(result.get("executive_summary"), str) and bool(result.get("executive_summary").strip())
+    return {
+        "valid_json_object": True,
+        "valid_scene_ids": not invalid and not missing_scene_enrichment and not duplicate_scene_enrichment,
+        "invalid_scene_ids": invalid,
+        "missing_scene_enrichment_ids": missing_scene_enrichment,
+        "duplicate_scene_enrichment_ids": duplicate_scene_enrichment,
+        "nonempty_executive_summary": valid_text,
+        "source_segments_unmodified": unchanged,
+        "critical_atom_count": None,
+        "critical_atom_coverage": None,
+        "critical_atoms_missing_count": None,
+        "unsupported_numeric_claims_proxy": [],
+        "semantic_grounding_checked": False,
+        "manual_review_required": True,
+    }
 
 def prepare_drafter(st,hooks):
     dm=hooks.get("draftmod"); stream=hooks.get("stream")
@@ -501,7 +502,7 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
           "generate_calls":st.generate_calls,"stream_errors":st.stream_error,"nonstream_fallbacks":st.fallback,"json_repair_passes":st.repair,"json_repair_helper_calls":st.json_repair_helper,
           "json_parse_failures":st.parse_fail,"json_parse_seconds":round(st.parse,4),"reconciliation_seconds":round(st.reconcile,4),
           "primary_raw_json_parseable":isinstance(raw_obj,dict),"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
-          "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,"quality_guard_repairs":st.quality_guard_repairs,
+          "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,"quality_guard_flags":st.quality_guard_flags,
           "quality":q,"call_metrics":st.calls}
         result_out=st.result or {}
         st.processor=None; st.drafter=None
@@ -514,7 +515,7 @@ def med_agg(runs):
     agg={}
     for name,values in runs.items():
         ok=[x for x in values if x.get("success")]; row={"runs":len(values),"successful_runs":len(ok)}
-        for key in ("total_seconds","model_load_seconds","config_load_seconds","prompt_build_seconds","chat_template_seconds","input_tokens","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","quality_guard_repairs"):
+        for key in ("total_seconds","model_load_seconds","config_load_seconds","prompt_build_seconds","chat_template_seconds","input_tokens","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","quality_guard_flags"):
             vals=[r[key] for r in ok if isinstance(r.get(key),(int,float))]
             row[key+"_median"]=round(statistics.median(vals),4) if vals else None
         cov=[r.get("quality",{}).get("critical_atom_coverage") for r in ok if isinstance(r.get("quality",{}).get("critical_atom_coverage"),(int,float))]
@@ -525,7 +526,7 @@ def med_agg(runs):
         row["thinking_off_applied_all"]=bool(ok) and all(r.get("thinking_off_applied_both") is True for r in ok) if name=="A_thinking_off" else None
         row["prompt_rewrite_ok_all"]=bool(ok) and all(r.get("prompt_rewrite_ok") is True for r in ok) if name=="B_fast_summary" else None
         row["generated_enrichment_empty_all"]=bool(ok) and all(r.get("generated_scene_enrichment_empty") is True for r in ok) if name=="B_fast_summary" else None
-        row["runs_with_quality_guard_repairs"]=sum(1 for r in ok if int(r.get("quality_guard_repairs",0) or 0)>0)
+        row["runs_with_quality_guard_flags"]=sum(1 for r in ok if int(r.get("quality_guard_flags",0) or 0)>0)
         agg[name]=row
     return agg
 
@@ -661,23 +662,23 @@ def main():
         outputs_doc={"manifest":{k:v for k,v in manifest.items() if k!="input_segments_sha256_local_only"},
           "warning":"Generated Text LLM outputs are published; raw video and raw scene/transcript/OCR input are not published.","outputs_by_variant":outputs}
         write_json(outdir/"metrics.local.json",doc); write_json(outdir/"metrics.json",public); write_json(outdir/"llm_outputs.json",outputs_doc)
-        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","quality_guard_repairs","error"]
+        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","quality_guard_flags","error"]
         with csvpath.open("w",encoding="utf-8-sig",newline="") as f:
             w=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore"); w.writeheader(); w.writerows(flat)
-        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Focused quality run: {bool(args.focused_quality)}",f"- Evidence-gated final-scene guard: enabled",f"- Selected 9B candidate for D/E: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
+        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Focused quality run: {bool(args.focused_quality)}",f"- Video-agnostic non-mutating integrity guard: enabled",f"- Selected 9B candidate for D/E: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
           "> Raw video and raw scene/transcript/OCR input remain local. Generated Text LLM outputs are uploaded separately.","",
-          "| Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Critical atom coverage | Guard-repaired runs |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+          "| Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Source fact grounding | Runs with integrity flags |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for n,r in agg.items():
             def fmt(k):
                 v=r.get(k); return "—" if v is None else f"{v:.2f}"
-            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {fmt('critical_atom_coverage_median')} | {r.get('runs_with_quality_guard_repairs',0)} |")
+            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {fmt('critical_atom_coverage_median')} | {r.get('runs_with_quality_guard_flags',0)} |")
         lines += ["","## Interpretation notes","",
           "- TTFT/prefill is stream start to first non-empty text chunk, a proxy rather than an internal MLX kernel timer.",
           "- Token counts use the model tokenizer when available; otherwise metrics mark a lexical estimate.",
           "- Decode tok/s uses output tokens / time after the first chunk when streaming metrics are available.",
           "- Fast Summary is accepted only when prompt/schema rewriting applied and raw model JSON has an empty scene_enrichment list. VCE downstream reconciliation may repopulate that field deterministically.",
           "- Speculative decoding runs only if installed runtime accepts draft_model/draft_kind and the Qwen3.5-9B MTP drafter loads. Otherwise the reason is recorded.",
-          "- Quality audits cover JSON, scene IDs, source preservation, technical/numeric coverage proxies, and suspicious numeric claims. They cannot prove semantic correctness; manually review reports before adopting a variant.",""]
+          "- The default benchmark validates JSON, scene IDs, scene completeness and source preservation. It does not infer domain-specific facts or semantic correctness; manually review claims against source evidence.",""]
         report="\n".join(lines); (outdir/"report.md").write_text(report,encoding="utf-8")
         print("\n[6/6] Resultat:\n"+report)
         if not args.no_upload:
