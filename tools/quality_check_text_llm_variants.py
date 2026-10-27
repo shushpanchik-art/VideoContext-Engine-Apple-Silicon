@@ -535,7 +535,7 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run, profil
     integrity_score = 15.0
     if garbled_fragments:
         integrity_score -= min(15.0, 8.0 * len(garbled_fragments))
-    if TRAILING_FRAGMENT_RE.search(summary):
+    if (TRAILING_FRAGMENT_RE if profile == "nsr-case-study" else GENERIC_TRAILING_PUNCT_RE).search(summary):
         integrity_score -= 4.0
     if generic_hits:
         integrity_score -= min(6.0, 1.5 * len(generic_hits))
