@@ -104,5 +104,15 @@
       "Add a tested cross-field grounding check for claims that a technical result is visually shown when the source final frame is only a closing title.",
       "Keep baseline as the control; do not approve B or D yet."
     ]
+  },
+  "current_tooling_design": {
+    "universal_default": true,
+    "generic_profile": "Checks VCE output schema, scene IDs, scene_enrichment coverage, timestamp shape where present, JSON repair/token-cap indicators and basic text encoding/control characters.",
+    "sample_specific_diagnostics": "Opt-in only via --profile nsr-case-study; not used as global acceptance rules.",
+    "content_rewrite_guard": "Non-mutating. It flags generic schema/integrity problems and does not rewrite user-facing text based on keywords, domain terms, title-card strings or model-specific assumptions.",
+    "semantic_grounding": "Not automatically evaluated by generic structural checks. Use source-aware semantic review/model judge that is evaluated for each video's own transcript/OCR/visual evidence.",
+    "checker_version": "2026.10.27.6-universal-default",
+    "benchmark_version": "2026.10.27.5-universal-guard",
+    "note": "Historical findings below refer to one sample/run and must not be interpreted as universal rules for arbitrary videos."
   }
 }
