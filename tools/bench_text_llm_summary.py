@@ -75,7 +75,7 @@ def gh_request(method, url, token, obj=None):
     if p.returncode:
         raise RuntimeError("GitHub HTTPS request failed via curl: " + p.stderr.decode("utf-8", errors="replace")[-1200:])
     try:
-        raw, status = p.stdout.rsplit(b"\\n__HTTP_STATUS__", 1)
+        raw, status = p.stdout.rsplit(b"\n__HTTP_STATUS__", 1)
         code = int(status.strip())
     except Exception as exc:
         raise RuntimeError("Could not parse GitHub API HTTP status from curl response.") from exc
