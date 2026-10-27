@@ -63,15 +63,15 @@ class FinalSceneQualityGuardTests(unittest.TestCase):
 
     def test_patch_source_compiles_and_is_idempotent(self):
         source = (
-            "import re\\n\\n"
-            "def run_text_llm_postprocess():\\n"
-            "    try:\\n"
-            "        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\\n"
-            "        return parsed\\n"
-            "    finally:\\n"
-            "        pass\\n\\n"
-            "def format_text_llm_report(payload):\\n"
-            "    return str(payload)\\n"
+            "import re\n\n"
+            "def run_text_llm_postprocess():\n"
+            "    try:\n"
+            "        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n"
+            "        return parsed\n"
+            "    finally:\n"
+            "        pass\n\n"
+            "def format_text_llm_report(payload):\n"
+            "    return str(payload)\n"
         )
         patched, changed = guard_module.patch_source(source)
         self.assertTrue(changed)
@@ -83,10 +83,10 @@ class FinalSceneQualityGuardTests(unittest.TestCase):
 
     def test_refuses_partial_patch_state(self):
         source = (
-            "def _vce_v5_repair_final_scene_artifacts(payload, segments):\\n"
-            "    return payload\\n\\n"
-            "def run_text_llm_postprocess():\\n"
-            "    return {}\\n"
+            "def _vce_v5_repair_final_scene_artifacts(payload, segments):\n"
+            "    return payload\n\n"
+            "def run_text_llm_postprocess():\n"
+            "    return {}\n"
         )
         with self.assertRaises(ValueError):
             guard_module.patch_source(source)
