@@ -168,6 +168,47 @@ class TextLLMGroundingTests(unittest.TestCase):
         )
         self.assertIn("low_lexical_overlap_requires_manual_review", claim["findings"])
 
+    def test_individual_evidence_match_wins_over_split_field_union(self):
+        source = {"segments": [
+            {
+                "scene_id": 1,
+                "audio_transcript": "Докладчик открывает пустой документ и ожидает.",
+            },
+            {
+                "scene_id": 2,
+                "visual_description": "Результат отображается поверх окна.",
+                "ocr_text": "Проверки завершены.",
+            },
+            {
+                "scene_id": 3,
+                "audio_transcript": "Результат проверки подтверждён.",
+            },
+        ]}
+        outputs = {"outputs_by_variant": {"candidate_selection": [{
+            "iteration": 1,
+            "output": {
+                "scene_enrichment": [{
+                    "scene_id": 1,
+                    "topic": "Результат проверки",
+                    "key_points": [],
+                }],
+            },
+        }]}}
+        report = grounding.build_report(source, outputs, min_token_recall=0.15)
+        claim = report["variants"]["candidate_selection"]["runs"][0]["claims"][0]
+
+        # Scene 2 aggregates both words across two weak fields; scene 3 has
+        # one independent field that supports both. Prefer the latter pointer.
+        self.assertIn(
+            "overlap_found_elsewhere_in_video_not_in_referenced_scene",
+            claim["findings"],
+        )
+        self.assertEqual(claim["best_other_scene_lexical_evidence"]["scene_id"], 3)
+        self.assertEqual(
+            claim["best_other_scene_lexical_evidence"]["best_evidence"][0]["matched_claim_token_count"],
+            2,
+        )
+
     def test_high_overlap_is_never_automatically_approved_or_reported_as_a_cue(self):
         source, outputs = make_docs()
         report = grounding.build_report(source, outputs)
