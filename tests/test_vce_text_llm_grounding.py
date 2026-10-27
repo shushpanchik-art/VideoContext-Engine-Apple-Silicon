@@ -95,13 +95,24 @@ class TextLLMGroundingTests(unittest.TestCase):
         self.assertIn("low_lexical_overlap_requires_manual_review", claim["findings"])
         self.assertIn("overlap_found_elsewhere_in_video_not_in_referenced_scene", claim["findings"])
 
-    def test_high_overlap_is_never_automatically_approved(self):
+    def test_high_overlap_is_never_automatically_approved_or_reported_as_a_cue(self):
         source, outputs = make_docs()
         report = grounding.build_report(source, outputs)
         run = report["variants"]["fixture_variant"]["runs"][0]
         self.assertTrue(all(claim["manual_review_required"] for claim in run["claims"]))
+        claim = next(c for c in run["claims"] if c["output_field"] == "executive_summary")
+        self.assertEqual(claim["findings"], [])
+        self.assertEqual(claim["diagnostic_status"], "lexical_overlap_observed_semantics_unverified")
         self.assertIsNone(report["semantic_quality_score"])
         self.assertIn("lexical_overlap", report["evaluation_type"])
+
+        compact = grounding.build_markdown(report)
+        self.assertNotIn("| executive_summary | whole video |", compact)
+        self.assertIn("remain semantically unverified", compact)
+        full = grounding.build_markdown(report, include_all_claims=True)
+        self.assertIn("TEXT OVERLAP — SEMANTICS UNVERIFIED", full)
+        self.assertIn("| executive_summary | whole video |", full)
+        self.assertNotIn("lexical_overlap_found_manual_review_still_required", full)
 
     def test_arbitrary_spanish_text_is_compared_without_domain_vocabulary(self):
         source = {"segments": [
