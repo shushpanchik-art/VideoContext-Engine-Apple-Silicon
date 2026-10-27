@@ -1,0 +1,10 @@
+﻿variant,model,iteration,success,total_seconds,model_load_seconds,config_load_seconds,input_tokens,input_token_count_method,time_to_first_token_seconds,decode_seconds,output_tokens,decode_tokens_per_second,json_repair_passes,json_repair_helper_calls,quality_guard_repairs,error
+baseline,mlx-community/Qwen3.5-9B-MLX-4bit,1,True,84.427,2.2115,0.2092,7183,tokenizer.encode,18.4529,63.2531,3486,55.112,0,0,1,
+baseline,mlx-community/Qwen3.5-9B-MLX-4bit,2,True,81.2607,1.5931,1.1181,7183,tokenizer.encode,18.4504,59.8574,3304,55.198,0,0,1,
+baseline,mlx-community/Qwen3.5-9B-MLX-4bit,3,True,81.7128,1.4469,0.2102,7183,tokenizer.encode,18.6686,61.1638,3348,54.738,0,0,1,
+B_fast_summary,mlx-community/Qwen3.5-9B-MLX-4bit,1,True,59.9985,1.5764,0.2065,7034,tokenizer.encode,18.0886,39.8986,2222,55.691,0,0,1,
+B_fast_summary,mlx-community/Qwen3.5-9B-MLX-4bit,2,True,59.5554,1.3546,0.1956,7034,tokenizer.encode,17.9967,39.792,2204,55.388,0,0,1,
+B_fast_summary,mlx-community/Qwen3.5-9B-MLX-4bit,3,True,63.8547,1.7641,0.205,7034,tokenizer.encode,18.0686,43.5941,2425,55.627,0,0,1,
+D_Qwen3_5_4B_vs_B_fast_summary,mlx-community/Qwen3.5-4B-MLX-4bit,1,True,47.0858,2.9969,0.3177,7034,tokenizer.encode,10.0278,33.5261,2815,83.964,0,0,1,
+D_Qwen3_5_4B_vs_B_fast_summary,mlx-community/Qwen3.5-4B-MLX-4bit,2,True,41.1472,1.5149,0.3539,7034,tokenizer.encode,10.0321,29.0338,2458,84.66,0,0,1,
+D_Qwen3_5_4B_vs_B_fast_summary,mlx-community/Qwen3.5-4B-MLX-4bit,3,True,42.2438,1.8841,0.7935,7034,tokenizer.encode,10.0332,29.3192,2483,84.689,0,0,1,
