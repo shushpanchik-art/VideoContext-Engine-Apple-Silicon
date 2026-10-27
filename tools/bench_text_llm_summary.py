@@ -26,8 +26,17 @@ def file_sha(path):
     return h.hexdigest()
 
 def get_url(url, timeout=120):
-    req = urllib.request.Request(url, headers={"User-Agent": "VCE-TextLLM-Benchmark/1.0"})
-    with urllib.request.urlopen(req, timeout=timeout) as r: return r.read()
+    # Use macOS curl's trusted system CA store. Python.org Python can lack an installed
+    # certificate bundle, even when curl itself works. TLS verification remains enabled.
+    p = subprocess.run(
+        ["curl", "--fail", "--silent", "--show-error", "--location",
+         "--connect-timeout", "15", "--max-time", str(timeout),
+         "--user-agent", "VCE-TextLLM-Benchmark/1.0", url],
+        capture_output=True, timeout=timeout + 5
+    )
+    if p.returncode:
+        raise RuntimeError("HTTPS download failed via curl: " + p.stderr.decode("utf-8", errors="replace")[-1200:])
+    return p.stdout
 
 def token_count(text, processor=None):
     tok = getattr(processor, "tokenizer", None) if processor is not None else None
@@ -50,18 +59,31 @@ def github_token():
     raise RuntimeError("Не найден GitHub token. Один раз выполните gh auth login или задайте GITHUB_TOKEN с Contents: write.")
 
 def gh_request(method, url, token, obj=None):
-    data = json.dumps(obj).encode() if obj is not None else None
-    headers = {"Accept":"application/vnd.github+json","Authorization":"Bearer "+token,"X-GitHub-Api-Version":"2022-11-28","User-Agent":"VCE-TextLLM-Benchmark/1.0"}
-    if data is not None: headers["Content-Type"]="application/json"
-    req=urllib.request.Request(url,data=data,headers=headers,method=method)
+    # Keep normal TLS certificate verification; curl uses the macOS system trust store.
+    cmd = ["curl", "--silent", "--show-error", "--location", "--request", method,
+           "--connect-timeout", "15", "--max-time", "45",
+           "--header", "Accept: application/vnd.github+json",
+           "--header", "Authorization: Bearer " + token,
+           "--header", "X-GitHub-Api-Version: 2022-11-28",
+           "--header", "User-Agent: VCE-TextLLM-Benchmark/1.0",
+           "--write-out", "\\n__HTTP_STATUS__%{http_code}"]
+    data = None
+    if obj is not None:
+        data = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        cmd += ["--header", "Content-Type: application/json", "--data-binary", "@-"]
+    p = subprocess.run(cmd + [url], input=data, capture_output=True, timeout=50)
+    if p.returncode:
+        raise RuntimeError("GitHub HTTPS request failed via curl: " + p.stderr.decode("utf-8", errors="replace")[-1200:])
     try:
-        with urllib.request.urlopen(req,timeout=45) as r:
-            b=r.read().decode("utf-8")
-            return r.status, json.loads(b) if b else {}
-    except urllib.error.HTTPError as e:
-        try: body=json.loads(e.read().decode("utf-8",errors="replace"))
-        except Exception: body={"message":str(e)}
-        return e.code,body
+        raw, status = p.stdout.rsplit(b"\\n__HTTP_STATUS__", 1)
+        code = int(status.strip())
+    except Exception as exc:
+        raise RuntimeError("Could not parse GitHub API HTTP status from curl response.") from exc
+    try:
+        body = json.loads(raw.decode("utf-8")) if raw else {}
+    except Exception:
+        body = {"message": raw.decode("utf-8", errors="replace")[:2000]}
+    return code, body
 
 def check_github(token):
     c,d=gh_request("GET",f"https://api.github.com/repos/{REPO}",token)
@@ -375,7 +397,7 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
         try: import mlx.core as mx; mx.clear_cache()
         except Exception: pass
         import gc; gc.collect()
-        return metrics,result_out
+    return metrics,result_out
 
 def med_agg(runs):
     agg={}
