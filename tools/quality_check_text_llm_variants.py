@@ -604,6 +604,15 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run, profil
         "manual_review_required": True,
     }
 
+def median_or_none(values):
+    """Return the median of available numeric values, or None when not evaluated."""
+    numeric_values = [
+        float(value) for value in values
+        if isinstance(value, (int, float)) and not isinstance(value, bool)
+    ]
+    return statistics.median(numeric_values) if numeric_values else None
+
+
 def find_metrics_run(metrics_doc, variant, iteration):
     for row in metrics_doc.get("runs", []):
         if row.get("variant") == variant and int(row.get("iteration", -1)) == int(iteration):
@@ -743,6 +752,9 @@ def main():
                 continue
             scores = [x["quality_score_heuristic"] for x in run_results]
             median_seconds = statistics.median(durations) if durations else None
+            technical_atom_coverage = median_or_none(
+                r.get("technical_atom_coverage_pct") for r in run_results
+            )
             hard_issues = sorted({issue for r in run_results for issue in r["hard_issues"]})
             warnings = sorted({warning for r in run_results for warning in r["warnings"]})
             statuses = {r["status"] for r in run_results}
@@ -761,7 +773,7 @@ def main():
                 "median_seconds": round(median_seconds, 3) if median_seconds is not None else None,
                 "scene_coverage_pct": round(statistics.median([r["scene_coverage_pct"] for r in run_results]), 1),
                 "key_point_scene_coverage_pct": round(statistics.median([r["key_point_scene_coverage_pct"] for r in run_results]), 1),
-                "technical_atom_coverage_pct": round(statistics.median([r["technical_atom_coverage_pct"] for r in run_results]), 1),
+                "technical_atom_coverage_pct": round(technical_atom_coverage, 1) if technical_atom_coverage is not None else None,
                 "hard_issues": hard_issues,
                 "warnings": warnings,
                 "missing_scene_ids": sorted({sid for r in run_results for sid in r["missing_scene_ids"]}),
