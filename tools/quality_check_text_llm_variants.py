@@ -79,7 +79,11 @@ def collect_strings(obj, *, skip_keys=None, parent=""):
             k = str(key).casefold()
             if k in {x.casefold() for x in skip_keys}:
                 continue
-            if isinstance(value, str) and (k in TEXT_KEYS or len(value.strip()) >= 18):
+            if isinstance(value, str) and (
+                k in TEXT_KEYS
+                or parent.casefold() in {"topics", "entities", "visual_tags", "tags", "evidence"}
+                or len(value.strip()) >= 18
+            ):
                 if value.strip():
                     out.append(value.strip())
             elif isinstance(value, (dict, list)):
