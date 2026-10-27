@@ -4,10 +4,12 @@ on:
   push:
     paths:
       - "scripts/vce_unattended_benchmark.py"
+      - "tools/bench_text_llm_summary.py"
       - ".github/workflows/vce-benchmark-validation.yml"
   pull_request:
     paths:
       - "scripts/vce_unattended_benchmark.py"
+      - "tools/bench_text_llm_summary.py"
       - ".github/workflows/vce-benchmark-validation.yml"
 
 jobs:
@@ -19,7 +21,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile benchmark runner
-        run: python -m py_compile scripts/vce_unattended_benchmark.py
+        run: |
+          python -m py_compile scripts/vce_unattended_benchmark.py
+          python -m py_compile tools/bench_text_llm_summary.py
+      - name: Check Text LLM benchmark CLI
+        run: python tools/bench_text_llm_summary.py --help
       - name: Check FFmpeg PATH repair shell syntax
         run: bash -n scripts/repair_vce_ffmpeg_path.command
       - name: Check compact prompts fit the API limits and do not mutate settings
