@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "2026.10.27.2-independent-evidence"
+SCRIPT_VERSION = "2026.10.27.3-compact-diagnostics"
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 SKIP_KEYS = {
