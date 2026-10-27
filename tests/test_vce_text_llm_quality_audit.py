@@ -155,6 +155,44 @@ class QualityAuditTests(unittest.TestCase):
         result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
         self.assertIn("suspected_ocr_garbled_topic:АИ ИИ ПОМОЩНИК", result["hard_issues"])
 
+    def test_legitimate_acronyms_and_identifiers_are_not_garbled(self):
+        self.assertFalse(audit_module.is_garbled("КСИ"))
+        self.assertFalse(audit_module.is_garbled("HDB_V5"))
+        self.assertFalse(audit_module.is_garbled("THE END"))
+        self.assertTrue(audit_module.is_garbled("AND JU"))
+        self.assertTrue(audit_module.is_garbled("D_"))
+
+    def test_audio_attributed_result_and_closing_title_can_coexist(self):
+        segments, evidence, output = make_fixture()
+        segments[1]["audio_transcript"] = (
+            "По словам диктора, проверка выявила несоответствие уклона пандуса нормативу."
+        )
+        output["executive_summary"] = (
+            "По словам диктора, проверка выявила несоответствие уклона пандуса нормативу. "
+            "Визуально финальная сцена представляет собой заставку THE END."
+        )
+        evidence = "\\n".join(
+            str(seg.get(key) or "") for seg in segments
+            for key in ("audio_transcript", "ocr_text", "visual_description")
+        )
+        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertTrue(result["closing_title_evidence"])
+        self.assertTrue(result["summary_has_audio_attribution"])
+        self.assertFalse(result["summary_visual_overclaim"])
+        self.assertNotIn("summary_result_claim_not_attributed_to_speech", result["hard_issues"])
+        self.assertNotIn("summary_result_claim_not_found_in_audio_despite_closing_title", result["hard_issues"])
+
+    def test_final_scene_enrichment_cannot_mislabel_closing_title_as_result(self):
+        segments, evidence, output = make_fixture()
+        output["scene_enrichment"][2]["topic"] = "Результат проверки"
+        output["scene_enrichment"][2]["improved_description"] = (
+            "В модели обнаружена коллизия: уклон пандуса не соответствует нормативу."
+        )
+        output["scene_enrichment"][2]["key_points"] = ["Обнаружено несоответствие нормативу."]
+        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertIn("final_scene_enrichment_claims_result_without_audio_attribution", result["hard_issues"])
+        self.assertEqual(result["status"], "HOLD")
+
     def test_hyphenated_term_aliases_normalize_equally(self):
         self.assertEqual(
             audit_module.normalize_atom("ИИ помощник"),
