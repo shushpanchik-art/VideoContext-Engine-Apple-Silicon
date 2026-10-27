@@ -1,3 +1,11 @@
+# Scope note: this is one sample, not a product rule set
+
+This document records observations about one NSR Specification video and the historical reports generated from it. References to a closing title, collision claims, or the OCR-like string \`АИ ИИ ПОМОЩНИК\` are case findings only. They do not define acceptance rules for other videos.
+
+The current default audit has since been refactored to the generic profile: schema/scene integrity and basic text encoding are universal checks; video-specific lexical/semantic diagnostics are opt-in. The old run shown below used an earlier content-rewriting guard. Its timings remain historical measurements, but they do not validate the new non-mutating generic guard.
+
+---
+
 # Focused quality rerun review — 20261027T031718Z_607e6e
 
 - Source report: [benchmark artifacts on main](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/tree/main/artifacts/text-llm-benchmarks/20261027T031718Z_607e6e)
