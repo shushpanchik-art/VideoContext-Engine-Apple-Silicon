@@ -258,6 +258,41 @@ class TextLLMGroundingTests(unittest.TestCase):
         self.assertIn("fast_summary [raw model output]", markdown)
         self.assertIn("deterministic fallback text", markdown)
 
+    def test_legacy_metrics_warn_when_raw_scene_enrichment_is_empty(self):
+        source = {"segments": [
+            {"scene_id": 1, "audio_transcript": "A cat appears on screen."}
+        ]}
+        outputs = {"outputs_by_variant": {"fast_summary": [{
+            "iteration": 1,
+            "output": {
+                "executive_summary": "A cat appears on screen.",
+                "scene_enrichment": [{
+                    "scene_id": 1,
+                    "topic": "Technical stage",
+                    "improved_description": "Generic work with data.",
+                    "key_points": ["This scene shows technical work with data."],
+                }],
+            },
+        }]}}
+        metrics = {"runs": [{
+            "variant": "fast_summary",
+            "iteration": 1,
+            "prompt_rewrite_ok": True,
+            "generated_scene_enrichment_count": 0,
+            "generated_scene_enrichment_empty": True,
+        }]}
+        report = grounding.build_report(source, outputs, metrics_doc=metrics)
+        run = report["variants"]["fast_summary"]["runs"][0]
+        self.assertFalse(run["output_provenance"]["raw_model_output_retained"])
+        self.assertTrue(run["output_provenance"]["raw_scene_enrichment_empty"])
+        self.assertTrue(any(
+            "must not be attributed directly to the LLM" in warning
+            for warning in report["output_provenance_warnings"]
+        ))
+        markdown = grounding.build_markdown(report)
+        self.assertIn("Output provenance warnings", markdown)
+        self.assertIn("legacy artifact did not retain raw model JSON", markdown)
+
     def test_high_overlap_is_never_automatically_approved_or_reported_as_a_cue(self):
         source, outputs = make_docs()
         report = grounding.build_report(source, outputs)
