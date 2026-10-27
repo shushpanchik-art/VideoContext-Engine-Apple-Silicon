@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "2026.10.27.5-single-evidence-mismatch"
+SCRIPT_VERSION = "2026.10.27.6-raw-final-provenance"
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 SKIP_KEYS = {
@@ -448,48 +448,71 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
         "source_evidence_by_modality": dict(sorted(modality_counts.items())),
         "source_evidence_scope": sorted(SOURCE_EVIDENCE_ROOTS),
         "excluded_derived_source_fields": sorted(DERIVED_OR_SUMMARY_KEYS),
+        "output_stage_descriptions": {
+            "finalized_output": "The VCE payload after post-processing/reconciliation; it may include deterministic fallbacks.",
+            "raw_model_output": "Parsed primary model JSON before VCE finalization; available only when the benchmark stores raw_model_output.",
+        },
         "variants": {},
     }
     for variant, runs in variants.items():
-        run_reports = []
         if not isinstance(runs, list):
             continue
-        for run in runs:
-            if not isinstance(run, dict):
-                continue
-            output = run.get("output")
-            claims = [
-                evaluate_claim(claim, by_scene, all_evidence, min_token_recall)
-                for claim in output_claims(output)
-            ]
-            evaluable = [claim for claim in claims if claim["claim_token_count"] and
-                         claim["lexical_evidence"]["claim_token_recall"] is not None]
-            low_overlap = [claim for claim in claims if "low_lexical_overlap_requires_manual_review" in claim["findings"]]
-            coverages = [claim["lexical_evidence"]["claim_token_recall"] for claim in evaluable]
-            run_reports.append({
-                "iteration": run.get("iteration"),
-                "model": run.get("model"),
-                "claim_count": len(claims),
-                "evaluable_claim_count": len(evaluable),
-                "low_overlap_review_cue_count": len(low_overlap),
-                "mean_claim_token_recall_pct_not_semantic_score": (
-                    round(statistics.mean(coverages) * 100, 1) if coverages else None
-                ),
-                "claims": claims,
-            })
-        if run_reports:
-            report["variants"][variant] = {
-                "run_count": len(run_reports),
-                "claim_count": sum(r["claim_count"] for r in run_reports),
-                "low_overlap_review_cue_count": sum(r["low_overlap_review_cue_count"] for r in run_reports),
-                "low_overlap_review_cue_pct": (
-                    round(
-                        100 * sum(r["low_overlap_review_cue_count"] for r in run_reports)
-                        / sum(r["claim_count"] for r in run_reports), 1
-                    ) if sum(r["claim_count"] for r in run_reports) else None
-                ),
-                "runs": run_reports,
-            }
+        stages = [("output", variant, "finalized_output")]
+        if any(
+            isinstance(run, dict) and isinstance(run.get("raw_model_output"), dict)
+            for run in runs
+        ):
+            stages.append((
+                "raw_model_output",
+                f"{variant} [raw model output]",
+                "raw_model_output",
+            ))
+
+        for output_key, report_variant, stage_name in stages:
+            run_reports = []
+            for run in runs:
+                if not isinstance(run, dict):
+                    continue
+                output = run.get(output_key)
+                if stage_name == "raw_model_output" and not isinstance(output, dict):
+                    continue
+                claims = [
+                    evaluate_claim(claim, by_scene, all_evidence, min_token_recall)
+                    for claim in output_claims(output)
+                ]
+                for claim in claims:
+                    claim["output_stage"] = stage_name
+                evaluable = [claim for claim in claims if claim["claim_token_count"] and
+                             claim["lexical_evidence"]["claim_token_recall"] is not None]
+                low_overlap = [claim for claim in claims if "low_lexical_overlap_requires_manual_review" in claim["findings"]]
+                coverages = [claim["lexical_evidence"]["claim_token_recall"] for claim in evaluable]
+                run_reports.append({
+                    "iteration": run.get("iteration"),
+                    "model": run.get("model"),
+                    "output_stage": stage_name,
+                    "output_provenance": run.get("output_provenance") if stage_name == "finalized_output" else None,
+                    "claim_count": len(claims),
+                    "evaluable_claim_count": len(evaluable),
+                    "low_overlap_review_cue_count": len(low_overlap),
+                    "mean_claim_token_recall_pct_not_semantic_score": (
+                        round(statistics.mean(coverages) * 100, 1) if coverages else None
+                    ),
+                    "claims": claims,
+                })
+            if run_reports:
+                report["variants"][report_variant] = {
+                    "output_stage": stage_name,
+                    "run_count": len(run_reports),
+                    "claim_count": sum(r["claim_count"] for r in run_reports),
+                    "low_overlap_review_cue_count": sum(r["low_overlap_review_cue_count"] for r in run_reports),
+                    "low_overlap_review_cue_pct": (
+                        round(
+                            100 * sum(r["low_overlap_review_cue_count"] for r in run_reports)
+                            / sum(r["claim_count"] for r in run_reports), 1
+                        ) if sum(r["claim_count"] for r in run_reports) else None
+                    ),
+                    "runs": run_reports,
+                }
     if not report["variants"]:
         raise RuntimeError("No usable variant runs were found in outputs_by_variant.")
     return report
@@ -506,6 +529,7 @@ def build_markdown(report: dict[str, Any], *, include_all_claims: bool = False) 
         f"- Review threshold: {report['min_token_recall_review_threshold']:.2f} claim-token coverage",
         "- **Semantic correctness is not evaluated by this report. There is no semantic quality score.**",
         "- All claims remain semantically unverified; this report identifies lexical review cues only.",
+        "- Finalized VCE payloads may contain deterministic fallback text added after model generation. When raw_model_output is present, it is reported separately from the finalized output.",
         "- The Markdown view shows claims with diagnostic findings by default; use --all-claims for the full detail table. JSON always contains all claims.",
         "",
         "| Variant | Runs | Claims | Low-overlap cues | Cue rate |",
