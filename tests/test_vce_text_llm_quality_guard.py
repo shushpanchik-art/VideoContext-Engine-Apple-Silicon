@@ -14,6 +14,12 @@ guard_module = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
 SPEC.loader.exec_module(guard_module)
 
+BENCH_PATH = REPO_ROOT / "tools" / "bench_text_llm_summary.py"
+BENCH_SPEC = importlib.util.spec_from_file_location("vce_text_llm_benchmark", BENCH_PATH)
+bench_module = importlib.util.module_from_spec(BENCH_SPEC)
+assert BENCH_SPEC and BENCH_SPEC.loader
+BENCH_SPEC.loader.exec_module(bench_module)
+
 
 class FinalSceneQualityGuardTests(unittest.TestCase):
     def test_repairs_final_scene_only_when_end_title_is_in_source_evidence(self):
@@ -60,6 +66,19 @@ class FinalSceneQualityGuardTests(unittest.TestCase):
         before = repr(payload)
         result = guard_module.repair_final_scene_artifacts(payload, segments)
         self.assertEqual(repr(result), before)
+
+    def test_benchmark_and_installed_engine_guard_match(self):
+        payload = {
+            "key_points": [{"scene_id": 2, "text": "AND JU", "evidence": ["visual"]}],
+            "scene_enrichment": [{"scene_id": 2, "topic": "Результат проверки",
+                                  "improved_description": "D_ NC END", "key_points": []}],
+        }
+        segments = [{"scene_id": 2, "start": 4, "end": 8, "ocr_text": "THE END",
+                     "visual_description": "На чёрном фоне титр THE END."}]
+        import copy
+        engine_result = guard_module.repair_final_scene_artifacts(copy.deepcopy(payload), segments)
+        bench_result = bench_module.repair_final_scene_artifacts(copy.deepcopy(payload), segments)
+        self.assertEqual(engine_result, bench_result)
 
     def test_patch_source_compiles_and_is_idempotent(self):
         source = (
