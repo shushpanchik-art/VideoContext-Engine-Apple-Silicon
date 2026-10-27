@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for quality-first Text LLM audit semantics."""
+"""Tests for universal-default Text LLM quality auditing."""
 from __future__ import annotations
 
 import importlib.util
@@ -18,23 +18,23 @@ def make_fixture():
     segments = [
         {
             "scene_id": 1, "start": 0.0, "end": 3.0,
-            "audio_transcript": "Пользователь ищет требование СП 1.13130.2020.",
-            "ocr_text": "NSR Specification",
-            "visual_description": "Экран поиска в NSR Specification.",
+            "audio_transcript": "A speaker introduces the subject and defines the first term.",
+            "ocr_text": "Document title 101",
+            "visual_description": "A title slide with a document name.",
             "visual_tags": {},
         },
         {
             "scene_id": 2, "start": 3.0, "end": 6.0,
-            "audio_transcript": "Нормативный уклон пандуса не более 1:20.",
-            "ocr_text": "СП 1.13130.2020",
-            "visual_description": "Показаны данные требования.",
+            "audio_transcript": "The speaker explains the process and mentions value 12.5.",
+            "ocr_text": "Step 2",
+            "visual_description": "A software interface with one selected item.",
             "visual_tags": {},
         },
         {
             "scene_id": 3, "start": 6.0, "end": 9.0,
-            "audio_transcript": "Видео завершается.",
-            "ocr_text": "THE END",
-            "visual_description": "Финальная заставка THE END.",
+            "audio_transcript": "The video ends.",
+            "ocr_text": "FINAL FRAME",
+            "visual_description": "A closing frame with a title.",
             "visual_tags": {},
         },
     ]
@@ -45,33 +45,19 @@ def make_fixture():
     )
     output = {
         "executive_summary": (
-            "Видео показывает поиск строительного требования, его проверку и финальную заставку. "
-            "Числовое ограничение передаётся как 1:20 только там, где оно подтверждено источником."
+            "The video introduces a subject, demonstrates a process in a software interface, "
+            "and ends with a closing frame. Numeric values are included only when relevant to the explanation."
         ),
-        "topics": ["NSR Specification", "СП 1.13130.2020"],
+        "topics": ["Document overview", "Process demonstration"],
         "key_points": [
-            {
-                "scene_id": 1, "time": "00:00:00",
-                "text": "Пользователь ищет требование СП 1.13130.2020.",
-                "evidence": ["speech", "ocr"],
-            },
-            {
-                "scene_id": 2, "time": "00:00:03",
-                "text": "Допустимый уклон пандуса указан как 1:20.",
-                "evidence": ["speech", "ocr"],
-            },
+            {"scene_id": 1, "time": "00:00:00", "text": "The speaker introduces the subject.", "evidence": ["speech"]},
+            {"scene_id": 2, "time": "00:00:03", "text": "The process is demonstrated in the interface.", "evidence": ["visual"]},
         ],
-        "entities": [
-            {"name": "NSR Specification", "type": "product", "scene_ids": [1]},
-            {"name": "СП 1.13130.2020", "type": "standard", "scene_ids": [1, 2]},
-        ],
+        "entities": [{"name": "Document", "type": "other", "scene_ids": [1]}],
         "scene_enrichment": [
-            {"scene_id": 1, "topic": "Поиск требования",
-             "improved_description": "Поиск строительного требования в NSR Specification.", "key_points": []},
-            {"scene_id": 2, "topic": "Нормативное значение",
-             "improved_description": "Указан нормативный уклон пандуса 1:20.", "key_points": []},
-            {"scene_id": 3, "topic": "Завершение",
-             "improved_description": "Финальная заставка с текстом THE END.", "key_points": []},
+            {"scene_id": 1, "topic": "Introduction", "improved_description": "The speaker introduces the subject.", "key_points": []},
+            {"scene_id": 2, "topic": "Demonstration", "improved_description": "The interface shows the selected process.", "key_points": []},
+            {"scene_id": 3, "topic": "Conclusion", "improved_description": "The video ends with a closing frame.", "key_points": []},
         ],
         "uncertainties": [],
     }
@@ -79,16 +65,19 @@ def make_fixture():
 
 
 class QualityAuditTests(unittest.TestCase):
-    def test_selective_key_points_are_allowed_when_every_scene_is_enriched(self):
+    def test_generic_profile_accepts_selective_key_points_when_all_scenes_are_enriched(self):
         segments, evidence, output = make_fixture()
         result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertEqual(result["audit_profile"], "generic")
+        self.assertEqual(result["quality_score_scope"], "structure_and_text_integrity_only")
         self.assertEqual(result["status"], "REVIEW")
         self.assertEqual(result["scene_coverage_pct"], 100.0)
         self.assertAlmostEqual(result["key_point_scene_coverage_pct"], 66.7, places=1)
         self.assertEqual(result["missing_scene_ids"], [])
-        self.assertNotIn("missing_scene_points:3", result["hard_issues"])
+        self.assertIsNone(result["technical_atom_coverage_pct"])
+        self.assertFalse(result["domain_specific_checks_enabled"])
 
-    def test_missing_scene_enrichment_is_a_hard_blocker(self):
+    def test_missing_scene_enrichment_is_a_hard_blocker_for_any_video(self):
         segments, evidence, output = make_fixture()
         output["scene_enrichment"] = output["scene_enrichment"][:2]
         result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
@@ -96,110 +85,68 @@ class QualityAuditTests(unittest.TestCase):
         self.assertIn("missing_scene_enrichment:3", result["hard_issues"])
         self.assertEqual(result["scene_coverage_pct"], 66.7)
 
-    def test_garbled_key_point_blocks_candidate(self):
+    def test_invalid_and_duplicate_scene_ids_are_generic_blockers(self):
         segments, evidence, output = make_fixture()
-        output["key_points"][1]["text"] = "AND JU"
+        output["scene_enrichment"][1]["scene_id"] = 1
+        output["key_points"][0]["scene_id"] = 999
         result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertEqual(result["status"], "HOLD")
-        self.assertIn("garbled_or_truncated_output_text", result["hard_issues"])
-        self.assertTrue(result["garbled_output_fragments"])
-
-    def test_garbled_scene_enrichment_also_blocks_candidate(self):
-        segments, evidence, output = make_fixture()
-        output["scene_enrichment"][2]["improved_description"] = "Заставка D_ NC END"
-        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertEqual(result["status"], "HOLD")
-        self.assertIn("garbled_or_truncated_output_text", result["hard_issues"])
-
-    def test_final_title_blocks_summary_claim_that_collision_was_shown(self):
-        segments, evidence, output = make_fixture()
-        output["executive_summary"] = (
-            "Видео показывает поиск норматива и использование CADLib для проверки модели. "
-            "В конце показано, что проверка выявила коллизию и уклон пандуса не соответствует нормативу. "
-            "Финальная сцена служит подтверждением результата."
-        )
-        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertTrue(result["closing_title_evidence"])
-        self.assertTrue(result["summary_visual_overclaim"])
-        self.assertIn("closing_title_conflicts_with_summary_visual_result_claim", result["hard_issues"])
+        self.assertIn("duplicate_scene_enrichment_ids:1", result["hard_issues"])
+        self.assertIn("unexpected_key_point_scene_ids:999", result["hard_issues"])
         self.assertEqual(result["status"], "HOLD")
 
-    def test_result_claim_supported_by_audio_requires_explicit_attribution(self):
-        segments, evidence, output = make_fixture()
-        segments[1]["audio_transcript"] = "Диктор сообщает: проверка выявила несоответствие уклона пандуса нормативу."
-        output["executive_summary"] = (
-            "Видео описывает поиск норматива и проверку модели. Обнаружено несоответствие уклона пандуса нормативу. "
-            "Это относится к результату проверки и завершает демонстрацию."
-        )
-        evidence = "\\n".join(
-            str(seg.get(key) or "") for seg in segments
-            for key in ("audio_transcript", "ocr_text", "visual_description")
-        )
-        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertTrue(result["summary_has_result_claim"])
-        self.assertFalse(result["summary_has_audio_attribution"])
-        self.assertIn("summary_result_claim_not_attributed_to_speech", result["hard_issues"])
-
-    def test_result_claim_without_audio_support_is_a_hard_blocker(self):
+    def test_generic_profile_does_not_apply_video_specific_keywords(self):
         segments, evidence, output = make_fixture()
         output["executive_summary"] = (
-            "Видео показывает поиск норматива и работу с CADLib. Обнаружено несоответствие уклона пандуса нормативу. "
-            "В исходной речи нет такого утверждения, а последний кадр содержит только финальную заставку."
+            "The video shows a closing frame. A speaker mentions a collision and a mismatch during the earlier discussion. "
+            "The visible ending is a title card, not proof of the earlier result."
         )
+        output["topics"].extend(["АИ ИИ ПОМОЩНИК", "КСИ", "HDB_V5"])
+        output["key_points"][0]["text"] = "AND JU"
         result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertIn("summary_result_claim_not_found_in_audio_despite_closing_title", result["hard_issues"])
-
-    def test_suspicious_ocr_topic_blocks_candidate(self):
-        segments, evidence, output = make_fixture()
-        output["topics"].append("АИ ИИ ПОМОЩНИК")
-        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertIn("suspected_ocr_garbled_topic:АИ ИИ ПОМОЩНИК", result["hard_issues"])
-
-    def test_legitimate_acronyms_and_identifiers_are_not_garbled(self):
-        self.assertFalse(audit_module.is_garbled("КСИ"))
-        self.assertFalse(audit_module.is_garbled("HDB_V5"))
-        self.assertFalse(audit_module.is_garbled("THE END"))
-        self.assertTrue(audit_module.is_garbled("AND JU"))
-        self.assertTrue(audit_module.is_garbled("D_"))
-
-    def test_audio_attributed_result_and_closing_title_can_coexist(self):
-        segments, evidence, output = make_fixture()
-        segments[1]["audio_transcript"] = (
-            "По словам диктора, проверка выявила несоответствие уклона пандуса нормативу."
-        )
-        output["executive_summary"] = (
-            "По словам диктора, проверка выявила несоответствие уклона пандуса нормативу. "
-            "Визуально финальная сцена представляет собой заставку THE END."
-        )
-        evidence = "\\n".join(
-            str(seg.get(key) or "") for seg in segments
-            for key in ("audio_transcript", "ocr_text", "visual_description")
-        )
-        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertTrue(result["closing_title_evidence"])
-        self.assertTrue(result["summary_has_audio_attribution"])
-        self.assertFalse(result["summary_visual_overclaim"])
+        self.assertEqual(result["audit_profile"], "generic")
+        self.assertFalse(result["domain_specific_checks_enabled"])
+        self.assertEqual(result["closing_title_evidence"], None)
+        self.assertNotIn("closing_title_conflicts_with_summary_visual_result_claim", result["hard_issues"])
         self.assertNotIn("summary_result_claim_not_attributed_to_speech", result["hard_issues"])
-        self.assertNotIn("summary_result_claim_not_found_in_audio_despite_closing_title", result["hard_issues"])
+        self.assertFalse(any(issue.startswith("suspected_ocr_garbled_topic") for issue in result["hard_issues"]))
+        self.assertNotIn("garbled_or_truncated_output_text", result["hard_issues"])
 
-    def test_final_scene_enrichment_cannot_mislabel_closing_title_as_result(self):
+    def test_generic_profile_detects_encoding_and_control_corruption(self):
         segments, evidence, output = make_fixture()
-        output["scene_enrichment"][2]["topic"] = "Результат проверки"
-        output["scene_enrichment"][2]["improved_description"] = (
-            "В модели обнаружена коллизия: уклон пандуса не соответствует нормативу."
-        )
-        output["scene_enrichment"][2]["key_points"] = ["Обнаружено несоответствие нормативу."]
+        output["topics"].append("Broken text \ufffd")
         result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
-        self.assertIn("final_scene_enrichment_claims_result_without_audio_attribution", result["hard_issues"])
         self.assertEqual(result["status"], "HOLD")
+        self.assertIn("garbled_or_truncated_output_text", result["hard_issues"])
+
+    def test_sample_diagnostic_profile_is_opt_in(self):
+        segments, evidence, output = make_fixture()
+        output["executive_summary"] = (
+            "The ending screen visibly confirms a collision and mismatch in the process result. "
+            "The last frame is a closing title, so this needs source-specific review."
+        )
+        result = audit_module.quality_run(
+            output, segments, [1, 2, 3], evidence, {}, profile="nsr-case-study"
+        )
+        self.assertEqual(result["audit_profile"], "nsr-case-study")
+        self.assertTrue(result["domain_specific_checks_enabled"])
+        # This opt-in profile is intentionally sample-oriented; generic mode above never applies it.
+        self.assertIsNotNone(result["closing_title_evidence"])
+
+    def test_known_sample_corruption_signatures_are_profile_scoped(self):
+        for value in ("КСИ", "HDB_V5", "THE END", "АИ ИИ ПОМОЩНИК"):
+            self.assertFalse(audit_module.is_garbled(value, profile="generic"))
+        self.assertFalse(audit_module.is_garbled("КСИ", profile="nsr-case-study"))
+        self.assertTrue(audit_module.is_garbled("AND JU", profile="nsr-case-study"))
+        self.assertTrue(audit_module.is_garbled("D_", profile="nsr-case-study"))
+        self.assertTrue(audit_module.is_garbled("Text \ufffd", profile="generic"))
 
     def test_hyphenated_term_aliases_normalize_equally(self):
         self.assertEqual(
-            audit_module.normalize_atom("ИИ помощник"),
-            audit_module.normalize_atom("ИИ-помощник"),
+            audit_module.normalize_atom("term helper"),
+            audit_module.normalize_atom("term-helper"),
         )
 
-    def test_json_repair_and_token_limit_still_block(self):
+    def test_json_repair_and_token_limit_still_block_generically(self):
         segments, evidence, output = make_fixture()
         result = audit_module.quality_run(
             output, segments, [1, 2, 3],
