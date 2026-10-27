@@ -209,6 +209,55 @@ class TextLLMGroundingTests(unittest.TestCase):
             2,
         )
 
+    def test_raw_model_output_is_a_separate_audit_stage(self):
+        source = {"segments": [
+            {"scene_id": 1, "audio_transcript": "A cat appears on screen."}
+        ]}
+        outputs = {"outputs_by_variant": {"fast_summary": [{
+            "iteration": 1,
+            "output": {
+                "executive_summary": "A cat appears on screen.",
+                "scene_enrichment": [{
+                    "scene_id": 1,
+                    "topic": "Technical stage",
+                    "improved_description": "Generic work with data.",
+                    "key_points": ["This scene shows technical work with data."],
+                }],
+            },
+            "raw_model_output": {
+                "executive_summary": "A cat appears on screen.",
+                "scene_enrichment": [],
+            },
+            "output_provenance": {
+                "output": "vce_finalized_payload_after_postprocess",
+                "raw_model_output": "parsed_primary_model_json_before_vce_finalize",
+                "prompt_rewrite_applied": True,
+                "raw_scene_enrichment_count": 0,
+                "raw_scene_enrichment_empty": True,
+            },
+        }]}}
+        report = grounding.build_report(source, outputs)
+        final_run = report["variants"]["fast_summary"]["runs"][0]
+        raw_run = report["variants"]["fast_summary [raw model output]"]["runs"][0]
+
+        self.assertEqual(final_run["output_stage"], "finalized_output")
+        self.assertEqual(raw_run["output_stage"], "raw_model_output")
+        self.assertTrue(any(
+            claim["output_field"] == "scene_enrichment[0].topic"
+            for claim in final_run["claims"]
+        ))
+        self.assertFalse(any(
+            claim["output_field"].startswith("scene_enrichment[")
+            for claim in raw_run["claims"]
+        ))
+        self.assertTrue(all(
+            claim["output_stage"] == "raw_model_output"
+            for claim in raw_run["claims"]
+        ))
+        markdown = grounding.build_markdown(report)
+        self.assertIn("fast_summary [raw model output]", markdown)
+        self.assertIn("deterministic fallback text", markdown)
+
     def test_high_overlap_is_never_automatically_approved_or_reported_as_a_cue(self):
         source, outputs = make_docs()
         report = grounding.build_report(source, outputs)
