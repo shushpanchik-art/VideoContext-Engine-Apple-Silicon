@@ -448,8 +448,6 @@ def build_markdown(report: dict[str, Any], *, include_all_claims: bool = False) 
                 "",
                 f"- Claims: {run['claim_count']}; evaluable: {run['evaluable_claim_count']}; low-overlap cues: {run['low_overlap_review_cue_count']}",
                 "",
-                "| Output field | Scene | Lexical coverage in scope | Diagnostic status | Claim excerpt | Best evidence pointer |",
-                "|---|---:|---:|---|---|---|",
             ])
             omitted = sum(1 for claim in run["claims"] if not claim["findings"]) if not include_all_claims else 0
             if omitted:
@@ -458,6 +456,10 @@ def build_markdown(report: dict[str, Any], *, include_all_claims: bool = False) 
                     "they remain semantically unverified. Full claims and evidence pointers are preserved in JSON."
                 )
                 lines.append("")
+            lines.extend([
+                "| Output field | Scene | Lexical coverage in scope | Diagnostic status | Claim excerpt | Best evidence pointer |",
+                "|---|---:|---:|---|---|---|",
+            ])
             for claim in run["claims"]:
                 if not include_all_claims and not claim["findings"]:
                     continue
