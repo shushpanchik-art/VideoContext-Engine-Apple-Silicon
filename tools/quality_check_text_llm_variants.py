@@ -15,7 +15,7 @@ import statistics
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "2026.10.27.3-scene-enrichment-gate"
+SCRIPT_VERSION = "2026.10.27.4-final-scene-grounding"
 DEFAULT_RESULTS = Path.home() / "Downloads" / "vce_text_llm_benchmarks" / "20261027T005522Z_2cb3f5"
 DEFAULT_SOURCE = (
     Path.home() / "Downloads" / "NSR Specification" /
@@ -61,6 +61,23 @@ GENERIC_RE = re.compile(
     r"сцена\s+содержит\s+результат\s+проверки\s+или\s+итоговый\s+вывод)"
 )
 TRAILING_FRAGMENT_RE = re.compile(r"(?i)(?:\bAND|\bTHE|\bNC|[,:;—-])\s*$")
+CLOSING_TITLE_RE = re.compile(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b")
+RESULT_OUTCOME_RE = re.compile(
+    r"(?i)\b(?:коллизи\w*|несоответств\w*|не\s+соответств\w*|наруш\w*|превыш\w*|"
+    r"выявлен\w*|обнаружен\w*|mismatch\w*|collision\w*)\b"
+)
+AUDIO_ATTRIBUTION_RE = re.compile(
+    r"(?i)(?:по\s+словам\s+(?:диктора|ведущего)|в\s+аудио|в\s+речи|"
+    r"диктор\s+(?:сообщает|говорит|уточняет)|согласно\s+аудио|в\s+озвучке)"
+)
+VISUAL_RESULT_OVERCLAIM_RE = re.compile(
+    r"(?i)(?:\bв\s+конце\s+(?:показано|видно|отображено)\b.{0,100}\b"
+    r"(?:коллизи\w*|несоответств\w*|наруш\w*|превыш\w*|уклон\w*|результат\w*)\b|"
+    r"\bна\s+экране\b.{0,100}\b(?:выявлен\w*|обнаружен\w*|коллизи\w*|несоответств\w*)\b|"
+    r"\bвизуально\s+(?:подтвержден\w*|показан\w*|виден|видно)\b.{0,80}\b"
+    r"(?:коллизи\w*|несоответств\w*|уклон\w*)\b)"
+)
+SUSPECTED_OCR_TOPIC_RE = re.compile(r"(?i)\b(?:АИ\s+ИИ|AI\s+ИИ)\s+ПОМОЩНИК\b")
 
 
 def read_json(path: Path):
@@ -268,6 +285,64 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
 
     summary = str(output.get("executive_summary") or "").strip()
     key_points = output_items(output, "key_points")
+    # The ending frame can be a title card while the narrator describes a result.
+    # Require speech attribution for result claims and block direct visual overclaims.
+    valid_source_scenes = []
+    for index, segment in enumerate(source_segments):
+        if not isinstance(segment, dict):
+            continue
+        try:
+            sid = int(segment.get("scene_id", index + 1))
+            start = float(segment.get("start", 0) or 0)
+            end = float(segment.get("end", start) or start)
+        except (TypeError, ValueError):
+            continue
+        valid_source_scenes.append((end, start, sid, segment))
+    closing_title_evidence = False
+    source_audio_text = ""
+    final_source_scene_id = None
+    if valid_source_scenes:
+        _end, _start, final_source_scene_id, final_source_scene = max(
+            valid_source_scenes, key=lambda item: (item[0], item[1], item[2])
+        )
+        final_visible_text = (
+            str(final_source_scene.get("ocr_text") or "") + "\n" +
+            str(final_source_scene.get("visual_description") or "")
+        )
+        closing_title_evidence = bool(CLOSING_TITLE_RE.search(final_visible_text))
+        source_audio_text = "\n".join(
+            str(segment.get("audio_transcript") or "")
+            for segment in source_segments if isinstance(segment, dict)
+        )
+    summary_has_result_claim = bool(RESULT_OUTCOME_RE.search(summary))
+    summary_has_audio_attribution = bool(AUDIO_ATTRIBUTION_RE.search(summary))
+    summary_visual_overclaim = bool(VISUAL_RESULT_OVERCLAIM_RE.search(summary))
+    if closing_title_evidence and summary_has_result_claim:
+        if summary_visual_overclaim:
+            issues.append("closing_title_conflicts_with_summary_visual_result_claim")
+        elif not summary_has_audio_attribution and RESULT_OUTCOME_RE.search(source_audio_text):
+            issues.append("summary_result_claim_not_attributed_to_speech")
+        elif not summary_has_audio_attribution:
+            issues.append("summary_result_claim_not_found_in_audio_despite_closing_title")
+    if closing_title_evidence:
+        final_enrichment_items = [
+            item for item in output_items(output, "scene_enrichment")
+            if isinstance(item, dict) and str(item.get("scene_id")) == str(final_source_scene_id)
+        ]
+        for item in final_enrichment_items:
+            final_text = " ".join(
+                str(item.get(field) or "") for field in ("topic", "improved_description")
+            ) + " " + " ".join(str(value or "") for value in output_items(item, "key_points"))
+            if RESULT_OUTCOME_RE.search(final_text):
+                if not (CLOSING_TITLE_RE.search(final_text) and AUDIO_ATTRIBUTION_RE.search(final_text)):
+                    issues.append("final_scene_enrichment_claims_result_without_audio_attribution")
+    suspected_topics = [
+        str(value) for value in output_items(output, "topics")
+        if SUSPECTED_OCR_TOPIC_RE.search(str(value))
+    ]
+    if suspected_topics:
+        issues.append("suspected_ocr_garbled_topic:" + ",".join(suspected_topics[:5]))
+
     enrichment = output_items(output, "scene_enrichment")
     expected = set(scene_ids)
 
@@ -333,6 +408,7 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
     garbled_fragments = []
     fragments = [("executive_summary", summary)]
     fragments.extend((f"topics[{i}]", str(value)) for i, value in enumerate(output_items(output, "topics")))
+    fragments.extend((f"topics[{i}]", str(value)) for i, value in enumerate(suspected_topics))
     for i, item in enumerate(key_points):
         if isinstance(item, dict):
             fragments.append((f"key_points[{i}].text", str(item.get("text") or item.get("description") or "")))
@@ -460,6 +536,10 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run):
         "unexpected_scene_ids": sorted(set(unexpected_key_point_ids + unexpected_enrichment_ids)),
         "garbled_key_points": garbled_points,
         "garbled_output_fragments": garbled_fragments,
+        "closing_title_evidence": closing_title_evidence,
+        "summary_has_result_claim": summary_has_result_claim,
+        "summary_has_audio_attribution": summary_has_audio_attribution,
+        "summary_visual_overclaim": summary_visual_overclaim,
         "missing_timestamps_scene_ids": sorted(set(missing_times)),
         "timestamp_deviation_examples": bad_times[:10],
         "technical_atom_coverage_pct": round(atom_coverage * 100, 1),
