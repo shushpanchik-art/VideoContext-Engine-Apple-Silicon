@@ -1,114 +1,40 @@
-# VCE Text LLM quality-first review
+# VCE Text LLM quality-first review — corrected scene contract
 
-- Run: `20261027T005522Z_2cb3f5`
-- Video: `🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4`
+- Run: \`20261027T005522Z_2cb3f5\`
+- Video: \`🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4\`
 - Input: existing VCE JSON with 14 scenes; the video was not reprocessed for this benchmark.
-- Repeats: 3 per variant.
+- Repeats: 3 per variant; 18 generated reports inspected.
 - Policy: **quality and completeness gates first; speed second**.
-- Statuses below reproduce the quality-audit output provided for `quality_check_text_llm_variants.py 2026.10.27.2-quality-anchors`.
-- The heuristic score and atom-coverage values are not proofs of semantic correctness. Every candidate still requires human review against the original speech/OCR/scene evidence.
+- This file is a human-readable reassessment of the stored outputs, not a claim that a heuristic score proves semantic correctness.
 
-## Results across all repeats
+## Important correction to the first audit
 
-| Variant | Quality status | Heuristic score | Median seconds | Speed comparison | Hard blockers |
-|---|---|---:|---:|---:|---|
-| baseline | REVIEW | 79.8/100 | 84.154 | reference | none detected by automatic hard checks; manual review still required |
-| A — thinking off | HOLD | 72.1/100 | 73.459 | 12.7% faster than baseline | `AND JU` fragment in scene 14 |
-| B — Fast Summary | HOLD | 72.1/100 | 59.011 | 29.9% faster than baseline | `AND JU` and missing scene 14 |
-| C — compact context | HOLD | 71.8/100 | 81.307 | 3.4% faster than baseline; within noise | `AND JU`; measured chars removed = 0 |
-| D — Qwen3.5-4B with B prompt | HOLD | 80.1/100 | 42.403 | 28.1% faster than B | scene 14 missing in one repeat |
-| E — speculative decoding with B prompt | HOLD | 69.1/100 | 132.558 | 124.6% slower than B | missing scenes, truncated/garbled output, token cap, JSON repair |
+The first audit version treated a scene not referenced in \`key_points\` as a hard completeness failure. That is too strict for this schema: the engine prompt defines \`key_points\` as selected summary theses (maximum 18), not one item per source scene. Scene-by-scene completeness is instead measured from \`scene_enrichment\`, whose prompt explicitly requests an entry for every scene.
 
-## Repeat-level integrity checks
+Inspection of the saved \`llm_outputs.json\` confirms that **all 18 outputs contain 14 unique \`scene_enrichment\` entries covering scenes 1–14**. Therefore, an omitted \`key_points\` reference by itself is informational, not a hard blocker. It must not be confused with a missing per-scene enrichment.
 
-### baseline
+The updated checker in this PR implements this distinction, flags garbled text anywhere in the user-facing output (including scene enrichment), and includes regression tests for the corrected rule. Re-run the checker locally against the private source JSON to produce fresh numerical scores; the initial heuristic scores below are intentionally not repeated as if they had been recomputed.
 
-- Status: **REVIEW**
-- Median: 84.154 s
-- Automatic blockers: none detected
-- Repeat details:
+## Results across the 18 stored outputs
 
-| Iteration | Seconds | Output tokens | Key points | Scene 14 text | JSON repairs | Parse failures |
-|---:|---:|---:|---|---|---:|---:|
-| 1 | 84.154 | 3462 | 14 | Видео завершается заставкой с текстом THE END. | 0 | 0 |
-| 2 | 89.653 | 3827 | 14 | Видео завершается заставкой с текстом THE END. | 0 | 0 |
-| 3 | 82.817 | 3420 | 14 | Финальная заставка THE END. | 0 | 0 |
+| Variant | Median seconds | Speed result | Findings from stored outputs | Decision |
+|---|---:|---|---|---|
+| Baseline — Qwen3.5-9B | 84.154 | Reference | 14/14 scene-enrichment entries in every repeat; no obvious \`AND JU\` / \`NC END\` fragments detected by the repeated-output scan. Still requires factual review. | REVIEW |
+| A — thinking off | 73.459 | 12.7% faster than baseline | \`AND JU\` appears in the scene-14 key point in 2/3 repeats. | HOLD |
+| B — Fast Summary, 9B | 59.011 | 29.9% faster than baseline | \`AND JU\` appears in 2/3 repeats. All three scene-14 enrichments also contain suspicious \`D_\` / \`NC END\` text artifacts. One repeat has 13 selected key points, but the enrichment still covers all 14 scenes. The summary also overstates visual confirmation in one repeat. | HOLD |
+| C — compact context, 9B | 81.307 | 3.4% faster; within ±5% noise | \`AND JU\` appears in 2/3 repeats. Measured evidence characters removed: 0 in all three repeats. | HOLD |
+| D — Qwen3.5-4B with B prompt | 42.403 | 28.1% faster than B; 49.6% faster than baseline | All three scene-14 enrichments contain suspicious \`D_\` / \`NC END\` artifacts. One repeat has 13 selected key points, while all 14 scene-enrichment entries are present. It is the strongest speed candidate, but not a quality winner yet. | HOLD |
+| E — speculative decoding with B prompt | 132.558 | 124.6% slower than B | All three repeats have JSON parse failure + repair; primary output reaches the 4096-token cap; selected key-point count is 8, 8 and 14; \`AND JU\` appears in one repeat and \`D_\` / \`NC END\` artifacts appear in all three scene enrichments. | HOLD |
 
-### A_thinking_off
+## What the next optimization should target
 
-- Status: **HOLD**
-- Median: 73.459 s
-- Automatic blockers: garbled_or_truncated_key_point (AND JU in 2/3 repeats)
-- Repeat details:
+1. **Do not force one key point per scene.** Preserve selective \`key_points\`, and enforce the existing per-scene contract through \`scene_enrichment\`.
+2. **Fix scene-14 text integrity.** Investigate the \`AND JU\`, \`D_\` and \`NC END\` artifacts. If source evidence clearly shows only the closing title, prefer the grounded description “Финальная заставка с текстом «THE END».” Do not claim visual proof of a technical result from an ending title.
+3. **Re-test D/4B first after the text-integrity guard.** It has the best observed latency, but any new quality guard must run after JSON parsing and before the final result is accepted.
+4. **Re-test B/9B Fast Summary only after it stops emitting garbled output and unsupported visual claims.** Its 29.9% speed gain is useful only if all three repeated reports pass the quality gate.
+5. **Do not spend more runs on C yet.** The implementation removed zero evidence characters, so the intended optimization was not measured.
+6. **Keep E excluded under the current setup.** It is slower and unstable at the output-token ceiling.
 
-| Iteration | Seconds | Output tokens | Key points | Scene 14 text | JSON repairs | Parse failures |
-|---:|---:|---:|---|---|---:|---:|
-| 1 | 73.459 | 2942 | 14 | Финальная заставка с надписью THE END. | 0 | 0 |
-| 2 | 76.291 | 3082 | 14 | AND JU | 0 | 0 |
-| 3 | 70.824 | 2805 | 14 | AND JU | 0 | 0 |
+## Reproducibility and privacy
 
-### B_fast_summary
-
-- Status: **HOLD**
-- Median: 59.011 s
-- Automatic blockers: garbled_or_truncated_key_point (AND JU); missing_scene_points:14
-- Repeat details:
-
-| Iteration | Seconds | Output tokens | Key points | Scene 14 text | JSON repairs | Parse failures |
-|---:|---:|---:|---|---|---:|---:|
-| 1 | 59.011 | 2138 | 14 | AND JU | 0 | 0 |
-| 2 | 58.115 | 2121 | 13 | MISSING | 0 | 0 |
-| 3 | 60.844 | 2258 | 14 | AND JU | 0 | 0 |
-
-### C_compact_context
-
-- Status: **HOLD**
-- Median: 81.307 s
-- Automatic blockers: garbled_or_truncated_key_point (AND JU)
-- Repeat details:
-
-| Iteration | Seconds | Output tokens | Key points | Scene 14 text | JSON repairs | Parse failures |
-|---:|---:|---:|---|---|---:|---:|
-| 1 | 80.561 | 3321 | 14 | Видео завершается заставкой с текстом THE END. | 0 | 0 |
-| 2 | 83.684 | 3466 | 14 | AND JU | 0 | 0 |
-| 3 | 81.307 | 3369 | 14 | AND JU | 0 | 0 |
-
-### D_Qwen3_5_4B_vs_B_fast_summary
-
-- Status: **HOLD**
-- Median: 42.403 s
-- Automatic blockers: missing_scene_points:14 (one repeat)
-- Repeat details:
-
-| Iteration | Seconds | Output tokens | Key points | Scene 14 text | JSON repairs | Parse failures |
-|---:|---:|---:|---|---|---:|---:|
-| 1 | 139.111 | 2425 | 14 | Финальная заставка THE END. | 0 | 0 |
-| 2 | 41.239 | 2495 | 14 | Финальная заставка THE END. | 0 | 0 |
-| 3 | 42.403 | 2571 | 13 | MISSING | 0 | 0 |
-
-### E_speculative_vs_B_fast_summary
-
-- Status: **HOLD**
-- Median: 132.558 s
-- Automatic blockers: missing_scene_points in aggregate: 1,3,4,5,6,14; garbled_or_truncated_key_point; json_repair_or_parse_failure; primary_output_near_token_limit
-- Repeat details:
-
-| Iteration | Seconds | Output tokens | Key points | Scene 14 text | JSON repairs | Parse failures |
-|---:|---:|---:|---|---|---:|---:|
-| 1 | 139.422 | 5182 | 8 | MISSING | 1 | 1 |
-| 2 | 130.682 | 5079 | 8 | MISSING | 1 | 1 |
-| 3 | 132.558 | 5506 | 14 | AND JU | 1 | 1 |
-
-
-## Recommendation
-
-1. Keep baseline as the comparison control; `REVIEW` is not a blanket approval.
-2. Do not deploy A, B, C, D, or E from this run as-is because the audit found integrity/completeness blockers.
-3. Re-run D after fixing missing scene-14 output and do a manual side-by-side factual review. It is the best speed candidate, not yet the quality winner.
-4. Fix the output truncation / scene completeness issue before re-evaluating B. Fast Summary's speed gain is real in this run, but it does not meet the quality gate.
-5. Exclude E in the current setup: it is both slower than B and unstable at the 4096-token output limit.
-6. Rework C before repeating it: no evidence characters were removed, so the claimed compaction did not actually take effect.
-
-## Included benchmark evidence
-
-The sibling `benchmark/` directory contains the complete `metrics.json`, `runs.csv`, `report.md`, and `llm_outputs.json` for all six variants and all 18 runs. The raw input video and original source-scene payload are not included.
+The sibling \`benchmark/\` directory contains \`metrics.json\`, \`runs.csv\`, \`report.md\`, and \`llm_outputs.json\` for all 18 runs. The raw input video and original scene/transcript/OCR payload are not included in this PR. The separate quality checker consumes the private source JSON locally and writes its audit locally; it does not upload that data.
