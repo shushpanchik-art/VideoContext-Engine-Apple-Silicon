@@ -14,7 +14,7 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.2-quality-guard"
+SCRIPT_VERSION = "2026.10.27.3-focused-quality"
 
 def repair_final_scene_artifacts(payload, segments, state=None):
     """Grounded cleanup of corrupted final-card output, never using inferred facts."""
@@ -483,7 +483,7 @@ def med_agg(runs):
     agg={}
     for name,values in runs.items():
         ok=[x for x in values if x.get("success")]; row={"runs":len(values),"successful_runs":len(ok)}
-        for key in ("total_seconds","model_load_seconds","config_load_seconds","prompt_build_seconds","chat_template_seconds","input_tokens","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second"):
+        for key in ("total_seconds","model_load_seconds","config_load_seconds","prompt_build_seconds","chat_template_seconds","input_tokens","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","quality_guard_repairs"):
             vals=[r[key] for r in ok if isinstance(r.get(key),(int,float))]
             row[key+"_median"]=round(statistics.median(vals),4) if vals else None
         cov=[r.get("quality",{}).get("critical_atom_coverage") for r in ok if isinstance(r.get("quality",{}).get("critical_atom_coverage"),(int,float))]
@@ -494,6 +494,7 @@ def med_agg(runs):
         row["thinking_off_applied_all"]=bool(ok) and all(r.get("thinking_off_applied_both") is True for r in ok) if name=="A_thinking_off" else None
         row["prompt_rewrite_ok_all"]=bool(ok) and all(r.get("prompt_rewrite_ok") is True for r in ok) if name=="B_fast_summary" else None
         row["generated_enrichment_empty_all"]=bool(ok) and all(r.get("generated_scene_enrichment_empty") is True for r in ok) if name=="B_fast_summary" else None
+        row["runs_with_quality_guard_repairs"]=sum(1 for r in ok if int(r.get("quality_guard_repairs",0) or 0)>0)
         agg[name]=row
     return agg
 
@@ -520,15 +521,33 @@ def maybe_use_vce_python():
                 os.execve(py,[py,str(Path(__file__).resolve()),*sys.argv[1:]],os.environ.copy())
         except Exception: pass
 
+def benchmark_variants(focused_quality=False):
+    """Return the 9B variants to run; focused mode keeps baseline and Fast Summary."""
+    all_variants = [
+        ("baseline", MODEL9, {}),
+        ("A_thinking_off", MODEL9, {"thinking_off": True}),
+        ("B_fast_summary", MODEL9, {"fast": True}),
+        ("C_compact_context", MODEL9, {"compact": True}),
+    ]
+    if focused_quality:
+        return [all_variants[0], all_variants[2]]
+    return all_variants
+
+
 def main():
-    ap=argparse.ArgumentParser(description="Run VCE Text LLM optimization benchmarks A-E on one fixed video input.")
+    ap=argparse.ArgumentParser(description="Run VCE Text LLM optimization benchmarks with quality-first guard.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {SCRIPT_VERSION}")
     ap.add_argument("--video",type=Path,default=VIDEO_DEFAULT); ap.add_argument("--api-url",default=os.getenv("VCE_API_URL","http://127.0.0.1:7555"))
     ap.add_argument("--repeats",type=int,default=3); ap.add_argument("--output-dir",type=Path)
     ap.add_argument("--input-json",type=Path,help="Reuse existing VCE JSON with segments[] and skip video analysis.")
     ap.add_argument("--skip-4b",action="store_true"); ap.add_argument("--skip-speculative",action="store_true")
+    ap.add_argument("--focused-quality",action="store_true",help="Run baseline + 9B Fast Summary + 4B Fast Summary; skip A/C/E for a targeted quality rerun.")
     ap.add_argument("--no-upload",action="store_true"); ap.add_argument("--no-upload-outputs",action="store_true")
     args=ap.parse_args()
+    if args.focused_quality:
+        args.skip_speculative = True
+        if args.skip_4b:
+            ap.error("--focused-quality requires the 4B comparison; do not combine with --skip-4b")
     if not 1<=args.repeats<=10: ap.error("--repeats must be 1..10")
     run_id=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"_"+uuid.uuid4().hex[:6]
     outdir=(args.output_dir or (Path.home()/"Downloads"/"vce_text_llm_benchmarks"/run_id)).expanduser().resolve(); outdir.mkdir(parents=True,exist_ok=True)
@@ -548,9 +567,12 @@ def main():
         input_hash=hashlib.sha256(json.dumps(segments,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         if not importlib.util.find_spec("mlx_vlm"): raise RuntimeError("mlx-vlm не импортируется. Активируйте venv VideoContext Engine, затем запустите скрипт.")
         mod=load_source(outdir)
-        variants=[("baseline",MODEL9,{}),("A_thinking_off",MODEL9,{"thinking_off":True}),("B_fast_summary",MODEL9,{"fast":True}),("C_compact_context",MODEL9,{"compact":True})]
+        variants=benchmark_variants(args.focused_quality)
         runs={}; outputs={}; flat=[]
-        print("[4/6] Baseline + A/B/C: одинаковые исходные сцены, по",args.repeats,"повтора.")
+        if args.focused_quality:
+            print("[4/6] Focused quality: baseline + B_fast_summary; A/C/E пропускаются, затем B сравнивается с 4B.")
+        else:
+            print("[4/6] Baseline + A/B/C: одинаковые исходные сцены, по",args.repeats,"повтора.")
         for name,model,flags in variants:
             runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
@@ -600,7 +622,7 @@ def main():
             deltas[name]={"reference_variant":ref,**delta(agg.get(ref,{}).get("total_seconds_median"),row.get("total_seconds_median"))}
         manifest={"run_id":run_id,"started_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),"video_basename":args.video.name if not args.input_json else source,
            "video_sha256":file_sha(args.video) if not args.input_json else None,"scene_count":len(segments),"repeats":args.repeats,"source_snapshot_sha":SOURCE_SHA,
-           "noise_threshold_pct":NOISE,"python":sys.version,"platform":platform.platform(),"machine":platform.machine(),"raw_video_and_vce_scene_payload_uploaded":False,"input_segments_sha256_local_only":input_hash}
+           "noise_threshold_pct":NOISE,"python":sys.version,"platform":platform.platform(),"machine":platform.machine(),"focused_quality_run":bool(args.focused_quality),"quality_guard_enabled":True,"raw_video_and_vce_scene_payload_uploaded":False,"input_segments_sha256_local_only":input_hash}
         doc={"manifest":manifest,"models":{"baseline":MODEL9,"4b":MODEL4,"speculative_target":MODEL9,"speculative_drafter":DRAFTER9},"aggregates":agg,"speed_deltas":deltas,
           "best_9b_variant_for_D_E":best,"speculative_decoding":speculative,"threshold_pct":NOISE,
           "quality_policy":{"timing_differences_within_5pct_are_noise":True,"manual_review_required":True},"runs":flat}
@@ -608,16 +630,16 @@ def main():
         outputs_doc={"manifest":{k:v for k,v in manifest.items() if k!="input_segments_sha256_local_only"},
           "warning":"Generated Text LLM outputs are published; raw video and raw scene/transcript/OCR input are not published.","outputs_by_variant":outputs}
         write_json(outdir/"metrics.local.json",doc); write_json(outdir/"metrics.json",public); write_json(outdir/"llm_outputs.json",outputs_doc)
-        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","error"]
+        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","quality_guard_repairs","error"]
         with csvpath.open("w",encoding="utf-8-sig",newline="") as f:
             w=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore"); w.writeheader(); w.writerows(flat)
-        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Selected 9B candidate for D/E: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
+        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Focused quality run: {bool(args.focused_quality)}",f"- Evidence-gated final-scene guard: enabled",f"- Selected 9B candidate for D/E: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
           "> Raw video and raw scene/transcript/OCR input remain local. Generated Text LLM outputs are uploaded separately.","",
-          "| Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Critical atom coverage |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+          "| Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Critical atom coverage | Guard-repaired runs |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for n,r in agg.items():
             def fmt(k):
                 v=r.get(k); return "—" if v is None else f"{v:.2f}"
-            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {fmt('critical_atom_coverage_median')} |")
+            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {fmt('critical_atom_coverage_median')} | {r.get('runs_with_quality_guard_repairs',0)} |")
         lines += ["","## Interpretation notes","",
           "- TTFT/prefill is stream start to first non-empty text chunk, a proxy rather than an internal MLX kernel timer.",
           "- Token counts use the model tokenizer when available; otherwise metrics mark a lexical estimate.",
