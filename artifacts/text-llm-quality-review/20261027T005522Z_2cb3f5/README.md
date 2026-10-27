@@ -1,53 +1,56 @@
-# Text LLM quality review bundle — 20261027T005522Z_2cb3f5
+# VCE Text LLM optimization review bundle
 
-This PR bundles the six historical benchmark variants and all 18 repeats, generated reports, corrected quality auditing, an evidence-gated final-scene guard, and a focused rerun mode.
+This PR preserves the original benchmark run, the focused baseline/B/D rerun, and all generated outputs, while refactoring the default quality tooling to be video-agnostic.
 
-- `benchmark/metrics.json`: measured runs, aggregates and speed deltas.
-- `benchmark/runs.csv`: tabular metrics for all 18 historical runs.
-- `benchmark/report.md`: original benchmark timing report.
-- `benchmark/llm_outputs.json`: generated output for every historical repetition.
-- `quality_review.md` / `quality_review.json`: quality findings and recommendations.
-- `tools/quality_check_text_llm_variants.py`: local quality audit, including scene completeness and cross-field grounding checks.
-- `patches/patch_vce_text_llm_quality_guard.py`: local engine patcher with `--dry-run`; preserves supported spoken claims with explicit audio attribution.
-- `tools/bench_text_llm_summary.py`: benchmark harness with `--focused-quality`, guard telemetry and the same v4 final-scene grounding logic.
-- `tests/test_vce_text_llm_quality_audit.py` / `tests/test_vce_text_llm_quality_guard.py`: regression tests.
+## Universal core versus optional diagnostics
 
-Historical run bundle: [20261027T005522Z_2cb3f5](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/tree/main/artifacts/text-llm-benchmarks/20261027T005522Z_2cb3f5).
+The default audit profile is **generic** and contains no knowledge of a particular video's subject, brand, title card, domain terminology or claim vocabulary.
 
-## Latest focused rerun and next step
+The generic checks validate:
+- output JSON/required VCE output fields,
+- scene IDs, duplicates, unexpected IDs and complete \`scene_enrichment\` coverage,
+- timestamp shape/deviation where timestamps are present,
+- empty required text, Unicode replacement characters and control-character corruption,
+- source scene data preservation, JSON repair/token-cap measurements and benchmark timing.
 
-The latest focused rerun is already published at [20261027T031718Z_607e6e](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/tree/main/artifacts/text-llm-benchmarks/20261027T031718Z_607e6e). Timing medians: baseline 81.713 s, B/9B Fast Summary 59.999 s, D/4B Fast Summary 42.244 s. All 9 runs had valid JSON and all 14 scene-enrichment entries. The v3 guard repaired final-scene content in all 9 outputs. D is the speed leader, but this run remains quality-HOLD because some summaries do not attribute the claimed collision result to speech, and D repeat 3 has the suspicious topic `АИ ИИ ПОМОЩНИК`.
+\`key_points\` remains a selective list of report theses. A scene does not need to be referenced by a key point when it has a valid \`scene_enrichment\` entry. This follows the VCE output schema and is not tied to a particular video.
 
-**Do not repeat the model run yet.** The next step is a cheap local audit of the existing outputs against the private source JSON:
+Generic mode deliberately does **not** claim to understand semantic correctness. It reports that domain/semantic grounding was not evaluated, so a clean schema is not an automatic quality approval. A real semantic judge should compare the generated claims against each scene's transcript/OCR/visual evidence, rather than deciding by matching words such as “collision” or “THE END”.
 
-```bash
-curl -fL --retry 3 \
-  "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/review/text-llm-quality-bundle-20261027/tools/quality_check_text_llm_variants.py" \
+Any dataset-specific lexical diagnostics are opt-in via \`--profile nsr-case-study\`; they are used only to reproduce the earlier NSR example and must not be treated as rules for other videos. The production guard and benchmark validator are now non-mutating: they report schema/text-integrity flags and do not rewrite generated prose based on a handful of hard-coded keywords.
+
+## Files in this review
+
+- \`benchmark/metrics.json\`, \`benchmark/runs.csv\`, \`benchmark/report.md\`, \`benchmark/llm_outputs.json\`: original benchmark data for all 18 A–E runs.
+- \`quality_review.md\` and \`quality_review.json\`: historical quality analysis and correction log.
+- \`focused_run_review.md\` and \`focused_run_review.json\`: the focused baseline/B/D run and manual observations.
+- \`tools/quality_check_text_llm_variants.py\`: generic-by-default local audit. It requires explicit \`--results-dir\` and \`--source-json\`; it writes audit output locally.
+- \`patches/patch_vce_text_llm_quality_guard.py\`: safe patcher for the non-mutating generic VCE integrity validator, including \`--dry-run\`.
+- \`tools/bench_text_llm_summary.py\`: benchmark harness; \`--focused-quality\` compares baseline 9B, Fast Summary 9B and Fast Summary 4B without repeating video analysis.
+- \`tests/test_vce_text_llm_quality_audit.py\` and \`tests/test_vce_text_llm_quality_guard.py\`: regression tests for generic behavior and optional diagnostics.
+
+## Run the generic audit on any completed benchmark
+
+Provide the paths for the video being audited. Example using the current local run:
+
+\`\`\`bash
+curl -fL --retry 3 \\
+  "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/review/text-llm-quality-bundle-20261027/tools/quality_check_text_llm_variants.py" \\
   -o /tmp/quality_check_text_llm_variants.py
 
-"$HOME/VideoContext-Engine/.venv/bin/python" /tmp/quality_check_text_llm_variants.py \
-  --results-dir "$HOME/Downloads/vce_text_llm_benchmarks/20261027T031718Z_607e6e" \
+"$HOME/VideoContext-Engine/.venv/bin/python" /tmp/quality_check_text_llm_variants.py \\
+  --results-dir "$HOME/Downloads/vce_text_llm_benchmarks/20261027T031718Z_607e6e" \\
   --source-json "$HOME/Downloads/NSR Specification/Новые модули NSR Specification автоматизация проектирования _context.json"
-```
+\`\`\`
 
-The audit writes `quality_audit.md` and `quality_audit.json` into the local result directory. It now blocks cross-field contradictions between a closing title and un-attributed result claims, and flags the observed OCR-like topic. Keep the source JSON on the Mac.
+These paths are only arguments for this example. The checker has no hard-coded default video or source JSON. For the optional sample-specific diagnostics, explicitly add \`--profile nsr-case-study\`.
 
-The next model experiment, after reviewing that audit, should use the latest harness v4. It compares baseline, B/9B and D/4B only, reuses the existing local VCE context JSON and avoids rerunning Qwen3-VL video analysis:
+## Historical timing results
 
-```bash
-curl -fL --retry 3 \
-  "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/review/text-llm-quality-bundle-20261027/tools/bench_text_llm_summary.py" \
-  -o /tmp/bench_text_llm_summary.py
+The focused run [20261027T031718Z_607e6e](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/tree/main/artifacts/text-llm-benchmarks/20261027T031718Z_607e6e) recorded median times of 81.713 s for baseline 9B, 59.999 s for Fast Summary 9B, and 42.244 s for Fast Summary 4B. All 9 runs succeeded with valid JSON and all 14 scene-enrichment entries.
 
-"$HOME/VideoContext-Engine/.venv/bin/python" /tmp/bench_text_llm_summary.py --version
-```
+Those timings remain useful, but the run used an earlier content-rewriting guard and is not evidence that a generic non-mutating guard or any candidate is already production-approved. The 5.33% old atom-coverage metric is a domain-specific heuristic, not an actual quality percentage.
 
-By default, benchmark metrics and generated model outputs upload to the repository's `main` branch. Add `--no-upload` for a local-only run.
+## Privacy
 
-## Historical findings
-
-- Baseline remains the control; it is not automatically certified as semantically correct.
-- B/Fast Summary is 26.6% faster than the latest baseline in the focused rerun.
-- D/4B is 48.3% faster than baseline and 29.6% faster than B, but factual attribution still needs work.
-- All three candidates had a guard repair in each run. The current `critical_atom_coverage` proxy was only 5.33% for every variant and must not be read as a direct quality score; it can count OCR debris, identifiers and time values.
-- The raw source video and original source-scene/transcript/OCR payload are excluded. Generated Text LLM outputs are included and should be treated as potentially sensitive derived content.
+The original video and source scene/transcript/OCR payload are not included. Generated report outputs are included as derived artifacts; treat them as potentially sensitive. The local checker never uploads the source JSON.
