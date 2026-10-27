@@ -14,10 +14,10 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.3-focused-quality"
+SCRIPT_VERSION = "2026.10.27.4-grounded-final-scene"
 
 def repair_final_scene_artifacts(payload, segments, state=None):
-    """Grounded cleanup of corrupted final-card output, never using inferred facts."""
+    """Repair final-scene corruption/conflicting visual claims using source evidence."""
     if not isinstance(payload, dict) or not isinstance(segments, list) or not segments:
         return payload
     valid = []
@@ -36,13 +36,20 @@ def repair_final_scene_artifacts(payload, segments, state=None):
     _end, _start, last_id, last_scene = max(valid, key=lambda item: (item[0], item[1], item[2]))
     ocr = str(last_scene.get("ocr_text") or "")
     visual = str(last_scene.get("visual_description") or "")
+    audio = re.sub(r"\s+", " ", str(last_scene.get("audio_transcript") or "")).strip()
     visible_source = ocr + "\n" + visual
     marker = re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visible_source)
     if marker is None:
         return payload
     title = "THE END" if re.search(r"(?i)\bTHE\s+END\b", marker.group(0)) else "КОНЕЦ"
-    clean_text = f"Финальная заставка с текстом «{title}»."
+    clean_title = f"Финальная заставка с текстом «{title}»."
+    visual_title = f"Визуально показана финальная заставка «{title}»."
     corrupt_re = re.compile(r"(?i)\bAND\s+JU\b|\bNC\s+END\b|(?<!\w)D_(?!\w)")
+    result_re = re.compile(r"(?i)\b(?:коллиз\w*|несоответств\w*|не\s+соответств\w*|наруш\w*|превыш\w*|mismatch\w*|collision\w*)\b")
+    audio_supports_result = bool(audio and result_re.search(audio))
+    audio_quote = audio
+    if len(audio_quote) > 240:
+        audio_quote = audio_quote[:237].rsplit(" ", 1)[0].rstrip() + "…"
     channels = []
     if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", ocr):
         channels.append("ocr")
@@ -50,6 +57,13 @@ def repair_final_scene_artifacts(payload, segments, state=None):
         channels.append("visual")
     if not channels:
         return payload
+
+    if audio_supports_result:
+        safe_description = f"В аудио сообщается: «{audio_quote}». {visual_title}"
+        safe_points = [f"В аудио говорится: «{audio_quote}».", visual_title]
+    else:
+        safe_description = clean_title
+        safe_points = [f"Видео завершается финальной заставкой «{title}»."]
 
     before = json.dumps(payload, ensure_ascii=False, sort_keys=True)
     points = payload.get("key_points")
@@ -62,10 +76,19 @@ def repair_final_scene_artifacts(payload, segments, state=None):
             except (TypeError, ValueError):
                 continue
             text = str(point.get("text") or point.get("description") or "")
-            if sid == last_id and corrupt_re.search(text):
-                point["text"] = clean_text
-                point.pop("description", None)
-                point["evidence"] = list(channels)
+            has_bad_fragment = bool(corrupt_re.search(text))
+            claims_result = bool(result_re.search(text))
+            evidence = point.get("evidence") if isinstance(point.get("evidence"), list) else []
+            visual_only = bool(set(map(str, evidence)) & {"visual", "ocr"}) and "speech" not in evidence
+            should_rewrite = sid == last_id and (has_bad_fragment or (claims_result and (not audio_supports_result or visual_only)))
+            if not should_rewrite:
+                continue
+            point["text"] = safe_description
+            point.pop("description", None)
+            new_evidence = list(channels)
+            if audio_supports_result and "speech" not in new_evidence:
+                new_evidence.insert(0, "speech")
+            point["evidence"] = new_evidence
 
     enrichment = payload.get("scene_enrichment")
     if isinstance(enrichment, list):
@@ -82,15 +105,22 @@ def repair_final_scene_artifacts(payload, segments, state=None):
             child_points = item.get("key_points")
             if isinstance(child_points, list):
                 fields.extend(str(value or "") for value in child_points)
-            if any(corrupt_re.search(field) for field in fields):
-                item["topic"] = "Завершение видео"
-                item["improved_description"] = clean_text
-                item["key_points"] = [f"Видео завершается финальной заставкой «{title}»."]
+            combined = "\n".join(fields)
+            has_bad_fragment = bool(corrupt_re.search(combined))
+            claims_result = bool(result_re.search(combined))
+            mentions_closing_title = bool(re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", combined))
+            should_rewrite = has_bad_fragment or claims_result or (not mentions_closing_title and not combined.strip())
+            if not should_rewrite:
+                continue
+            item["topic"] = "Завершение видео"
+            item["improved_description"] = safe_description
+            item["key_points"] = safe_points
 
     if state is not None and json.dumps(payload, ensure_ascii=False, sort_keys=True) != before:
         state.quality_guard_repairs += 1
-        print("🛡️ [Benchmark quality guard] corrected a corrupt final-card fragment using source evidence.")
+        print("🛡️ [Benchmark quality guard] normalized the final scene against title/audio evidence.")
     return payload
+
 
 
 def write_json(path, value):
