@@ -14,7 +14,84 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.1-ssl-fix"
+SCRIPT_VERSION = "2026.10.27.2-quality-guard"
+
+def repair_final_scene_artifacts(payload, segments, state=None):
+    """Grounded cleanup of corrupted final-card output, never using inferred facts."""
+    if not isinstance(payload, dict) or not isinstance(segments, list) or not segments:
+        return payload
+    valid = []
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        try:
+            sid = int(segment.get("scene_id", index + 1))
+            start = float(segment.get("start", 0) or 0)
+            end = float(segment.get("end", start) or start)
+        except (TypeError, ValueError):
+            continue
+        valid.append((end, start, sid, segment))
+    if not valid:
+        return payload
+    _end, _start, last_id, last_scene = max(valid, key=lambda item: (item[0], item[1], item[2]))
+    ocr = str(last_scene.get("ocr_text") or "")
+    visual = str(last_scene.get("visual_description") or "")
+    visible_source = ocr + "\n" + visual
+    marker = re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visible_source)
+    if marker is None:
+        return payload
+    title = "THE END" if re.search(r"(?i)\bTHE\s+END\b", marker.group(0)) else "КОНЕЦ"
+    clean_text = f"Финальная заставка с текстом «{title}»."
+    corrupt_re = re.compile(r"(?i)\bAND\s+JU\b|\bNC\s+END\b|(?<!\w)D_(?!\w)")
+    channels = []
+    if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", ocr):
+        channels.append("ocr")
+    if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visual):
+        channels.append("visual")
+    if not channels:
+        return payload
+
+    before = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    points = payload.get("key_points")
+    if isinstance(points, list):
+        for point in points:
+            if not isinstance(point, dict):
+                continue
+            try:
+                sid = int(point.get("scene_id"))
+            except (TypeError, ValueError):
+                continue
+            text = str(point.get("text") or point.get("description") or "")
+            if sid == last_id and corrupt_re.search(text):
+                point["text"] = clean_text
+                point.pop("description", None)
+                point["evidence"] = list(channels)
+
+    enrichment = payload.get("scene_enrichment")
+    if isinstance(enrichment, list):
+        for item in enrichment:
+            if not isinstance(item, dict):
+                continue
+            try:
+                sid = int(item.get("scene_id"))
+            except (TypeError, ValueError):
+                continue
+            if sid != last_id:
+                continue
+            fields = [str(item.get("topic") or ""), str(item.get("improved_description") or "")]
+            child_points = item.get("key_points")
+            if isinstance(child_points, list):
+                fields.extend(str(value or "") for value in child_points)
+            if any(corrupt_re.search(field) for field in fields):
+                item["topic"] = "Завершение видео"
+                item["improved_description"] = clean_text
+                item["key_points"] = [f"Видео завершается финальной заставкой «{title}»."]
+
+    if state is not None and json.dumps(payload, ensure_ascii=False, sort_keys=True) != before:
+        state.quality_guard_repairs += 1
+        print("🛡️ [Benchmark quality guard] corrected a corrupt final-card fragment using source evidence.")
+    return payload
+
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -129,7 +206,7 @@ class State:
         self.ttft=None; self.decode=0.; self.wall=0.; self.out_tokens=0; self.out_text=[]; self.calls=[]; self.repair=0; self.parse_fail=0
         self.stream_calls=0; self.generate_calls=0; self.fallback=0; self.stream_error=0; self.thinking_fallback=False; self.json_repair_helper=0
         self.prompt_rewrite=None; self.template_thinking=None; self.stream_thinking=None; self.primary_raw=""; self.result=None; self.error=None; self.drafter=None; self.draft_kind=None
-        self.compact_info={}; self.draft_load=0.
+        self.compact_info={}; self.draft_load=0.; self.quality_guard_repairs=0
 
 def function_supported(fn,key):
     try:
@@ -152,6 +229,7 @@ def load_source(outdir):
       ("        limits = (600, 650, 650)","        BENCH.prompt_started = time.perf_counter()\n        limits = (600, 650, 650)"),
       ("        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output.","        BENCH.prompt += max(0.0,time.perf_counter()-(BENCH.prompt_started or time.perf_counter()))\n        BENCH.prompt_text = instruction\n        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output."),
       ("        try:\n            parsed = _text_llm_parse_json(raw)","        BENCH.primary_raw = raw\n        try:\n            parsed = _text_llm_parse_json(raw)"),
+      ("        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)","        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n        parsed = BENCH_quality_guard(parsed, segments)"),
     ]
     for old,new in patches:
         if fn.count(old)!=1: raise RuntimeError("Unexpected source snapshot: expected exactly one patch point: "+old[:70])
@@ -176,6 +254,7 @@ def install_hooks(mod, state):
     s_draft=function_supported(real_stream,"draft_model"); s_draft_kind=function_supported(real_stream,"draft_kind")
     g_think=function_supported(real_gen,"enable_thinking")
     mod.BENCH=state
+    mod.BENCH_quality_guard = lambda payload, segments: repair_final_scene_artifacts(payload, segments, state=state)
     def wload(*a,**k):
         t=time.perf_counter(); value=real_load(*a,**k); state.load+=time.perf_counter()-t
         try: state.processor=value[1]
@@ -391,7 +470,7 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
           "generate_calls":st.generate_calls,"stream_errors":st.stream_error,"nonstream_fallbacks":st.fallback,"json_repair_passes":st.repair,"json_repair_helper_calls":st.json_repair_helper,
           "json_parse_failures":st.parse_fail,"json_parse_seconds":round(st.parse,4),"reconciliation_seconds":round(st.reconcile,4),
           "primary_raw_json_parseable":isinstance(raw_obj,dict),"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
-          "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,
+          "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,"quality_guard_repairs":st.quality_guard_repairs,
           "quality":q,"call_metrics":st.calls}
         result_out=st.result or {}
         st.processor=None; st.drafter=None
