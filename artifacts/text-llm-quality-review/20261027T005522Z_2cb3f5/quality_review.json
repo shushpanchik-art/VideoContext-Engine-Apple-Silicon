@@ -1,0 +1,230 @@
+{
+  "title": "VCE Text LLM quality-first review — corrected scene contract",
+  "run_id": "20261027T005522Z_2cb3f5",
+  "source_video": "🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4",
+  "source_scene_count": 14,
+  "repeats_per_variant": 3,
+  "audit_script_version": "2026.10.27.3-scene-enrichment-gate",
+  "policy": "quality_gate_first_speed_tiebreak_only",
+  "caveats": [
+    "This structured review uses direct inspection of the stored generated outputs plus timing metrics. It is not a semantic truth oracle.",
+    "The earlier audit incorrectly treated every source scene as mandatory in key_points. The engine schema defines key_points as selected theses and requires per-scene coverage in scene_enrichment instead.",
+    "All 18 stored outputs contain 14 unique scene_enrichment entries covering scene IDs 1-14.",
+    "The source video and raw source-scene/transcript/OCR payload are excluded."
+  ],
+  "all_runs_scene_enrichment_check": {
+    "outputs_checked": 18,
+    "expected_scene_count": 14,
+    "outputs_with_all_unique_scene_enrichments": 18,
+    "outputs_missing_scene_enrichment_ids": 0,
+    "missing_or_duplicate_ids": []
+  },
+  "variants": {
+    "baseline": {
+      "status": "REVIEW",
+      "median_seconds": 84.1543,
+      "comparison": "reference",
+      "repeats": 3,
+      "key_points_count": [
+        14,
+        14,
+        14
+      ],
+      "scene_enrichment_count": [
+        14,
+        14,
+        14
+      ],
+      "corrupted_fragments": {
+        "and_ju": 0,
+        "nc_end": 0,
+        "d_underscore": 0
+      },
+      "blockers": [],
+      "manual_review_notes": [
+        "No known garbled fragments AND JU, NC END or D_ in stored outputs.",
+        "Review factual claims and source grounding before treating baseline as production-approved."
+      ]
+    },
+    "A_thinking_off": {
+      "status": "HOLD",
+      "median_seconds": 73.4585,
+      "improvement_vs_baseline_pct": 12.71,
+      "repeats": 3,
+      "key_points_count": [
+        14,
+        14,
+        14
+      ],
+      "scene_enrichment_count": [
+        14,
+        14,
+        14
+      ],
+      "corrupted_fragments": {
+        "and_ju": 2,
+        "nc_end": 0,
+        "d_underscore": 0
+      },
+      "blockers": [
+        "Garbled scene-14 key point AND JU in 2 of 3 repeats"
+      ],
+      "manual_review_notes": [
+        "Do not adopt until the final-scene text is corrected and all repeats pass."
+      ]
+    },
+    "B_fast_summary": {
+      "status": "HOLD",
+      "median_seconds": 59.0107,
+      "improvement_vs_baseline_pct": 29.878,
+      "repeats": 3,
+      "key_points_count": [
+        14,
+        13,
+        14
+      ],
+      "scene_enrichment_count": [
+        14,
+        14,
+        14
+      ],
+      "corrupted_fragments": {
+        "and_ju": 2,
+        "nc_end": 3,
+        "d_underscore": 3
+      },
+      "blockers": [
+        "Garbled scene-14 key point AND JU in 2 of 3 repeats",
+        "Suspicious D_ / NC END fragments in scene-14 enrichment in all 3 repeats"
+      ],
+      "manual_review_notes": [
+        "One repeat has 13 selected key_points, but this is not itself a missing-scene blocker because scene_enrichment still covers all 14 scenes.",
+        "One summary overstates visual confirmation of the technical verification result."
+      ]
+    },
+    "C_compact_context": {
+      "status": "HOLD",
+      "median_seconds": 81.3071,
+      "improvement_vs_baseline_pct": 3.383,
+      "repeats": 3,
+      "key_points_count": [
+        14,
+        14,
+        14
+      ],
+      "scene_enrichment_count": [
+        14,
+        14,
+        14
+      ],
+      "corrupted_fragments": {
+        "and_ju": 2,
+        "nc_end": 0,
+        "d_underscore": 0
+      },
+      "evidence_chars_removed_approx": [
+        0,
+        0,
+        0
+      ],
+      "blockers": [
+        "Garbled scene-14 key point AND JU in 2 of 3 repeats"
+      ],
+      "manual_review_notes": [
+        "Context compaction did not remove any evidence characters; speed delta is within the 5% noise band."
+      ]
+    },
+    "D_Qwen3_5_4B_vs_B_fast_summary": {
+      "status": "HOLD",
+      "median_seconds": 42.4032,
+      "improvement_vs_B_pct": 28.143,
+      "improvement_vs_baseline_pct": 49.614,
+      "repeats": 3,
+      "key_points_count": [
+        14,
+        14,
+        13
+      ],
+      "scene_enrichment_count": [
+        14,
+        14,
+        14
+      ],
+      "corrupted_fragments": {
+        "and_ju": 0,
+        "nc_end": 3,
+        "d_underscore": 3
+      },
+      "blockers": [
+        "Suspicious D_ / NC END fragments in scene-14 enrichment in all 3 repeats"
+      ],
+      "manual_review_notes": [
+        "This is the strongest latency candidate but not yet a quality winner.",
+        "One repeat has 13 selected key_points, which is informational when all per-scene enrichments are present.",
+        "Inspect the final-scene enrichment and remove OCR-like artifacts only when the source frame supports a clean closing-title description."
+      ]
+    },
+    "E_speculative_vs_B_fast_summary": {
+      "status": "HOLD",
+      "median_seconds": 132.558,
+      "improvement_vs_B_pct": -124.634,
+      "repeats": 3,
+      "key_points_count": [
+        8,
+        8,
+        14
+      ],
+      "scene_enrichment_count": [
+        14,
+        14,
+        14
+      ],
+      "corrupted_fragments": {
+        "and_ju": 1,
+        "nc_end": 3,
+        "d_underscore": 3
+      },
+      "primary_output_tokens": [
+        4096,
+        4096,
+        4096
+      ],
+      "json_parse_failures": [
+        1,
+        1,
+        1
+      ],
+      "json_repair_passes": [
+        1,
+        1,
+        1
+      ],
+      "blockers": [
+        "Primary output reached the 4096-token cap in all 3 repeats",
+        "JSON parse failure and repair occurred in all 3 repeats",
+        "Garbled or suspicious scene-14 text is present in stored outputs"
+      ],
+      "manual_review_notes": [
+        "Current speculative decoding configuration is slower than B and unstable; do not spend further runs on it yet."
+      ]
+    }
+  },
+  "recommendations": [
+    "Keep baseline as the comparison control, not as an automatic quality approval.",
+    "Fix or explicitly filter the scene-14 corruption markers before re-running fast variants.",
+    "After the integrity fix, re-test D/4B first because its median latency is 42.4032 s.",
+    "Re-test B/9B Fast Summary only after it no longer emits corrupted final-scene text or unsupported visual claims.",
+    "Do not re-run C until the compact-context transform is shown to remove actual evidence characters.",
+    "Exclude E in the current configuration."
+  ],
+  "current_tooling_design": {
+    "universal_default": true,
+    "generic_profile": "Checks VCE output schema, scene IDs, scene_enrichment coverage, timestamp shape where present, JSON repair/token-cap indicators and basic text encoding/control characters.",
+    "sample_specific_diagnostics": "Opt-in only via --profile nsr-case-study; not used as global acceptance rules.",
+    "content_rewrite_guard": "Non-mutating. It flags generic schema/integrity problems and does not rewrite user-facing text based on keywords, domain terms, title-card strings or model-specific assumptions.",
+    "semantic_grounding": "Not automatically evaluated by generic structural checks. Use source-aware semantic review/model judge that is evaluated for each video's own transcript/OCR/visual evidence.",
+    "checker_version": "2026.10.27.6-universal-default",
+    "benchmark_version": "2026.10.27.5-universal-guard",
+    "note": "Historical findings below refer to one sample/run and must not be interpreted as universal rules for arbitrary videos."
+  }
+}

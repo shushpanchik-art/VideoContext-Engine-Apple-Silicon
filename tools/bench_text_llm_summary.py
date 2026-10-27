@@ -14,11 +14,159 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.1-ssl-fix"
+SCRIPT_VERSION = "2026.10.27.8-invalid-raw-json-provenance"
+
+def validate_text_llm_payload(payload, segments, state=None):
+    """Generic schema/integrity check. Deliberately does not rewrite generated content."""
+    flags = []
+    if not isinstance(payload, dict):
+        flags.append("output_not_json_object")
+        if state is not None:
+            state.quality_guard_flags += len(flags)
+        print("⚠️ [Benchmark integrity guard] Output is not a JSON object; content not rewritten.")
+        return payload
+    expected_ids = set()
+    if isinstance(segments, list):
+        for index, segment in enumerate(segments):
+            if not isinstance(segment, dict):
+                flags.append(f"source_scene[{index}]_not_object")
+                continue
+            try:
+                expected_ids.add(int(segment.get("scene_id", index + 1)))
+            except (TypeError, ValueError):
+                flags.append(f"source_scene[{index}]_invalid_id")
+
+    for field, require_all in (("key_points", False), ("scene_enrichment", True)):
+        records = payload.get(field)
+        if not isinstance(records, list):
+            flags.append(f"{field}_not_array")
+            continue
+        ids = []
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                flags.append(f"{field}[{index}]_not_object")
+                continue
+            try:
+                ids.append(int(record.get("scene_id")))
+            except (TypeError, ValueError):
+                flags.append(f"{field}[{index}]_invalid_scene_id")
+        if len(ids) != len(set(ids)):
+            flags.append(f"{field}_duplicate_scene_ids")
+        unexpected = sorted(set(ids) - expected_ids)
+        if unexpected:
+            flags.append(f"{field}_unexpected_scene_ids:{unexpected}")
+        if require_all:
+            missing = sorted(expected_ids - set(ids))
+            if missing:
+                flags.append(f"{field}_missing_scene_ids:{missing}")
+
+    summary = payload.get("executive_summary")
+    if not isinstance(summary, str) or not summary.strip():
+        flags.append("executive_summary_empty_or_missing")
+    for field in ("topics", "entities", "uncertainties"):
+        if not isinstance(payload.get(field), list):
+            flags.append(f"{field}_not_array")
+
+    texts = [summary] if isinstance(summary, str) else []
+    for field in ("topics", "entities", "uncertainties"):
+        values = payload.get(field)
+        if isinstance(values, list):
+            texts.extend(item if isinstance(item, str) else str(item) for item in values)
+    for field in ("key_points", "scene_enrichment"):
+        values = payload.get(field)
+        if isinstance(values, list):
+            for item in values:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("text", "description", "topic", "improved_description"):
+                    if isinstance(item.get(key), str):
+                        texts.append(item[key])
+                child = item.get("key_points")
+                if isinstance(child, list):
+                    texts.extend(str(value) for value in child)
+    for index, value in enumerate(texts):
+        if "\ufffd" in value:
+            flags.append(f"text[{index}]_unicode_replacement_character")
+        if any(ord(char) < 32 and char not in "\n\r\t" for char in value):
+            flags.append(f"text[{index}]_control_character")
+
+    if state is not None:
+        state.quality_guard_flags += len(flags)
+    if flags:
+        print(f"⚠️ [Benchmark integrity guard] {len(flags)} generic integrity flags; generated content was not rewritten.")
+    return payload
+
+
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+def sanitize_primary_model_output_text(primary_raw: str | None) -> str | None:
+    """Retain diagnostic text while removing private complete or unclosed think blocks."""
+    if not isinstance(primary_raw, str) or not primary_raw.strip():
+        return None
+    raw = re.sub(r"<think\b[^>]*>.*?</think\s*>", "", primary_raw, flags=re.I | re.S)
+    # If generation stopped inside a think block, discard its unfinished tail too.
+    raw = re.sub(r"<think\b[^>]*>.*\Z", "", raw, flags=re.I | re.S)
+    return raw.strip() or None
+
+def parse_primary_model_output_details(primary_raw: str | None) -> tuple[dict | None, str, str | None]:
+    """Return parsed JSON plus a content-free parse status/diagnostic."""
+    raw = sanitize_primary_model_output_text(primary_raw)
+    if raw is None:
+        return None, "empty", None
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed, "parsed_json_object", None
+        return None, "non_object_json", None
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", raw, flags=re.S)
+        if not match:
+            return None, "invalid_json", "no_json_object_found"
+        try:
+            parsed = json.loads(match.group(0))
+        except json.JSONDecodeError as exc:
+            return None, "invalid_json", f"JSONDecodeError line {exc.lineno} column {exc.colno}"
+        if isinstance(parsed, dict):
+            return parsed, "parsed_json_object", None
+        return None, "non_object_json", None
+    except Exception as exc:
+        # Keep diagnostics useful without serializing model content into error messages.
+        return None, "invalid_json", type(exc).__name__
+
+def parse_primary_model_output(primary_raw: str | None) -> dict | None:
+    """Compatibility wrapper returning only a parsed object, never private think text."""
+    return parse_primary_model_output_details(primary_raw)[0]
+
+def build_output_record(iteration, output, raw_model_output, metrics, raw_model_output_text=None):
+    """Keep sanitized primary text, parsed model JSON, and finalized VCE payload distinct."""
+    return {
+        "iteration": iteration,
+        "output": output,
+        "finalized_output_available": bool(metrics.get("success", isinstance(output, dict)) and isinstance(output, dict)),
+        "raw_model_output": raw_model_output,
+        "raw_model_output_text": raw_model_output_text,
+        "raw_model_output_parse_status": metrics.get("raw_model_output_parse_status", "not_recorded"),
+        "raw_model_output_parse_diagnostic": metrics.get("raw_model_output_parse_diagnostic"),
+        "output_provenance": {
+            "output": "vce_finalized_payload_after_postprocess",
+            "raw_model_output": "parsed_primary_model_json_before_vce_finalize",
+            "raw_model_output_text": "sanitized_primary_generation_text_without_private_think_blocks",
+            "raw_model_output_parse_status": metrics.get("raw_model_output_parse_status", "not_recorded"),
+            "raw_model_output_parseable": isinstance(raw_model_output, dict),
+            "raw_model_output_text_retained": isinstance(raw_model_output_text, str),
+            "raw_model_output_text_characters": len(raw_model_output_text) if isinstance(raw_model_output_text, str) else 0,
+            "prompt_rewrite_applied": metrics.get("prompt_rewrite_ok"),
+            "raw_scene_enrichment_count": metrics.get("generated_scene_enrichment_count"),
+            "raw_scene_enrichment_empty": metrics.get("generated_scene_enrichment_empty"),
+        },
+        "metrics": {
+            key: metrics.get(key)
+            for key in ("total_seconds", "output_tokens", "decode_tokens_per_second")
+        },
+    }
 
 def file_sha(path):
     h=hashlib.sha256()
@@ -129,7 +277,7 @@ class State:
         self.ttft=None; self.decode=0.; self.wall=0.; self.out_tokens=0; self.out_text=[]; self.calls=[]; self.repair=0; self.parse_fail=0
         self.stream_calls=0; self.generate_calls=0; self.fallback=0; self.stream_error=0; self.thinking_fallback=False; self.json_repair_helper=0
         self.prompt_rewrite=None; self.template_thinking=None; self.stream_thinking=None; self.primary_raw=""; self.result=None; self.error=None; self.drafter=None; self.draft_kind=None
-        self.compact_info={}; self.draft_load=0.
+        self.compact_info={}; self.draft_load=0.; self.quality_guard_flags=0
 
 def function_supported(fn,key):
     try:
@@ -152,6 +300,7 @@ def load_source(outdir):
       ("        limits = (600, 650, 650)","        BENCH.prompt_started = time.perf_counter()\n        limits = (600, 650, 650)"),
       ("        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output.","        BENCH.prompt += max(0.0,time.perf_counter()-(BENCH.prompt_started or time.perf_counter()))\n        BENCH.prompt_text = instruction\n        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output."),
       ("        try:\n            parsed = _text_llm_parse_json(raw)","        BENCH.primary_raw = raw\n        try:\n            parsed = _text_llm_parse_json(raw)"),
+      ("        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)","        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n        parsed = BENCH_quality_guard(parsed, segments)"),
     ]
     for old,new in patches:
         if fn.count(old)!=1: raise RuntimeError("Unexpected source snapshot: expected exactly one patch point: "+old[:70])
@@ -176,6 +325,7 @@ def install_hooks(mod, state):
     s_draft=function_supported(real_stream,"draft_model"); s_draft_kind=function_supported(real_stream,"draft_kind")
     g_think=function_supported(real_gen,"enable_thinking")
     mod.BENCH=state
+    mod.BENCH_quality_guard = lambda payload, segments: validate_text_llm_payload(payload, segments, state=state)
     def wload(*a,**k):
         t=time.perf_counter(); value=real_load(*a,**k); state.load+=time.perf_counter()-t
         try: state.processor=value[1]
@@ -311,24 +461,54 @@ def evidence(segments, summary):
     return "\n".join(vals)
 
 def audit(result, segments, summary, unchanged):
-    if not isinstance(result,dict): return {"valid_json_object":False,"valid_scene_ids":False,"source_segments_unmodified":unchanged,"critical_atom_coverage":None}
-    valid={int(s.get("scene_id",0) or 0) for s in segments}; invalid=[]
-    for key in ("key_points","scene_enrichment"):
-        for x in result.get(key,[]) if isinstance(result.get(key),list) else []:
-            if isinstance(x,dict) and x.get("scene_id") is not None:
-                try:
-                    if int(x["scene_id"]) not in valid: invalid.append(x.get("scene_id"))
-                except Exception: invalid.append(x.get("scene_id"))
-    src=evidence(segments,summary)
-    atoms=set(re.findall(r"(?i)\b(?:ГОСТ|СП|СНиП|ISO|IEC|EN|DIN|ASTM)\s*[-№:]?\s*[0-9A-ZА-ЯЁ./_-]+",src))
-    atoms.update(x for x in re.findall(r"\b(?=[A-Za-zА-Яа-яЁё0-9._/-]*\d)[A-Za-zА-Яа-яЁё0-9][A-Za-zА-Яа-яЁё0-9._/-]{1,}\b",src) if len(x)>2)
-    glob=json.dumps({k:result.get(k) for k in ("executive_summary","topics","key_points","entities","uncertainties")},ensure_ascii=False).casefold()
-    covered=[a for a in atoms if a.casefold() in glob]
-    nums=set(re.findall(r"(?<!\w)\d[\w./%-]*",glob)); evidence_nums=set(re.findall(r"(?<!\w)\d[\w./%-]*",src))
-    return {"valid_json_object":True,"valid_scene_ids":not invalid,"invalid_scene_ids":invalid,"source_segments_unmodified":unchanged,
-            "critical_atom_count":len(atoms),"critical_atom_coverage":len(covered)/len(atoms) if atoms else None,
-            "critical_atoms_missing_count":len(atoms)-len(covered),"unsupported_numeric_claims_proxy":sorted(nums-evidence_nums)[:100],
-            "manual_review_required":True}
+    """Universal structural checks only; semantics require source-aware review."""
+    if not isinstance(result, dict):
+        return {"valid_json_object": False, "valid_scene_ids": False,
+                "source_segments_unmodified": unchanged, "critical_atom_coverage": None}
+    valid = set()
+    for index, segment in enumerate(segments):
+        if not isinstance(segment, dict):
+            continue
+        try:
+            valid.add(int(segment.get("scene_id", index + 1)))
+        except (TypeError, ValueError):
+            pass
+    invalid = []
+    for key in ("key_points", "scene_enrichment"):
+        for item in result.get(key, []) if isinstance(result.get(key), list) else []:
+            if not isinstance(item, dict):
+                invalid.append(f"{key}:not_object")
+                continue
+            try:
+                if int(item.get("scene_id")) not in valid:
+                    invalid.append(item.get("scene_id"))
+            except (TypeError, ValueError):
+                invalid.append(item.get("scene_id"))
+    scene_ids = []
+    for item in result.get("scene_enrichment", []) if isinstance(result.get("scene_enrichment"), list) else []:
+        if isinstance(item, dict):
+            try:
+                scene_ids.append(int(item.get("scene_id")))
+            except (TypeError, ValueError):
+                pass
+    missing_scene_enrichment = sorted(valid - set(scene_ids))
+    duplicate_scene_enrichment = sorted({sid for sid in scene_ids if scene_ids.count(sid) > 1})
+    valid_text = isinstance(result.get("executive_summary"), str) and bool(result.get("executive_summary").strip())
+    return {
+        "valid_json_object": True,
+        "valid_scene_ids": not invalid and not missing_scene_enrichment and not duplicate_scene_enrichment,
+        "invalid_scene_ids": invalid,
+        "missing_scene_enrichment_ids": missing_scene_enrichment,
+        "duplicate_scene_enrichment_ids": duplicate_scene_enrichment,
+        "nonempty_executive_summary": valid_text,
+        "source_segments_unmodified": unchanged,
+        "critical_atom_count": None,
+        "critical_atom_coverage": None,
+        "critical_atoms_missing_count": None,
+        "unsupported_numeric_claims_proxy": [],
+        "semantic_grounding_checked": False,
+        "manual_review_required": True,
+    }
 
 def prepare_drafter(st,hooks):
     dm=hooks.get("draftmod"); stream=hooks.get("stream")
@@ -364,16 +544,9 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
         st.total=time.perf_counter()-locals().get("t",st.start)
         after=hashlib.sha256(json.dumps(segments,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         q=audit(st.result,segments,summary,before==after)
-        raw_obj=None
-        if st.primary_raw:
-            raw=re.sub(r"<think>.*?</think>","",st.primary_raw,flags=re.I|re.S).strip()
-            try: raw_obj=json.loads(raw)
-            except Exception:
-                m=re.search(r"\{.*\}",raw,flags=re.S)
-                if m:
-                    try: raw_obj=json.loads(m.group(0))
-                    except Exception: pass
-        raw_enrich=raw_obj.get("scene_enrichment") if isinstance(raw_obj,dict) else None
+        raw_model_output_text = sanitize_primary_model_output_text(st.primary_raw)
+        raw_obj, raw_parse_status, raw_parse_diagnostic = parse_primary_model_output_details(raw_model_output_text)
+        raw_enrich = raw_obj.get("scene_enrichment") if isinstance(raw_obj, dict) else None
         out_tokens=st.out_tokens; primary=next((c for c in st.calls if c.get("kind")=="stream"),None); rate=out_tokens/st.decode if st.decode>0 else None
         think_tokens=0
         for txt in st.out_text:
@@ -390,21 +563,21 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
           "thinking_off_requested":bool(flags.get("thinking_off")),"thinking_off_applied_both":bool(flags.get("thinking_off") and st.template_thinking is False and st.stream_thinking is False and not st.thinking_fallback),"thinking_fallback_used":st.thinking_fallback,"stream_calls":st.stream_calls,
           "generate_calls":st.generate_calls,"stream_errors":st.stream_error,"nonstream_fallbacks":st.fallback,"json_repair_passes":st.repair,"json_repair_helper_calls":st.json_repair_helper,
           "json_parse_failures":st.parse_fail,"json_parse_seconds":round(st.parse,4),"reconciliation_seconds":round(st.reconcile,4),
-          "primary_raw_json_parseable":isinstance(raw_obj,dict),"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
-          "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,
+          "primary_raw_json_parseable":isinstance(raw_obj,dict),"raw_model_output_parse_status":raw_parse_status,"raw_model_output_parse_diagnostic":raw_parse_diagnostic,"raw_model_output_text_retained":raw_model_output_text is not None,"raw_model_output_text_characters":len(raw_model_output_text) if raw_model_output_text is not None else 0,"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
+          "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,"quality_guard_flags":st.quality_guard_flags,
           "quality":q,"call_metrics":st.calls}
         result_out=st.result or {}
         st.processor=None; st.drafter=None
         try: import mlx.core as mx; mx.clear_cache()
         except Exception: pass
         import gc; gc.collect()
-    return metrics,result_out
+    return metrics, result_out, raw_obj, raw_model_output_text
 
 def med_agg(runs):
     agg={}
     for name,values in runs.items():
         ok=[x for x in values if x.get("success")]; row={"runs":len(values),"successful_runs":len(ok)}
-        for key in ("total_seconds","model_load_seconds","config_load_seconds","prompt_build_seconds","chat_template_seconds","input_tokens","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second"):
+        for key in ("total_seconds","model_load_seconds","config_load_seconds","prompt_build_seconds","chat_template_seconds","input_tokens","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","quality_guard_flags"):
             vals=[r[key] for r in ok if isinstance(r.get(key),(int,float))]
             row[key+"_median"]=round(statistics.median(vals),4) if vals else None
         cov=[r.get("quality",{}).get("critical_atom_coverage") for r in ok if isinstance(r.get("quality",{}).get("critical_atom_coverage"),(int,float))]
@@ -415,6 +588,7 @@ def med_agg(runs):
         row["thinking_off_applied_all"]=bool(ok) and all(r.get("thinking_off_applied_both") is True for r in ok) if name=="A_thinking_off" else None
         row["prompt_rewrite_ok_all"]=bool(ok) and all(r.get("prompt_rewrite_ok") is True for r in ok) if name=="B_fast_summary" else None
         row["generated_enrichment_empty_all"]=bool(ok) and all(r.get("generated_scene_enrichment_empty") is True for r in ok) if name=="B_fast_summary" else None
+        row["runs_with_quality_guard_flags"]=sum(1 for r in ok if int(r.get("quality_guard_flags",0) or 0)>0)
         agg[name]=row
     return agg
 
@@ -441,15 +615,49 @@ def maybe_use_vce_python():
                 os.execve(py,[py,str(Path(__file__).resolve()),*sys.argv[1:]],os.environ.copy())
         except Exception: pass
 
+def benchmark_variants(focused_quality=False):
+    """Return the 9B variants to run; focused mode keeps baseline and Fast Summary."""
+    all_variants = [
+        ("baseline", MODEL9, {}),
+        ("A_thinking_off", MODEL9, {"thinking_off": True}),
+        ("B_fast_summary", MODEL9, {"fast": True}),
+        ("C_compact_context", MODEL9, {"compact": True}),
+    ]
+    if focused_quality:
+        return [all_variants[0], all_variants[2]]
+    return all_variants
+
+
+def comparison_reference_variant(best_9b_variant: str, *, focused_quality: bool = False) -> str:
+    """Use the full-output baseline as the 4B reference in focused quality mode.
+
+    Fast Summary intentionally removes per-scene generation, so using its flags
+    for D would not compare equivalent report-generation tasks.
+    """
+    return "baseline" if focused_quality else best_9b_variant
+
+
+def flags_for_variant(variants, variant_name: str) -> dict:
+    for name, _model, flags in variants:
+        if name == variant_name:
+            return dict(flags)
+    raise ValueError(f"Benchmark variant is missing: {variant_name}")
+
+
 def main():
-    ap=argparse.ArgumentParser(description="Run VCE Text LLM optimization benchmarks A-E on one fixed video input.")
+    ap=argparse.ArgumentParser(description="Run VCE Text LLM optimization benchmarks with quality-first guard.")
     ap.add_argument("--version", action="version", version=f"%(prog)s {SCRIPT_VERSION}")
     ap.add_argument("--video",type=Path,default=VIDEO_DEFAULT); ap.add_argument("--api-url",default=os.getenv("VCE_API_URL","http://127.0.0.1:7555"))
     ap.add_argument("--repeats",type=int,default=3); ap.add_argument("--output-dir",type=Path)
     ap.add_argument("--input-json",type=Path,help="Reuse existing VCE JSON with segments[] and skip video analysis.")
     ap.add_argument("--skip-4b",action="store_true"); ap.add_argument("--skip-speculative",action="store_true")
+    ap.add_argument("--focused-quality",action="store_true",help="Run baseline + 9B Fast Summary + 4B Fast Summary; skip A/C/E for a targeted quality rerun.")
     ap.add_argument("--no-upload",action="store_true"); ap.add_argument("--no-upload-outputs",action="store_true")
     args=ap.parse_args()
+    if args.focused_quality:
+        args.skip_speculative = True
+        if args.skip_4b:
+            ap.error("--focused-quality requires the 4B comparison; do not combine with --skip-4b")
     if not 1<=args.repeats<=10: ap.error("--repeats must be 1..10")
     run_id=dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")+"_"+uuid.uuid4().hex[:6]
     outdir=(args.output_dir or (Path.home()/"Downloads"/"vce_text_llm_benchmarks"/run_id)).expanduser().resolve(); outdir.mkdir(parents=True,exist_ok=True)
@@ -469,38 +677,48 @@ def main():
         input_hash=hashlib.sha256(json.dumps(segments,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         if not importlib.util.find_spec("mlx_vlm"): raise RuntimeError("mlx-vlm не импортируется. Активируйте venv VideoContext Engine, затем запустите скрипт.")
         mod=load_source(outdir)
-        variants=[("baseline",MODEL9,{}),("A_thinking_off",MODEL9,{"thinking_off":True}),("B_fast_summary",MODEL9,{"fast":True}),("C_compact_context",MODEL9,{"compact":True})]
+        variants=benchmark_variants(args.focused_quality)
         runs={}; outputs={}; flat=[]
-        print("[4/6] Baseline + A/B/C: одинаковые исходные сцены, по",args.repeats,"повтора.")
+        if args.focused_quality:
+            print("[4/6] Focused quality: baseline + B_fast_summary; A/C/E пропускаются, затем B сравнивается с 4B.")
+        else:
+            print("[4/6] Baseline + A/B/C: одинаковые исходные сцены, по",args.repeats,"повтора.")
         for name,model,flags in variants:
             runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
-                m,o=run_variant(mod,segments,summary,source,duration,name,model,n,dict(flags)); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append({"iteration":n,"output":o,"metrics":{k:m.get(k) for k in ("total_seconds","output_tokens","decode_tokens_per_second")}})
+                m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,model,n,dict(flags)); runs[name].append(m); flat.append(m)
+                if m.get("success") or raw_model_output_text: outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 write_json(outdir/"runs.partial.local.json",flat)
                 print("    ",m.get("total_seconds"),"s; success=",m.get("success"),"tokens=",m.get("output_tokens"))
         agg=med_agg(runs); base=agg.get("baseline",{}).get("total_seconds_median"); base_cov=agg.get("baseline",{}).get("critical_atom_coverage_median")
         candidates=[]
         for name in ("A_thinking_off","B_fast_summary","C_compact_context"):
             r=agg.get(name,{})
-            good=r.get("successful_runs",0)>0 and r.get("all_json_valid") and r.get("all_scene_ids_valid") and r.get("source_preserved_all")
+            good=r.get("successful_runs",0)>0 and r.get("all_json_valid") and r.get("all_scene_ids_valid") and r.get("source_preserved_all") and r.get("runs_with_quality_guard_flags",0)==0
             if name=="A_thinking_off": good=good and r.get("thinking_off_applied_all")
             if name=="B_fast_summary": good=good and r.get("prompt_rewrite_ok_all") and r.get("generated_enrichment_empty_all")
             cov=r.get("critical_atom_coverage_median")
             if base_cov is not None and cov is not None and cov<base_cov-0.05: good=False
             if good and isinstance(r.get("total_seconds_median"),(int,float)): candidates.append((r["total_seconds_median"],name))
-        if not candidates: candidates=[(agg[n]["total_seconds_median"],n) for n in ("A_thinking_off","B_fast_summary","C_compact_context") if agg.get(n,{}).get("successful_runs") and isinstance(agg[n].get("total_seconds_median"),(int,float)) and agg[n].get("all_json_valid")]
+        if not candidates: candidates=[(agg[n]["total_seconds_median"],n) for n in ("A_thinking_off","B_fast_summary","C_compact_context") if agg.get(n,{}).get("successful_runs") and isinstance(agg[n].get("total_seconds_median"),(int,float)) and agg[n].get("all_json_valid") and agg[n].get("all_scene_ids_valid") and agg[n].get("source_preserved_all") and agg[n].get("runs_with_quality_guard_flags",0)==0]
         best=min(candidates)[1] if candidates else "baseline"
-        bestflags=dict(next((f for n,m,f in variants if n==best),{}))
-        print("[5/6] Выбранный 9B вариант для D/E:",best)
+        comparison_reference = comparison_reference_variant(best, focused_quality=args.focused_quality)
+        bestflags = flags_for_variant(variants, comparison_reference)
+        if args.focused_quality and comparison_reference != best:
+            print(
+                "[5/6] Для честного 4B quality-сравнения использую baseline-профиль: "
+                "Fast Summary отключает генерацию scene_enrichment."
+            )
+        print("[5/6] Выбранный 9B вариант для D/E:",comparison_reference)
+        best = comparison_reference
         if not args.skip_4b:
             name="D_Qwen3_5_4B_vs_"+best; runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
-                m,o=run_variant(mod,segments,summary,source,duration,name,MODEL4,n,dict(bestflags)); m["reference_9b_variant"]=best
+                m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,MODEL4,n,dict(bestflags)); m["reference_9b_variant"]=best
                 runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append({"iteration":n,"output":o,"metrics":{k:m.get(k) for k in ("total_seconds","output_tokens","decode_tokens_per_second")}})
+                if m.get("success") or raw_model_output_text: outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 write_json(outdir/"runs.partial.local.json",flat)
         speculative={"status":"skipped","reason":"Disabled with --skip-speculative" if args.skip_speculative else "Not yet checked"}
         if not args.skip_speculative:
@@ -508,8 +726,8 @@ def main():
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} (runtime compatibility checked before loading drafter)...",flush=True)
                 flags=dict(bestflags); flags["speculative"]=True
-                m,o=run_variant(mod,segments,summary,source,duration,name,MODEL9,n,flags); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append({"iteration":n,"output":o,"metrics":{k:m.get(k) for k in ("total_seconds","output_tokens","decode_tokens_per_second")}})
+                m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,MODEL9,n,flags); runs[name].append(m); flat.append(m)
+                if m.get("success") or raw_model_output_text: outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 elif m.get("error"): reasons.append(m["error"])
                 write_json(outdir/"runs.partial.local.json",flat)
             n_ok=sum(bool(x.get("success")) for x in runs[name])
@@ -519,33 +737,35 @@ def main():
             if name=="baseline": continue
             ref=best if name.startswith(("D_","E_")) else "baseline"
             deltas[name]={"reference_variant":ref,**delta(agg.get(ref,{}).get("total_seconds_median"),row.get("total_seconds_median"))}
-        manifest={"run_id":run_id,"started_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),"video_basename":args.video.name if not args.input_json else source,
+        manifest={"run_id":run_id,"benchmark_script_version":SCRIPT_VERSION,"output_provenance_schema_version":"raw-final-and-sanitized-text-v2","started_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),"video_basename":args.video.name if not args.input_json else source,
            "video_sha256":file_sha(args.video) if not args.input_json else None,"scene_count":len(segments),"repeats":args.repeats,"source_snapshot_sha":SOURCE_SHA,
-           "noise_threshold_pct":NOISE,"python":sys.version,"platform":platform.platform(),"machine":platform.machine(),"raw_video_and_vce_scene_payload_uploaded":False,"input_segments_sha256_local_only":input_hash}
+           "noise_threshold_pct":NOISE,"python":sys.version,"platform":platform.platform(),"machine":platform.machine(),"focused_quality_run":bool(args.focused_quality),"quality_guard_enabled":True,"raw_video_and_vce_scene_payload_uploaded":False,"input_segments_sha256_local_only":input_hash}
         doc={"manifest":manifest,"models":{"baseline":MODEL9,"4b":MODEL4,"speculative_target":MODEL9,"speculative_drafter":DRAFTER9},"aggregates":agg,"speed_deltas":deltas,
-          "best_9b_variant_for_D_E":best,"speculative_decoding":speculative,"threshold_pct":NOISE,
+          "best_9b_variant_for_D_E":best,"four_b_comparison_reference_variant":best,"speculative_decoding":speculative,"threshold_pct":NOISE,
           "quality_policy":{"timing_differences_within_5pct_are_noise":True,"manual_review_required":True},"runs":flat}
         public=copy.deepcopy(doc); public["manifest"].pop("input_segments_sha256_local_only",None)
         outputs_doc={"manifest":{k:v for k,v in manifest.items() if k!="input_segments_sha256_local_only"},
           "warning":"Generated Text LLM outputs are published; raw video and raw scene/transcript/OCR input are not published.","outputs_by_variant":outputs}
         write_json(outdir/"metrics.local.json",doc); write_json(outdir/"metrics.json",public); write_json(outdir/"llm_outputs.json",outputs_doc)
-        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","error"]
+        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","primary_raw_json_parseable","raw_model_output_parse_status","raw_model_output_text_characters","quality_guard_flags","error"]
         with csvpath.open("w",encoding="utf-8-sig",newline="") as f:
             w=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore"); w.writeheader(); w.writerows(flat)
-        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Selected 9B candidate for D/E: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
+        lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Focused quality run: {bool(args.focused_quality)}",f"- Video-agnostic non-mutating integrity guard: enabled",f"- D/E 9B reference profile: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
           "> Raw video and raw scene/transcript/OCR input remain local. Generated Text LLM outputs are uploaded separately.","",
-          "| Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Critical atom coverage |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+          "| Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Source fact grounding | Runs with integrity flags |","|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
         for n,r in agg.items():
             def fmt(k):
                 v=r.get(k); return "—" if v is None else f"{v:.2f}"
-            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {fmt('critical_atom_coverage_median')} |")
+            grounding = "not evaluated" if r.get("critical_atom_coverage_median") is None else f"{r['critical_atom_coverage_median']:.1%}"
+            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {grounding} | {r.get('runs_with_quality_guard_flags',0)} |")
         lines += ["","## Interpretation notes","",
           "- TTFT/prefill is stream start to first non-empty text chunk, a proxy rather than an internal MLX kernel timer.",
           "- Token counts use the model tokenizer when available; otherwise metrics mark a lexical estimate.",
           "- Decode tok/s uses output tokens / time after the first chunk when streaming metrics are available.",
           "- Fast Summary is accepted only when prompt/schema rewriting applied and raw model JSON has an empty scene_enrichment list. VCE downstream reconciliation may repopulate that field deterministically.",
           "- Speculative decoding runs only if installed runtime accepts draft_model/draft_kind and the Qwen3.5-9B MTP drafter loads. Otherwise the reason is recorded.",
-          "- Quality audits cover JSON, scene IDs, source preservation, technical/numeric coverage proxies, and suspicious numeric claims. They cannot prove semantic correctness; manually review reports before adopting a variant.",""]
+          "- Sanitized primary generation text is retained when its JSON is invalid; private <think> blocks, including an unfinished block tail, are removed before serialization.",
+          "- The default benchmark validates JSON, scene IDs, scene completeness and source preservation. It does not infer domain-specific facts or semantic correctness; manually review claims against source evidence.",""]
         report="\n".join(lines); (outdir/"report.md").write_text(report,encoding="utf-8")
         print("\n[6/6] Resultat:\n"+report)
         if not args.no_upload:

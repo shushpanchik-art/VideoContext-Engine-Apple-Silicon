@@ -1,0 +1,118 @@
+{
+  "title": "Focused quality rerun review — 20261027T031718Z_607e6e",
+  "run_id": "20261027T031718Z_607e6e",
+  "source_artifacts_url": "https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/tree/main/artifacts/text-llm-benchmarks/20261027T031718Z_607e6e",
+  "machine": "Apple M1 Max, macOS arm64, MLX 0.32.4",
+  "source_scene_count": 14,
+  "repeats_per_variant": 3,
+  "focused_quality_run": true,
+  "raw_source_payload_uploaded": false,
+  "integrity": {
+    "successful_runs": 9,
+    "total_runs": 9,
+    "all_json_valid": true,
+    "all_scene_ids_valid": true,
+    "all_source_segments_unmodified": true,
+    "json_repairs": 0,
+    "parse_failures": 0,
+    "primary_outputs_near_token_limit": 0,
+    "outputs_with_14_unique_scene_enrichments": 9,
+    "outputs_with_guard_repairs": 9,
+    "outputs_with_detected_AND_JU_D_or_NC_END_after_guard": 0
+  },
+  "timing": {
+    "baseline": {
+      "median_seconds": 81.7128,
+      "improvement_vs_baseline_pct": 0,
+      "output_tokens_median": 3348,
+      "ttft_seconds_median": 18.4529,
+      "decode_seconds_median": 61.1638,
+      "decode_tokens_per_second_median": 55.112,
+      "guard_repaired_runs": 3
+    },
+    "B_fast_summary_9B": {
+      "median_seconds": 59.9985,
+      "improvement_vs_baseline_pct": 26.6,
+      "output_tokens_median": 2222,
+      "ttft_seconds_median": 18.0686,
+      "decode_seconds_median": 39.8986,
+      "decode_tokens_per_second_median": 55.627,
+      "guard_repaired_runs": 3
+    },
+    "D_Qwen3_5_4B_fast_summary": {
+      "median_seconds": 42.2438,
+      "improvement_vs_baseline_pct": 48.3,
+      "improvement_vs_B_pct": 29.6,
+      "output_tokens_median": 2483,
+      "ttft_seconds_median": 10.0321,
+      "decode_seconds_median": 29.3192,
+      "decode_tokens_per_second_median": 84.66,
+      "guard_repaired_runs": 3
+    }
+  },
+  "heuristic_metric_caveat": {
+    "critical_atom_coverage_median": 0.0533,
+    "observed_for_all_variants": true,
+    "source_atom_count_median": 169,
+    "interpretation": "Do not treat 5.33% as a trustworthy quality score. The extractor may count OCR fragments, time values and identifiers as critical atoms. Run the updated local audit against the private source JSON, then manually review source evidence."
+  },
+  "findings": {
+    "baseline": {
+      "status": "HOLD_FOR_MANUAL_REVIEW",
+      "issue": "Repeat 3 final-scene enrichment describes a collision/slope mismatch despite the final frame showing THE END. The final-title guard only repairs malformed fragments, not this semantic conflict.",
+      "strengths": [
+        "All output JSON valid",
+        "All 14 scene enrichments present",
+        "No JSON repair or token-cap issues"
+      ]
+    },
+    "B_fast_summary_9B": {
+      "status": "HOLD_FOR_MANUAL_REVIEW",
+      "strengths": [
+        "Median 59.9985 s",
+        "All three final-scene enrichments consistently describe the closing title after the guard",
+        "All 14 unique scene enrichments in each repeat",
+        "No JSON repairs or token-cap issues"
+      ],
+      "issues": [
+        "Repeat 1 executive summary says the collision was shown at the end, which overstates the visual evidence.",
+        "Repeat 3 says the collision was shown at the end while also noting that the final screen is a closing title; this is internally inconsistent.",
+        "Repeat 2 reports a collision as the result; the original audio evidence should be checked and attributed explicitly if this is spoken rather than visually confirmed."
+      ]
+    },
+    "D_Qwen3_5_4B_fast_summary": {
+      "status": "HOLD_FOR_MANUAL_REVIEW",
+      "strengths": [
+        "Median 42.2438 s",
+        "All three final-scene key points/enrichments consistently describe the closing title after the guard",
+        "All 14 unique scene enrichments in each repeat",
+        "No JSON repairs or token-cap issues"
+      ],
+      "issues": [
+        "All summaries assert that a collision was detected in CADLib, while the scene-13 enrichment says the window does not conclusively prove the slope check. Spoken result and visual evidence need consistent attribution.",
+        "Repeat 3 contains the suspicious topic 'АИ ИИ ПОМОЩНИК', which requires verification against the source evidence."
+      ]
+    }
+  },
+  "decision": {
+    "speed_winner": "D_Qwen3_5_4B_fast_summary",
+    "production_approved": false,
+    "rationale": "D is much faster, and the guard removes the observed final-card text artifacts, but factual attribution and an OCR-like malformed topic remain. Quality must pass before the speed winner can be adopted.",
+    "next_steps": [
+      "Run tools/quality_check_text_llm_variants.py locally against the private source JSON and this results directory.",
+      "Use the local source transcript/OCR to verify whether the collision result is spoken and whether any screen evidence actually confirms it.",
+      "Add a tested cross-field grounding check for claims that a technical result is visually shown when the source final frame is only a closing title.",
+      "Keep baseline as the control; do not approve B or D yet."
+    ]
+  },
+  "current_tooling_design": {
+    "universal_default": true,
+    "generic_profile": "Checks VCE output schema, scene IDs, scene_enrichment coverage, timestamp shape where present, JSON repair/token-cap indicators and basic text encoding/control characters.",
+    "sample_specific_diagnostics": "Opt-in only via --profile nsr-case-study; not used as global acceptance rules.",
+    "content_rewrite_guard": "Non-mutating. It flags generic schema/integrity problems and does not rewrite user-facing text based on keywords, domain terms, title-card strings or model-specific assumptions.",
+    "semantic_grounding": "Not automatically evaluated by generic structural checks. Use source-aware semantic review/model judge that is evaluated for each video's own transcript/OCR/visual evidence.",
+    "checker_version": "2026.10.27.6-universal-default",
+    "benchmark_version": "2026.10.27.5-universal-guard",
+    "note": "Historical findings below refer to one sample/run and must not be interpreted as universal rules for arbitrary videos."
+  }
+}
