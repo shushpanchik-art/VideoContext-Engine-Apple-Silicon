@@ -130,6 +130,58 @@ class TextLLMGroundingTests(unittest.TestCase):
         self.assertEqual(claim["lexical_evidence"]["claim_token_recall"], 1.0)
         self.assertEqual(claim["lexical_evidence"]["best_evidence"][0]["modality"], "audio_transcript")
 
+    def test_generated_text_llm_and_global_summary_are_never_source_evidence(self):
+        source = {
+            "meta": {"global_summary": "Violet asteroid destroys research station."},
+            "segments": [{
+                "scene_id": 1,
+                "audio_transcript": "Operator opens settings window and saves project.",
+                "visual_description": "A simple software settings form.",
+                "text_llm": {
+                    "topic": "Violet asteroid",
+                    "improved_description": "Violet asteroid destroys research station.",
+                    "key_points": ["Violet asteroid destroys research station."],
+                },
+            }],
+        }
+        outputs = {"outputs_by_variant": {"self_match": [{
+            "iteration": 1,
+            "output": {"executive_summary": "Violet asteroid destroys research station."},
+        }]}}
+        report = grounding.build_report(source, outputs, min_token_recall=0.5)
+        claim = report["variants"]["self_match"]["runs"][0]["claims"][0]
+
+        # The generated phrase exists verbatim in excluded model-derived fields,
+        # but not in independent transcript/OCR/visual evidence.
+        self.assertEqual(claim["lexical_evidence"]["claim_token_recall"], 0.0)
+        self.assertIn("low_lexical_overlap_requires_manual_review", claim["findings"])
+        field_paths = [item["field_path"] for item in grounding.build_source_index(source)[1]]
+        self.assertTrue(field_paths)
+        self.assertFalse(any("text_llm" in path for path in field_paths))
+        self.assertFalse(any("global_summary" in path for path in field_paths))
+        self.assertIn("text_llm", report["excluded_derived_source_fields"])
+        self.assertIn("global_summary", report["excluded_derived_source_fields"])
+
+    def test_all_generated_descriptions_are_excluded_even_if_they_are_long_strings(self):
+        source = {
+            "segments": [{
+                "scene_id": 4,
+                "audio_transcript": "An operator opens a drawing.",
+                "visual_description": "A desktop application with an open drawing.",
+                "text_llm": {
+                    "improved_description": "The quantum reactor failed after a blue meteor strike.",
+                    "additional_context": "The quantum reactor failed after a blue meteor strike.",
+                },
+                "generated_summary": "The quantum reactor failed after a blue meteor strike.",
+            }]
+        }
+        _, evidence = grounding.build_source_index(source)
+        joined = " ".join(item["text"] for item in evidence)
+        self.assertNotIn("quantum reactor", joined)
+        self.assertNotIn("blue meteor", joined)
+        self.assertTrue(any("audio_transcript" in item["field_path"] for item in evidence))
+        self.assertTrue(any("visual_description" in item["field_path"] for item in evidence))
+
     def test_empty_source_text_does_not_get_mislabeled_as_supported(self):
         source = {"segments": [{"scene_id": 1, "start": 0, "end": 2}]}
         outputs = {"outputs_by_variant": {"empty_source": [{
