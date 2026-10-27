@@ -77,6 +77,15 @@ class QualityAuditTests(unittest.TestCase):
         self.assertIsNone(result["technical_atom_coverage_pct"])
         self.assertFalse(result["domain_specific_checks_enabled"])
 
+    def test_empty_optional_arrays_are_valid_when_the_schema_field_exists(self):
+        segments, evidence, output = make_fixture()
+        output["topics"] = []
+        output["entities"] = []
+        output["uncertainties"] = []
+        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertNotIn("missing_required_fields:topics,entities,uncertainties", result["hard_issues"])
+        self.assertNotIn("missing_required_fields", " ".join(result["hard_issues"]))
+
     def test_missing_scene_enrichment_is_a_hard_blocker_for_any_video(self):
         segments, evidence, output = make_fixture()
         output["scene_enrichment"] = output["scene_enrichment"][:2]
