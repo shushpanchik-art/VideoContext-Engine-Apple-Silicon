@@ -1,0 +1,299 @@
+{
+  "title": "VCE Text LLM quality-first review",
+  "run_id": "20261027T005522Z_2cb3f5",
+  "source_video": "🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4",
+  "source_scene_count": 14,
+  "repeats_per_variant": 3,
+  "source_json_basename": "Новые модули NSR Specification автоматизация проектирования _context.json",
+  "audit_script_version": "2026.10.27.2-quality-anchors",
+  "purpose": "Quality gate first; speed is compared only after correctness and completeness blockers are addressed.",
+  "caveat": "Heuristic static checks are a screening aid, not a semantic truth oracle. Human review against source scene evidence is required.",
+  "key_findings": [
+    "Baseline is the control candidate, not automatically certified as correct.",
+    "A and C contain a garbled scene-14 fragment in at least one repeat.",
+    "B is fastest among the 9B variants but contains garbled output and a missing scene-14 point in the aggregate audit; do not promote yet.",
+    "D/4B is the fastest median candidate in this dataset, but one repeat omits scene 14; repeat and manually review before adoption.",
+    "E/speculative decoding is slower than B, reached the generation token cap and needed JSON repair in all three repeats; reject in the current configuration.",
+    "C did not materially compact the evidence: evidence_chars_removed_approx was 0 in all repeats, and its speed delta is within the ±5% noise threshold."
+  ],
+  "variants": {
+    "baseline": {
+      "median_seconds": 84.1543,
+      "speed_reference": null,
+      "improvement_pct": null,
+      "quality_status": "REVIEW",
+      "quality_score_heuristic": 79.8,
+      "technical_atom_coverage_pct": 25,
+      "hard_issues": [],
+      "repeats": [
+        {
+          "iteration": 1,
+          "seconds": 84.1543,
+          "output_tokens": 3462,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "Видео завершается заставкой с текстом THE END.",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 89.6525,
+          "output_tokens": 3827,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "Видео завершается заставкой с текстом THE END.",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 82.8174,
+          "output_tokens": 3420,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "Финальная заставка THE END.",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        }
+      ]
+    },
+    "A_thinking_off": {
+      "median_seconds": 73.4585,
+      "speed_reference": "baseline",
+      "improvement_pct": 12.71,
+      "quality_status": "HOLD",
+      "quality_score_heuristic": 72.1,
+      "technical_atom_coverage_pct": 25,
+      "hard_issues": [
+        "garbled_or_truncated_key_point (AND JU in 2/3 repeats)"
+      ],
+      "repeats": [
+        {
+          "iteration": 1,
+          "seconds": 73.4585,
+          "output_tokens": 2942,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "Финальная заставка с надписью THE END.",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 76.2911,
+          "output_tokens": 3082,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "AND JU",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 70.8238,
+          "output_tokens": 2805,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "AND JU",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        }
+      ]
+    },
+    "B_fast_summary": {
+      "median_seconds": 59.0107,
+      "speed_reference": "baseline",
+      "improvement_pct": 29.878,
+      "quality_status": "HOLD",
+      "quality_score_heuristic": 72.1,
+      "technical_atom_coverage_pct": 26.5,
+      "hard_issues": [
+        "garbled_or_truncated_key_point (AND JU)",
+        "missing_scene_points:14"
+      ],
+      "repeats": [
+        {
+          "iteration": 1,
+          "seconds": 59.0107,
+          "output_tokens": 2138,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "AND JU",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 58.1147,
+          "output_tokens": 2121,
+          "key_points_count": 13,
+          "unique_scene_ids_count": 13,
+          "scene_14_text": null,
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 60.8437,
+          "output_tokens": 2258,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "AND JU",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        }
+      ]
+    },
+    "C_compact_context": {
+      "median_seconds": 81.3071,
+      "speed_reference": "baseline",
+      "improvement_pct": 3.383,
+      "quality_status": "HOLD",
+      "quality_score_heuristic": 71.8,
+      "technical_atom_coverage_pct": 25,
+      "hard_issues": [
+        "garbled_or_truncated_key_point (AND JU)"
+      ],
+      "repeats": [
+        {
+          "iteration": 1,
+          "seconds": 80.5608,
+          "output_tokens": 3321,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "Видео завершается заставкой с текстом THE END.",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 83.684,
+          "output_tokens": 3466,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "AND JU",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 81.3071,
+          "output_tokens": 3369,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "AND JU",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        }
+      ]
+    },
+    "D_Qwen3_5_4B_vs_B_fast_summary": {
+      "median_seconds": 42.4032,
+      "speed_reference": "B_fast_summary",
+      "improvement_pct": 28.143,
+      "quality_status": "HOLD",
+      "quality_score_heuristic": 80.1,
+      "technical_atom_coverage_pct": 27.9,
+      "hard_issues": [
+        "missing_scene_points:14 (one repeat)"
+      ],
+      "repeats": [
+        {
+          "iteration": 1,
+          "seconds": 139.1106,
+          "output_tokens": 2425,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "Финальная заставка THE END.",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 2,
+          "seconds": 41.2393,
+          "output_tokens": 2495,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "Финальная заставка THE END.",
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        },
+        {
+          "iteration": 3,
+          "seconds": 42.4032,
+          "output_tokens": 2571,
+          "key_points_count": 13,
+          "unique_scene_ids_count": 13,
+          "scene_14_text": null,
+          "json_repair_passes": 0,
+          "json_parse_failures": 0,
+          "primary_output_near_token_limit": false
+        }
+      ]
+    },
+    "E_speculative_vs_B_fast_summary": {
+      "median_seconds": 132.558,
+      "speed_reference": "B_fast_summary",
+      "improvement_pct": -124.634,
+      "quality_status": "HOLD",
+      "quality_score_heuristic": 69.1,
+      "technical_atom_coverage_pct": 27.9,
+      "hard_issues": [
+        "missing_scene_points in aggregate: 1,3,4,5,6,14",
+        "garbled_or_truncated_key_point",
+        "json_repair_or_parse_failure",
+        "primary_output_near_token_limit"
+      ],
+      "repeats": [
+        {
+          "iteration": 1,
+          "seconds": 139.4224,
+          "output_tokens": 5182,
+          "key_points_count": 8,
+          "unique_scene_ids_count": 8,
+          "scene_14_text": null,
+          "json_repair_passes": 1,
+          "json_parse_failures": 1,
+          "primary_output_near_token_limit": true
+        },
+        {
+          "iteration": 2,
+          "seconds": 130.6817,
+          "output_tokens": 5079,
+          "key_points_count": 8,
+          "unique_scene_ids_count": 8,
+          "scene_14_text": null,
+          "json_repair_passes": 1,
+          "json_parse_failures": 1,
+          "primary_output_near_token_limit": true
+        },
+        {
+          "iteration": 3,
+          "seconds": 132.558,
+          "output_tokens": 5506,
+          "key_points_count": 14,
+          "unique_scene_ids_count": 14,
+          "scene_14_text": "AND JU",
+          "json_repair_passes": 1,
+          "json_parse_failures": 1,
+          "primary_output_near_token_limit": true
+        }
+      ]
+    }
+  }
+}
