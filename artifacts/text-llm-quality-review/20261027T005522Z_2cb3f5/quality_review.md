@@ -1,3 +1,18 @@
+# Design correction: universal quality core
+
+The previous iterations of this review added lexical checks for the NSR example (for example, \`THE END\`, collision/mismatch wording, specific OCR artifacts) and a guard that rewrote the last scene based on these words. **These were sample-specific experiments, not appropriate universal product rules.** The PR has now been refactored so they cannot affect default behavior.
+
+- \`tools/quality_check_text_llm_variants.py\` defaults to \`--profile generic\`. It does not apply video-specific vocabulary or ending-title logic. The \`nsr-case-study\` profile is opt-in only for reproducing diagnostics on this sample.
+- Generic mode audits the VCE schema, expected scene IDs, duplicate/unexpected IDs, complete \`scene_enrichment\`, available timestamps, JSON-repair/token-cap indicators, and basic encoding/control-character integrity. The report says semantic/domain grounding is not evaluated by generic checks.
+- Technical atom extraction and the lexical “collision/title/OCR” checks are profile-only heuristics. They are not universal facts, not hard-coded product policy, and their numeric coverage should not be treated as a quality percentage.
+- \`patches/patch_vce_text_llm_quality_guard.py\` and the benchmark now share a **non-mutating universal validator**. It flags schema/encoding defects without rewriting generated user-facing prose.
+- The benchmark no longer reports a domain-specific critical-atom coverage as if it were universal; grounding is recorded as “not evaluated” unless a specific diagnostic profile is explicitly used.
+- The checker now requires explicit \`--results-dir\` and \`--source-json\`, rather than defaulting to the NSR video paths.
+
+The earlier benchmark runs and their generated reports are preserved for historical comparison; they used older sample-specific logic and should not be confused with the current generic checker. Re-run only the cheap local audit first; a new model benchmark is unnecessary for validating the default rule set.
+
+---
+
 # VCE Text LLM quality-first review — corrected scene contract
 
 - Run: \`20261027T005522Z_2cb3f5\`
