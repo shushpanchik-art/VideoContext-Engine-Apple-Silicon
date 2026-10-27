@@ -514,8 +514,8 @@ def build_report(report):
         "- Policy: quality gate first; runtime is only a tie-breaker after defects are reviewed.",
         "- This is a deterministic heuristic audit, not proof of semantic correctness.",
         "",
-        "| Variant | Quality heuristic | Status | Scene coverage | Technical atom coverage | Hard issues | Median seconds |",
-        "|---|---:|---|---:|---:|---:|---:|",
+        "| Variant | Quality heuristic | Status | Scene enrichment coverage | Key-point scene refs | Technical atom coverage | Hard issues | Median seconds |",
+        "|---|---:|---|---:|---:|---:|---:|---:|",
     ]
     for name, row in sorted(rows.items(), key=lambda item: (
         0 if item[1]["status"] == "HOLD" else 1 if item[1]["status"] == "REVIEW" else 2,
@@ -524,8 +524,9 @@ def build_report(report):
     )):
         lines.append(
             f"| {name} | {row['quality_score_heuristic']:.1f}/100 | {row['status']} | "
-            f"{row['scene_coverage_pct']:.1f}% | {row['technical_atom_coverage_pct']:.1f}% | "
-            f"{len(row['hard_issues'])} | {row.get('median_seconds') if row.get('median_seconds') is not None else '—'} |"
+            f"{row['scene_coverage_pct']:.1f}% | {row['key_point_scene_coverage_pct']:.1f}% | "
+            f"{row['technical_atom_coverage_pct']:.1f}% | {len(row['hard_issues'])} | "
+            f"{row.get('median_seconds') if row.get('median_seconds') is not None else '—'} |"
         )
     lines += ["", "## Variant detail", ""]
     for name, row in rows.items():
@@ -537,8 +538,9 @@ def build_report(report):
             f"- Median seconds: {row.get('median_seconds') if row.get('median_seconds') is not None else 'not recorded'}",
             f"- Hard issues: {', '.join(row['hard_issues']) if row['hard_issues'] else 'none detected by automatic checks'}",
             f"- Warnings: {', '.join(row['warnings']) if row['warnings'] else 'none detected by automatic checks'}",
-            f"- Missing scene IDs: {row['missing_scene_ids']}",
-            f"- Garbled snippets: {row['garbled_key_points']}",
+            f"- Missing scene-enrichment IDs: {row['missing_scene_ids']}",
+            f"- Key-point scene gaps (informational; key_points are selective): {row.get('key_point_scene_gaps', [])}",
+            f"- Garbled output snippets: {row['garbled_key_points']}",
             f"- Missing technical atoms: {row['missing_source_atoms'][:20]}",
             f"- Unsupported numeric/identifier atoms: {row['unsupported_numeric_or_identifier_atoms'][:20]}",
             "",
@@ -546,10 +548,12 @@ def build_report(report):
     lines += [
         "## Interpretation",
         "",
+        "- Scene completeness is measured from scene_enrichment because the production prompt requires one enrichment per source scene.",
+        "- key_points are selective summary theses (the prompt allows up to 18); a scene without a key_points entry is informational, not a completeness blocker.",
         "- HOLD means at least one automatic integrity/completeness blocker exists; do not adopt that variant yet.",
         "- REVIEW means the structure passed the hard gate but warnings need human review.",
         "- MANUAL_REVIEW_REQUIRED means no blocker was detected; it is not an automatic quality approval.",
-        "- Compare the actual summary, scene points, OCR/transcript facts and uncertain claims against the source JSON before promoting any candidate.",
+        "- Compare the actual summary, scene enrichment, OCR/transcript facts and uncertain claims against the source JSON before promoting any candidate.",
         "",
     ]
     return "\n".join(lines)
@@ -625,10 +629,12 @@ def main():
                 "worst_run_score": min(scores),
                 "median_seconds": round(median_seconds, 3) if median_seconds is not None else None,
                 "scene_coverage_pct": round(statistics.median([r["scene_coverage_pct"] for r in run_results]), 1),
+                "key_point_scene_coverage_pct": round(statistics.median([r["key_point_scene_coverage_pct"] for r in run_results]), 1),
                 "technical_atom_coverage_pct": round(statistics.median([r["technical_atom_coverage_pct"] for r in run_results]), 1),
                 "hard_issues": hard_issues,
                 "warnings": warnings,
                 "missing_scene_ids": sorted({sid for r in run_results for sid in r["missing_scene_ids"]}),
+                "key_point_scene_gaps": sorted({sid for r in run_results for sid in r["key_point_scene_gaps"]}),
                 "garbled_key_points": sorted({text for r in run_results for text in r["garbled_key_points"]}),
                 "missing_source_atoms": sorted({atom for r in run_results for atom in r["missing_source_atoms"]}),
                 "unsupported_numeric_or_identifier_atoms": sorted({
@@ -644,6 +650,14 @@ def main():
         promising = ["A_thinking_off", "B_fast_summary"]
         promising += [name for name in report["variants"] if name.startswith("D_Qwen3_5_4B")]
         report["promising_variants_checked"] = [name for name in promising if name in report["variants"]]
+        reviewable = [
+            (name, row) for name, row in report["variants"].items()
+            if name != "baseline" and row["status"] != "HOLD" and not row["hard_issues"]
+        ]
+        report["best_candidate_for_manual_review"] = (
+            sorted(reviewable, key=lambda item: (item[1]["median_seconds"] or float("inf"), -item[1]["quality_score_heuristic"]))[0][0]
+            if reviewable else None
+        )
         if eligible:
             report["preliminary_recommendation"] = sorted(
                 eligible, key=lambda item: (-item[1]["quality_score_heuristic"], item[1]["median_seconds"] or float("inf"))
@@ -654,8 +668,8 @@ def main():
         else:
             report["preliminary_recommendation"] = None
             report["recommendation_note"] = (
-                "Ни один вариант не прошёл автоматические проверки без блокирующих дефектов; "
-                "сохраняйте baseline как контроль и исправьте качество/аудит прежде, чем выбирать ускоренный вариант."
+                "Ни один вариант не прошёл полный автоматический контроль без блокеров и предупреждений. "
+                "Используйте best_candidate_for_manual_review только как приоритет ручной проверки, не как автоматическое одобрение."
             )
 
         outdir = (args.output_dir or (results_dir / "quality_audit")).expanduser().resolve()
