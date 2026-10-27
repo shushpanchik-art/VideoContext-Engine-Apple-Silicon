@@ -33,7 +33,7 @@ def make_fixture():
         {
             "scene_id": 3, "start": 6.0, "end": 9.0,
             "audio_transcript": "The video ends.",
-            "ocr_text": "FINAL FRAME",
+            "ocr_text": "THE END",
             "visual_description": "A closing frame with a title.",
             "visual_tags": {},
         },
