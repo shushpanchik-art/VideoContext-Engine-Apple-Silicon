@@ -15,7 +15,7 @@ import statistics
 import sys
 from pathlib import Path
 
-SCRIPT_VERSION = "2026.10.27.4-final-scene-grounding"
+SCRIPT_VERSION = "2026.10.27.5-acronym-false-positive-fix"
 DEFAULT_RESULTS = Path.home() / "Downloads" / "vce_text_llm_benchmarks" / "20261027T005522Z_2cb3f5"
 DEFAULT_SOURCE = (
     Path.home() / "Downloads" / "NSR Specification" /
@@ -259,13 +259,12 @@ def is_garbled(text: str):
     clean = re.sub(r"\s+", " ", str(text or "")).strip()
     if not clean:
         return False
+    # Known corruption signatures are hard blockers. Do not use a generic
+    # all-caps heuristic: it incorrectly flags legitimate acronyms such as КСИ
+    # and identifiers such as HDB_V5. OCR-like multiword topics are checked
+    # separately with a context-aware rule.
     if GARBLED_RE.search(clean):
         return True
-    # Very short, all-caps fragments in a scene description often indicate truncation.
-    words = re.findall(r"[A-Za-zА-Яа-яЁё]+", clean)
-    if len(clean) <= 14 and len(words) <= 3 and words and clean.upper() == clean:
-        if clean.casefold() not in {"the end", "ok", "n/a", "xml", "json"}:
-            return True
     return False
 
 
