@@ -37,6 +37,23 @@ TEXT_FIELD_NAMES = {
 }
 LIST_TEXT_PARENTS = {"topics", "entities", "visual_tags", "tags", "evidence", "key_points", "uncertainties"}
 
+# Evidence is admitted only from VCE's source-modality fields. In particular,
+# segments[].text_llm.*, precomputed summaries, topics, key points and enrichments
+# must never be used as evidence for another Text LLM result (self-grounding leak).
+SOURCE_EVIDENCE_ROOTS = {
+    "audio_transcript", "transcript", "speech_text", "spoken_text", "spoken_words",
+    "utterance", "dialogue", "transcription", "speech", "asr",
+    "ocr_text", "ffmpeg_ocr_text", "recognized_text", "screen_text",
+    "subtitle_text", "caption_text",
+    "visual_description", "visual_tags", "image_description", "frame_description",
+    "detected_objects", "object_detections",
+}
+DERIVED_OR_SUMMARY_KEYS = {
+    "text_llm", "llm", "global_summary", "executive_summary", "summary",
+    "topic", "topics", "key_points", "entities", "scene_enrichment",
+    "improved_description", "uncertainties", "generated_summary",
+}
+
 
 def read_json(path: Path) -> Any:
     try:
@@ -99,27 +116,9 @@ def modality_for(path_parts: list[str]) -> str:
 
 
 def collect_segment_evidence(segment: dict[str, Any], scene_id: int, segment_index: int) -> list[dict[str, Any]]:
+    """Collect only independent source-modality text, never derived Text LLM fields."""
     evidence: list[dict[str, Any]] = []
     seen: set[tuple[str, str]] = set()
-
-    def walk(value: Any, path_parts: list[str], display_path: str, current_key: str, parent_key: str) -> None:
-        if isinstance(value, dict):
-            for key, child in value.items():
-                name = str(key)
-                if is_ignored_key(name):
-                    continue
-                child_path = f"{display_path}.{name}" if display_path else name
-                walk(child, path_parts + [name], child_path, name, current_key)
-        elif isinstance(value, list):
-            for index, child in enumerate(value):
-                child_path = f"{display_path}[{index}]"
-                if isinstance(child, str):
-                    if looks_like_text(current_key, child, parent_key):
-                        add(child, path_parts + [str(index)], child_path)
-                else:
-                    walk(child, path_parts + [str(index)], child_path, current_key, parent_key)
-        elif isinstance(value, str) and looks_like_text(current_key, value, parent_key):
-            add(value, path_parts, display_path)
 
     def add(text: str, path_parts: list[str], display_path: str) -> None:
         clean = text.strip()
@@ -135,11 +134,26 @@ def collect_segment_evidence(segment: dict[str, Any], scene_id: int, segment_ind
             "tokens": lexical_tokens(clean),
         })
 
+    def walk(value: Any, path_parts: list[str], display_path: str) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                name = str(key)
+                if is_ignored_key(name) or name.casefold() in DERIVED_OR_SUMMARY_KEYS:
+                    continue
+                child_path = f"{display_path}.{name}" if display_path else name
+                walk(child, path_parts + [name], child_path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                child_path = f"{display_path}[{index}]"
+                walk(child, path_parts + [str(index)], child_path)
+        elif isinstance(value, str) and value.strip():
+            add(value, path_parts, display_path)
+
     for key, value in segment.items():
         name = str(key)
-        if is_ignored_key(name):
+        if is_ignored_key(name) or name.casefold() not in SOURCE_EVIDENCE_ROOTS:
             continue
-        walk(value, [name], name, name, "")
+        walk(value, [name], name)
     return evidence
 
 
@@ -163,18 +177,8 @@ def build_source_index(source_doc: dict[str, Any]) -> tuple[dict[int, list[dict[
         by_scene[sid].extend(items)
         all_evidence.extend(items)
 
-    meta = source_doc.get("meta")
-    if isinstance(meta, dict):
-        global_summary = meta.get("global_summary")
-        if isinstance(global_summary, str) and global_summary.strip():
-            item = {
-                "scene_id": None,
-                "field_path": "meta.global_summary",
-                "modality": "other_text",
-                "text": global_summary.strip(),
-                "tokens": lexical_tokens(global_summary),
-            }
-            all_evidence.append(item)
+    # meta.global_summary is model-derived context, not independent source evidence.
+    # It is deliberately excluded to avoid a summary supporting itself by token overlap.
     return dict(by_scene), all_evidence
 
 
@@ -355,6 +359,8 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
         "source_scene_count": len(by_scene),
         "source_text_evidence_count": len(all_evidence),
         "source_evidence_by_modality": dict(sorted(modality_counts.items())),
+        "source_evidence_scope": sorted(SOURCE_EVIDENCE_ROOTS),
+        "excluded_derived_source_fields": sorted(DERIVED_OR_SUMMARY_KEYS),
         "variants": {},
     }
     for variant, runs in variants.items():
@@ -389,6 +395,12 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
                 "run_count": len(run_reports),
                 "claim_count": sum(r["claim_count"] for r in run_reports),
                 "low_overlap_review_cue_count": sum(r["low_overlap_review_cue_count"] for r in run_reports),
+                "low_overlap_review_cue_pct": (
+                    round(
+                        100 * sum(r["low_overlap_review_cue_count"] for r in run_reports)
+                        / sum(r["claim_count"] for r in run_reports), 1
+                    ) if sum(r["claim_count"] for r in run_reports) else None
+                ),
                 "runs": run_reports,
             }
     if not report["variants"]:
@@ -407,12 +419,13 @@ def build_markdown(report: dict[str, Any]) -> str:
         f"- Review threshold: {report['min_token_recall_review_threshold']:.2f} claim-token coverage",
         "- **Semantic correctness is not evaluated by this report. There is no semantic quality score.**",
         "",
-        "| Variant | Runs | Claims | Low-overlap review cues |",
-        "|---|---:|---:|---:|",
+        "| Variant | Runs | Claims | Low-overlap cues | Cue rate |",
+        "|---|---:|---:|---:|---:|",
     ]
     for name, row in report["variants"].items():
         lines.append(
-            f"| {name} | {row['run_count']} | {row['claim_count']} | {row['low_overlap_review_cue_count']} |"
+            f"| {name} | {row['run_count']} | {row['claim_count']} | {row['low_overlap_review_cue_count']} | "
+            f"{(str(row['low_overlap_review_cue_pct']) + '%') if row['low_overlap_review_cue_pct'] is not None else 'n/a'} |"
         )
     for name, row in report["variants"].items():
         lines.extend(["", f"## {name}", ""])
