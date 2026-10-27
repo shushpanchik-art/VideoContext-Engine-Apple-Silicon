@@ -77,6 +77,11 @@ class QualityAuditTests(unittest.TestCase):
         self.assertIsNone(result["technical_atom_coverage_pct"])
         self.assertFalse(result["domain_specific_checks_enabled"])
 
+    def test_median_or_none_handles_metrics_not_evaluated_in_generic_profile(self):
+        self.assertIsNone(audit_module.median_or_none([None, None, None]))
+        self.assertEqual(audit_module.median_or_none([None, 20.0, 40.0]), 30.0)
+        self.assertEqual(audit_module.median_or_none([10, 30]), 20.0)
+
     def test_empty_optional_arrays_are_valid_when_the_schema_field_exists(self):
         segments, evidence, output = make_fixture()
         output["topics"] = []
