@@ -114,7 +114,7 @@ def collect_segment_evidence(segment: dict[str, Any], scene_id: int, segment_ind
             for index, child in enumerate(value):
                 child_path = f"{display_path}[{index}]"
                 if isinstance(child, str):
-                    if looks_like_text(current_key, child, current_key):
+                    if looks_like_text(current_key, child, parent_key):
                         add(child, path_parts + [str(index)], child_path)
                 else:
                     walk(child, path_parts + [str(index)], child_path, current_key, parent_key)
@@ -261,11 +261,11 @@ def overlap_detail(claim_tokens: set[str], evidence_items: list[dict[str, Any]],
     for item in usable:
         source_union.update(item["tokens"])
         modality_union[item["modality"]].update(item["tokens"])
-    coverage = (len(claim_tokens & source_union) / len(claim_tokens)) if claim_tokens else None
+    coverage = (len(claim_tokens & source_union) / len(claim_tokens)) if claim_tokens and usable else None
     modality_coverage = {
         modality: round(len(claim_tokens & tokens) / len(claim_tokens), 4)
         for modality, tokens in sorted(modality_union.items())
-    } if claim_tokens else {}
+    } if claim_tokens and usable else {}
 
     ranked = []
     for item in usable:
