@@ -82,7 +82,7 @@ def validate_text_llm_payload(payload, segments):
         value = payload.get(field)
         if isinstance(value, list):
             text_values.extend(
-                item if isinstance(item, str) else json_text(item)
+                item if isinstance(item, str) else str(item)
                 for item in value
             )
     for field in ("key_points", "scene_enrichment"):
@@ -106,15 +106,6 @@ def validate_text_llm_payload(payload, segments):
     if flags:
         print(f"⚠️ [Text LLM integrity guard] Найдено структурных/текстовых предупреждений: {len(flags)}; текст не переписывался.")
     return payload
-
-
-def json_text(value):
-    import json
-    try:
-        return json.dumps(value, ensure_ascii=False)
-    except Exception:
-        return str(value)
-
 
 
 
