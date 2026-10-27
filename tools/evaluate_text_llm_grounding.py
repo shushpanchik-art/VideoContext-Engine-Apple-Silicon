@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "2026.10.27.6-raw-final-provenance"
+SCRIPT_VERSION = "2026.10.27.7-raw-text-provenance"
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 SKIP_KEYS = {
@@ -451,7 +451,8 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
         "excluded_derived_source_fields": sorted(DERIVED_OR_SUMMARY_KEYS),
         "output_stage_descriptions": {
             "finalized_output": "The VCE payload after post-processing/reconciliation; it may include deterministic fallbacks.",
-            "raw_model_output": "Parsed primary model JSON before VCE finalization; available only when the benchmark stores raw_model_output.",
+            "raw_model_output": "Parsed primary model JSON before VCE finalization; available only when parsing succeeds.",
+            "raw_model_output_text": "Sanitized primary generation text without complete or unfinished private <think> blocks; diagnostic-only when JSON parsing fails.",
         },
         "output_provenance_warnings": [],
         "variants": {},
@@ -459,6 +460,20 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
     for variant, runs in variants.items():
         if not isinstance(runs, list):
             continue
+        for run in runs:
+            if not isinstance(run, dict):
+                continue
+            raw_text = run.get("raw_model_output_text")
+            raw_object = run.get("raw_model_output")
+            if isinstance(raw_text, str) and raw_text.strip() and not isinstance(raw_object, dict):
+                parse_status = run.get("raw_model_output_parse_status") or "not_recorded"
+                warning = (
+                    f"{variant} iteration {run.get('iteration')}: sanitized primary model text was retained, "
+                    f"but JSON parsing status is {parse_status}; claim-level raw-output audit is unavailable "
+                    "until a JSON object can be parsed. The retained text excludes private <think> blocks."
+                )
+                if warning not in report["output_provenance_warnings"]:
+                    report["output_provenance_warnings"].append(warning)
         stages = [("output", variant, "finalized_output")]
         if any(
             isinstance(run, dict) and isinstance(run.get("raw_model_output"), dict)
@@ -560,6 +575,7 @@ def build_markdown(report: dict[str, Any], *, include_all_claims: bool = False) 
         "- **Semantic correctness is not evaluated by this report. There is no semantic quality score.**",
         "- All claims remain semantically unverified; this report identifies lexical review cues only.",
         "- Finalized VCE payloads may contain deterministic fallback text added after model generation. When raw_model_output is present, it is reported separately from the finalized output.",
+        "- If primary generation text is retained but JSON parsing fails, the report records a provenance warning; this diagnostic text is not treated as a parsed claim set. Private <think> blocks are removed before it is stored.",
         "- The Markdown view shows claims with diagnostic findings by default; use --all-claims for the full detail table. JSON always contains all claims.",
         "",
         "| Variant | Runs | Claims | Low-overlap cues | Cue rate |",

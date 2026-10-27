@@ -258,6 +258,30 @@ class TextLLMGroundingTests(unittest.TestCase):
         self.assertIn("fast_summary [raw model output]", markdown)
         self.assertIn("deterministic fallback text", markdown)
 
+    def test_unparseable_raw_model_text_emits_provenance_warning(self):
+        source = {"segments": [
+            {"scene_id": 1, "audio_transcript": "A cat appears on screen."}
+        ]}
+        outputs = {"outputs_by_variant": {"4b_candidate": [{
+            "iteration": 2,
+            "output": {"executive_summary": "A cat appears on screen."},
+            "raw_model_output": None,
+            "raw_model_output_text": '{"executive_summary":"unfinished"',
+            "raw_model_output_parse_status": "invalid_json",
+            "raw_model_output_parse_diagnostic": "JSONDecodeError line 1 column 35",
+        }]}}
+        report = grounding.build_report(source, outputs)
+        warnings = report["output_provenance_warnings"]
+
+        self.assertTrue(any(
+            "sanitized primary model text was retained" in warning
+            and "JSON parsing status is invalid_json" in warning
+            for warning in warnings
+        ))
+        markdown = grounding.build_markdown(report)
+        self.assertIn("Output provenance warnings", markdown)
+        self.assertIn("claim-level raw-output audit is unavailable", markdown)
+
     def test_legacy_metrics_warn_when_raw_scene_enrichment_is_empty(self):
         source = {"segments": [
             {"scene_id": 1, "audio_transcript": "A cat appears on screen."}

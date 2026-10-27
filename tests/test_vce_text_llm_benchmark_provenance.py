@@ -30,6 +30,26 @@ class TextLLMBenchmarkProvenanceTests(unittest.TestCase):
         self.assertIsNone(BENCH.parse_primary_model_output("not json"))
         self.assertIsNone(BENCH.parse_primary_model_output('["not", "an", "object"]'))
 
+    def test_invalid_primary_text_is_retained_without_private_think_blocks(self):
+        raw = (
+            '<think>private reasoning that must not be serialized</think>\n'
+            '{"executive_summary":"A claim", "scene_enrichment":[}'
+        )
+        sanitized = BENCH.sanitize_primary_model_output_text(raw)
+        parsed, status, diagnostic = BENCH.parse_primary_model_output_details(sanitized)
+
+        self.assertIsNone(parsed)
+        self.assertEqual(status, "invalid_json")
+        self.assertIn("JSONDecodeError", diagnostic)
+        self.assertIn('"executive_summary"', sanitized)
+        self.assertNotIn("private reasoning", sanitized)
+
+    def test_unclosed_think_block_discards_the_unfinished_tail(self):
+        raw = '{"executive_summary":"safe"}\n<think>unfinished private reasoning'
+        sanitized = BENCH.sanitize_primary_model_output_text(raw)
+        self.assertEqual(sanitized, '{"executive_summary":"safe"}')
+        self.assertNotIn("unfinished private reasoning", sanitized)
+
     def test_output_record_keeps_raw_model_and_final_payload_distinct(self):
         raw = {
             "executive_summary": "A cat appears on screen.",
@@ -52,9 +72,11 @@ class TextLLMBenchmarkProvenanceTests(unittest.TestCase):
             "generated_scene_enrichment_count": 0,
             "generated_scene_enrichment_empty": True,
         }
-        record = BENCH.build_output_record(1, finalized, raw, metrics)
+        record = BENCH.build_output_record(1, finalized, raw, metrics, '{"executive_summary":"A cat appears on screen."}')
         self.assertEqual(record["output"], finalized)
         self.assertEqual(record["raw_model_output"], raw)
+        self.assertEqual(record["raw_model_output_text"], '{"executive_summary":"A cat appears on screen."}')
+        self.assertEqual(record["raw_model_output_parse_status"], "not_recorded")
         self.assertNotEqual(
             record["raw_model_output"]["scene_enrichment"],
             record["output"]["scene_enrichment"],

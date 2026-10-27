@@ -14,7 +14,7 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
-SCRIPT_VERSION = "2026.10.27.7-full-output-4b-benchmark"
+SCRIPT_VERSION = "2026.10.27.8-invalid-raw-json-provenance"
 
 def validate_text_llm_payload(payload, segments, state=None):
     """Generic schema/integrity check. Deliberately does not rewrite generated content."""
@@ -102,33 +102,61 @@ def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
-def parse_primary_model_output(primary_raw: str | None) -> dict | None:
-    """Parse the primary model JSON before VCE finalization, excluding private think blocks."""
+def sanitize_primary_model_output_text(primary_raw: str | None) -> str | None:
+    """Retain diagnostic text while removing private complete or unclosed think blocks."""
     if not isinstance(primary_raw, str) or not primary_raw.strip():
         return None
-    raw = re.sub(r"<think>.*?</think>", "", primary_raw, flags=re.I | re.S).strip()
+    raw = re.sub(r"<think\b[^>]*>.*?</think\s*>", "", primary_raw, flags=re.I | re.S)
+    # If generation stopped inside a think block, discard its unfinished tail too.
+    raw = re.sub(r"<think\b[^>]*>.*\Z", "", raw, flags=re.I | re.S)
+    return raw.strip() or None
+
+def parse_primary_model_output_details(primary_raw: str | None) -> tuple[dict | None, str, str | None]:
+    """Return parsed JSON plus a content-free parse status/diagnostic."""
+    raw = sanitize_primary_model_output_text(primary_raw)
+    if raw is None:
+        return None, "empty", None
     try:
         parsed = json.loads(raw)
-        return parsed if isinstance(parsed, dict) else None
-    except Exception:
+        if isinstance(parsed, dict):
+            return parsed, "parsed_json_object", None
+        return None, "non_object_json", None
+    except json.JSONDecodeError:
         match = re.search(r"\{.*\}", raw, flags=re.S)
         if not match:
-            return None
+            return None, "invalid_json", "no_json_object_found"
         try:
             parsed = json.loads(match.group(0))
-            return parsed if isinstance(parsed, dict) else None
-        except Exception:
-            return None
+        except json.JSONDecodeError as exc:
+            return None, "invalid_json", f"JSONDecodeError line {exc.lineno} column {exc.colno}"
+        if isinstance(parsed, dict):
+            return parsed, "parsed_json_object", None
+        return None, "non_object_json", None
+    except Exception as exc:
+        # Keep diagnostics useful without serializing model content into error messages.
+        return None, "invalid_json", type(exc).__name__
 
-def build_output_record(iteration, output, raw_model_output, metrics):
-    """Keep model-authored JSON distinct from the finalized VCE payload."""
+def parse_primary_model_output(primary_raw: str | None) -> dict | None:
+    """Compatibility wrapper returning only a parsed object, never private think text."""
+    return parse_primary_model_output_details(primary_raw)[0]
+
+def build_output_record(iteration, output, raw_model_output, metrics, raw_model_output_text=None):
+    """Keep sanitized primary text, parsed model JSON, and finalized VCE payload distinct."""
     return {
         "iteration": iteration,
         "output": output,
         "raw_model_output": raw_model_output,
+        "raw_model_output_text": raw_model_output_text,
+        "raw_model_output_parse_status": metrics.get("raw_model_output_parse_status", "not_recorded"),
+        "raw_model_output_parse_diagnostic": metrics.get("raw_model_output_parse_diagnostic"),
         "output_provenance": {
             "output": "vce_finalized_payload_after_postprocess",
             "raw_model_output": "parsed_primary_model_json_before_vce_finalize",
+            "raw_model_output_text": "sanitized_primary_generation_text_without_private_think_blocks",
+            "raw_model_output_parse_status": metrics.get("raw_model_output_parse_status", "not_recorded"),
+            "raw_model_output_parseable": isinstance(raw_model_output, dict),
+            "raw_model_output_text_retained": isinstance(raw_model_output_text, str),
+            "raw_model_output_text_characters": len(raw_model_output_text) if isinstance(raw_model_output_text, str) else 0,
             "prompt_rewrite_applied": metrics.get("prompt_rewrite_ok"),
             "raw_scene_enrichment_count": metrics.get("generated_scene_enrichment_count"),
             "raw_scene_enrichment_empty": metrics.get("generated_scene_enrichment_empty"),
@@ -515,7 +543,8 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
         st.total=time.perf_counter()-locals().get("t",st.start)
         after=hashlib.sha256(json.dumps(segments,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         q=audit(st.result,segments,summary,before==after)
-        raw_obj = parse_primary_model_output(st.primary_raw)
+        raw_model_output_text = sanitize_primary_model_output_text(st.primary_raw)
+        raw_obj, raw_parse_status, raw_parse_diagnostic = parse_primary_model_output_details(raw_model_output_text)
         raw_enrich = raw_obj.get("scene_enrichment") if isinstance(raw_obj, dict) else None
         out_tokens=st.out_tokens; primary=next((c for c in st.calls if c.get("kind")=="stream"),None); rate=out_tokens/st.decode if st.decode>0 else None
         think_tokens=0
@@ -533,7 +562,7 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
           "thinking_off_requested":bool(flags.get("thinking_off")),"thinking_off_applied_both":bool(flags.get("thinking_off") and st.template_thinking is False and st.stream_thinking is False and not st.thinking_fallback),"thinking_fallback_used":st.thinking_fallback,"stream_calls":st.stream_calls,
           "generate_calls":st.generate_calls,"stream_errors":st.stream_error,"nonstream_fallbacks":st.fallback,"json_repair_passes":st.repair,"json_repair_helper_calls":st.json_repair_helper,
           "json_parse_failures":st.parse_fail,"json_parse_seconds":round(st.parse,4),"reconciliation_seconds":round(st.reconcile,4),
-          "primary_raw_json_parseable":isinstance(raw_obj,dict),"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
+          "primary_raw_json_parseable":isinstance(raw_obj,dict),"raw_model_output_parse_status":raw_parse_status,"raw_model_output_parse_diagnostic":raw_parse_diagnostic,"raw_model_output_text_retained":raw_model_output_text is not None,"raw_model_output_text_characters":len(raw_model_output_text) if raw_model_output_text is not None else 0,"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
           "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,"quality_guard_flags":st.quality_guard_flags,
           "quality":q,"call_metrics":st.calls}
         result_out=st.result or {}
@@ -541,7 +570,7 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
         try: import mlx.core as mx; mx.clear_cache()
         except Exception: pass
         import gc; gc.collect()
-    return metrics, result_out, raw_obj
+    return metrics, result_out, raw_obj, raw_model_output_text
 
 def med_agg(runs):
     agg={}
@@ -657,8 +686,8 @@ def main():
             runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
-                m,o,raw_model_output=run_variant(mod,segments,summary,source,duration,name,model,n,dict(flags)); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m))
+                m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,model,n,dict(flags)); runs[name].append(m); flat.append(m)
+                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 write_json(outdir/"runs.partial.local.json",flat)
                 print("    ",m.get("total_seconds"),"s; success=",m.get("success"),"tokens=",m.get("output_tokens"))
         agg=med_agg(runs); base=agg.get("baseline",{}).get("total_seconds_median"); base_cov=agg.get("baseline",{}).get("critical_atom_coverage_median")
@@ -686,9 +715,9 @@ def main():
             name="D_Qwen3_5_4B_vs_"+best; runs[name]=[]; outputs[name]=[]
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} ...",flush=True)
-                m,o,raw_model_output=run_variant(mod,segments,summary,source,duration,name,MODEL4,n,dict(bestflags)); m["reference_9b_variant"]=best
+                m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,MODEL4,n,dict(bestflags)); m["reference_9b_variant"]=best
                 runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m))
+                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 write_json(outdir/"runs.partial.local.json",flat)
         speculative={"status":"skipped","reason":"Disabled with --skip-speculative" if args.skip_speculative else "Not yet checked"}
         if not args.skip_speculative:
@@ -696,8 +725,8 @@ def main():
             for n in range(1,args.repeats+1):
                 print(f"  {name} {n}/{args.repeats} (runtime compatibility checked before loading drafter)...",flush=True)
                 flags=dict(bestflags); flags["speculative"]=True
-                m,o,raw_model_output=run_variant(mod,segments,summary,source,duration,name,MODEL9,n,flags); runs[name].append(m); flat.append(m)
-                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m))
+                m,o,raw_model_output,raw_model_output_text=run_variant(mod,segments,summary,source,duration,name,MODEL9,n,flags); runs[name].append(m); flat.append(m)
+                if m.get("success"): outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 elif m.get("error"): reasons.append(m["error"])
                 write_json(outdir/"runs.partial.local.json",flat)
             n_ok=sum(bool(x.get("success")) for x in runs[name])
@@ -707,7 +736,7 @@ def main():
             if name=="baseline": continue
             ref=best if name.startswith(("D_","E_")) else "baseline"
             deltas[name]={"reference_variant":ref,**delta(agg.get(ref,{}).get("total_seconds_median"),row.get("total_seconds_median"))}
-        manifest={"run_id":run_id,"benchmark_script_version":SCRIPT_VERSION,"output_provenance_schema_version":"raw-and-final-output-v1","started_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),"video_basename":args.video.name if not args.input_json else source,
+        manifest={"run_id":run_id,"benchmark_script_version":SCRIPT_VERSION,"output_provenance_schema_version":"raw-final-and-sanitized-text-v2","started_at_utc":dt.datetime.now(dt.timezone.utc).isoformat(),"video_basename":args.video.name if not args.input_json else source,
            "video_sha256":file_sha(args.video) if not args.input_json else None,"scene_count":len(segments),"repeats":args.repeats,"source_snapshot_sha":SOURCE_SHA,
            "noise_threshold_pct":NOISE,"python":sys.version,"platform":platform.platform(),"machine":platform.machine(),"focused_quality_run":bool(args.focused_quality),"quality_guard_enabled":True,"raw_video_and_vce_scene_payload_uploaded":False,"input_segments_sha256_local_only":input_hash}
         doc={"manifest":manifest,"models":{"baseline":MODEL9,"4b":MODEL4,"speculative_target":MODEL9,"speculative_drafter":DRAFTER9},"aggregates":agg,"speed_deltas":deltas,
@@ -717,7 +746,7 @@ def main():
         outputs_doc={"manifest":{k:v for k,v in manifest.items() if k!="input_segments_sha256_local_only"},
           "warning":"Generated Text LLM outputs are published; raw video and raw scene/transcript/OCR input are not published.","outputs_by_variant":outputs}
         write_json(outdir/"metrics.local.json",doc); write_json(outdir/"metrics.json",public); write_json(outdir/"llm_outputs.json",outputs_doc)
-        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","quality_guard_flags","error"]
+        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","primary_raw_json_parseable","raw_model_output_parse_status","raw_model_output_text_characters","quality_guard_flags","error"]
         with csvpath.open("w",encoding="utf-8-sig",newline="") as f:
             w=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore"); w.writeheader(); w.writerows(flat)
         lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Focused quality run: {bool(args.focused_quality)}",f"- Video-agnostic non-mutating integrity guard: enabled",f"- D/E 9B reference profile: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
@@ -734,6 +763,7 @@ def main():
           "- Decode tok/s uses output tokens / time after the first chunk when streaming metrics are available.",
           "- Fast Summary is accepted only when prompt/schema rewriting applied and raw model JSON has an empty scene_enrichment list. VCE downstream reconciliation may repopulate that field deterministically.",
           "- Speculative decoding runs only if installed runtime accepts draft_model/draft_kind and the Qwen3.5-9B MTP drafter loads. Otherwise the reason is recorded.",
+          "- Sanitized primary generation text is retained when its JSON is invalid; private <think> blocks, including an unfinished block tail, are removed before serialization.",
           "- The default benchmark validates JSON, scene IDs, scene completeness and source preservation. It does not infer domain-specific facts or semantic correctness; manually review claims against source evidence.",""]
         report="\n".join(lines); (outdir/"report.md").write_text(report,encoding="utf-8")
         print("\n[6/6] Resultat:\n"+report)
