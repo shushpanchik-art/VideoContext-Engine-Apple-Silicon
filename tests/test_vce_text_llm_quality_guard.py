@@ -54,6 +54,40 @@ class FinalSceneQualityGuardTests(unittest.TestCase):
                          ["Видео завершается финальной заставкой «THE END»."])
         self.assertEqual(result["scene_enrichment"][0]["improved_description"], "AND JU")
 
+    def test_semantic_result_conflict_is_rewritten_when_audio_does_not_support_it(self):
+        payload = {
+            "key_points": [{"scene_id": 7, "text": "В модели обнаружена коллизия.", "evidence": ["visual"]}],
+            "scene_enrichment": [{"scene_id": 7, "topic": "Результат проверки",
+                                  "improved_description": "В модели обнаружена коллизия: уклон не соответствует нормативу.",
+                                  "key_points": ["Выявлено несоответствие норме."]}],
+        }
+        segments = [{"scene_id": 7, "start": 10, "end": 12, "audio_transcript": "",
+                     "ocr_text": "THE END", "visual_description": "Финальная заставка THE END."}]
+        result = guard_module.repair_final_scene_artifacts(payload, segments)
+        self.assertEqual(result["key_points"][0]["text"], "Финальная заставка с текстом «THE END».")
+        self.assertEqual(result["scene_enrichment"][0]["improved_description"],
+                         "Финальная заставка с текстом «THE END».")
+        self.assertEqual(result["scene_enrichment"][0]["key_points"],
+                         ["Видео завершается финальной заставкой «THE END»."])
+
+    def test_spoken_result_is_preserved_with_explicit_audio_attribution(self):
+        payload = {
+            "key_points": [{"scene_id": 7, "text": "В модели обнаружена коллизия.", "evidence": ["speech", "visual"]}],
+            "scene_enrichment": [{"scene_id": 7, "topic": "Результат проверки",
+                                  "improved_description": "В модели обнаружена коллизия: уклон не соответствует нормативу.",
+                                  "key_points": ["Выявлено несоответствие норме."]}],
+        }
+        audio = "Диктор сообщает: проверка выявила несоответствие уклона пандуса нормативу."
+        segments = [{"scene_id": 7, "start": 10, "end": 12, "audio_transcript": audio,
+                     "ocr_text": "THE END", "visual_description": "Финальная заставка THE END."}]
+        result = guard_module.repair_final_scene_artifacts(payload, segments)
+        self.assertIn("В аудио сообщается:", result["scene_enrichment"][0]["improved_description"])
+        self.assertIn(audio, result["scene_enrichment"][0]["improved_description"])
+        self.assertIn("Визуально показана финальная заставка «THE END».",
+                      result["scene_enrichment"][0]["improved_description"])
+        self.assertIn("speech", result["key_points"][0]["evidence"])
+        self.assertIn("В аудио говорится:", result["key_points"][0]["text"])
+
     def test_no_repair_without_explicit_end_title_evidence(self):
         payload = {
             "key_points": [{"scene_id": 7, "text": "AND JU", "evidence": ["visual"]}],
