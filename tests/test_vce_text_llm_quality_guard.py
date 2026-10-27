@@ -1,105 +1,90 @@
 #!/usr/bin/env python3
-"""Regression tests for the evidence-gated VCE final-scene quality guard."""
+"""Tests for universal non-mutating VCE output integrity validation."""
 from __future__ import annotations
 
+import copy
 import importlib.util
-import re
+import types
 import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = REPO_ROOT / "patches" / "patch_vce_text_llm_quality_guard.py"
-SPEC = importlib.util.spec_from_file_location("vce_text_llm_quality_guard", MODULE_PATH)
-guard_module = importlib.util.module_from_spec(SPEC)
-assert SPEC and SPEC.loader
-SPEC.loader.exec_module(guard_module)
-
-BENCH_PATH = REPO_ROOT / "tools" / "bench_text_llm_summary.py"
-BENCH_SPEC = importlib.util.spec_from_file_location("vce_text_llm_benchmark", BENCH_PATH)
-bench_module = importlib.util.module_from_spec(BENCH_SPEC)
-assert BENCH_SPEC and BENCH_SPEC.loader
-BENCH_SPEC.loader.exec_module(bench_module)
 
 
-class FinalSceneQualityGuardTests(unittest.TestCase):
-    def test_repairs_final_scene_only_when_end_title_is_in_source_evidence(self):
-        payload = {
-            "executive_summary": "Отчёт остаётся без изменений.",
-            "key_points": [
-                {"scene_id": 1, "text": "AND JU", "evidence": ["visual"]},
-                {"scene_id": 2, "text": "AND JU", "evidence": ["visual"]},
-            ],
-            "scene_enrichment": [
-                {"scene_id": 1, "topic": "Не трогать", "improved_description": "AND JU", "key_points": []},
-                {"scene_id": 2, "topic": "Результат проверки", "improved_description": "Заставка D_ NC END",
-                 "key_points": ["Сцена содержит результат проверки."]},
-            ],
-        }
-        segments = [
-            {"scene_id": 1, "start": 0, "end": 4, "ocr_text": "AND JU",
-             "visual_description": "Технический интерфейс."},
-            {"scene_id": 2, "start": 4, "end": 8, "ocr_text": "THE END",
-             "visual_description": "На чёрном фоне титр THE END."},
-        ]
+def load_module(name, path):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    return module
 
-        result = guard_module.repair_final_scene_artifacts(payload, segments)
-        self.assertEqual(result["key_points"][0]["text"], "AND JU",
-                         "non-final scenes must not be edited")
-        self.assertEqual(result["key_points"][1]["text"], "Финальная заставка с текстом «THE END».")
-        self.assertEqual(result["key_points"][1]["evidence"], ["ocr", "visual"])
-        self.assertEqual(result["scene_enrichment"][1]["topic"], "Завершение видео")
-        self.assertEqual(result["scene_enrichment"][1]["improved_description"],
-                         "Финальная заставка с текстом «THE END».")
-        self.assertEqual(result["scene_enrichment"][1]["key_points"],
-                         ["Видео завершается финальной заставкой «THE END»."])
-        self.assertEqual(result["scene_enrichment"][0]["improved_description"], "AND JU")
 
-    def test_semantic_result_conflict_is_rewritten_when_audio_does_not_support_it(self):
-        payload = {
-            "key_points": [{"scene_id": 7, "text": "В модели обнаружена коллизия.", "evidence": ["visual"]}],
-            "scene_enrichment": [{"scene_id": 7, "topic": "Результат проверки",
-                                  "improved_description": "В модели обнаружена коллизия: уклон не соответствует нормативу.",
-                                  "key_points": ["Выявлено несоответствие норме."]}],
-        }
-        segments = [{"scene_id": 7, "start": 10, "end": 12, "audio_transcript": "",
-                     "ocr_text": "THE END", "visual_description": "Финальная заставка THE END."}]
-        result = guard_module.repair_final_scene_artifacts(payload, segments)
-        self.assertEqual(result["key_points"][0]["text"], "Финальная заставка с текстом «THE END».")
-        self.assertEqual(result["scene_enrichment"][0]["improved_description"],
-                         "Финальная заставка с текстом «THE END».")
-        self.assertEqual(result["scene_enrichment"][0]["key_points"],
-                         ["Видео завершается финальной заставкой «THE END»."])
+guard_module = load_module("vce_text_llm_integrity_guard", REPO_ROOT / "patches" / "patch_vce_text_llm_quality_guard.py")
+bench_module = load_module("vce_text_llm_benchmark", REPO_ROOT / "tools" / "bench_text_llm_summary.py")
 
-    def test_spoken_result_is_preserved_with_explicit_audio_attribution(self):
-        payload = {
-            "key_points": [{"scene_id": 7, "text": "В модели обнаружена коллизия.", "evidence": ["speech", "visual"]}],
-            "scene_enrichment": [{"scene_id": 7, "topic": "Результат проверки",
-                                  "improved_description": "В модели обнаружена коллизия: уклон не соответствует нормативу.",
-                                  "key_points": ["Выявлено несоответствие норме."]}],
-        }
-        audio = "Диктор сообщает: проверка выявила несоответствие уклона пандуса нормативу."
-        segments = [{"scene_id": 7, "start": 10, "end": 12, "audio_transcript": audio,
-                     "ocr_text": "THE END", "visual_description": "Финальная заставка THE END."}]
-        result = guard_module.repair_final_scene_artifacts(payload, segments)
-        self.assertIn("В аудио сообщается:", result["scene_enrichment"][0]["improved_description"])
-        self.assertIn(audio, result["scene_enrichment"][0]["improved_description"])
-        self.assertIn("Визуально показана финальная заставка «THE END».",
-                      result["scene_enrichment"][0]["improved_description"])
-        self.assertIn("speech", result["key_points"][0]["evidence"])
-        self.assertIn("В аудио сообщается:", result["key_points"][0]["text"])
 
-    def test_no_repair_without_explicit_end_title_evidence(self):
-        payload = {
-            "key_points": [{"scene_id": 7, "text": "AND JU", "evidence": ["visual"]}],
-            "scene_enrichment": [{"scene_id": 7, "topic": "Завершение", "improved_description": "D_ NC END",
-                                  "key_points": []}],
-        }
-        segments = [{"scene_id": 7, "start": 0, "end": 2,
-                     "ocr_text": "Unclear",
-                     "visual_description": "Чёрный экран, читаемый текст отсутствует."}]
-        before = repr(payload)
-        result = guard_module.repair_final_scene_artifacts(payload, segments)
-        self.assertEqual(repr(result), before)
+def fixture():
+    payload = {
+        "executive_summary": "A video describes a process and its outcome.",
+        "topics": ["КСИ", "HDB_V5", "THE END", "АИ ИИ ПОМОЩНИК"],
+        "entities": [{"name": "Example item", "scene_ids": [1]}],
+        "uncertainties": [],
+        "key_points": [
+            {"scene_id": 1, "text": "A speaker introduces the item.", "evidence": ["speech"]},
+        ],
+        "scene_enrichment": [
+            {"scene_id": 1, "topic": "Introduction", "improved_description": "The video introduces the item.", "key_points": []},
+            {"scene_id": 2, "topic": "Conclusion", "improved_description": "The video ends with a title card.", "key_points": []},
+        ],
+    }
+    segments = [
+        {"scene_id": 1, "start": 0, "end": 3, "audio_transcript": "A speaker introduces the item."},
+        {"scene_id": 2, "start": 3, "end": 6, "audio_transcript": "The video ends.", "ocr_text": "THE END"},
+    ]
+    return payload, segments
+
+
+class UniversalIntegrityGuardTests(unittest.TestCase):
+    def test_both_guards_are_non_mutating_for_any_domain_language_or_title(self):
+        payload, segments = fixture()
+        original = copy.deepcopy(payload)
+        result = guard_module.validate_text_llm_payload(payload, segments)
+        self.assertEqual(result, original)
+        self.assertEqual(payload, original)
+
+        payload2, segments2 = fixture()
+        state = types.SimpleNamespace(quality_guard_flags=0)
+        result2 = bench_module.validate_text_llm_payload(payload2, segments2, state=state)
+        self.assertEqual(result2, payload2)
+        self.assertEqual(payload2, original)
+        self.assertEqual(state.quality_guard_flags, 0)
+
+    def test_missing_scene_enrichment_is_flagged_but_not_rewritten(self):
+        payload, segments = fixture()
+        payload["scene_enrichment"] = payload["scene_enrichment"][:1]
+        before = copy.deepcopy(payload)
+        state = types.SimpleNamespace(quality_guard_flags=0)
+        result = bench_module.validate_text_llm_payload(payload, segments, state=state)
+        self.assertEqual(result, before)
+        self.assertGreater(state.quality_guard_flags, 0)
+
+    def test_invalid_scene_ids_are_flagged_but_content_is_preserved(self):
+        payload, segments = fixture()
+        payload["scene_enrichment"][0]["scene_id"] = 99
+        before = copy.deepcopy(payload)
+        state = types.SimpleNamespace(quality_guard_flags=0)
+        result = bench_module.validate_text_llm_payload(payload, segments, state=state)
+        self.assertEqual(result, before)
+        self.assertGreater(state.quality_guard_flags, 0)
+
+    def test_unicode_replacement_character_is_flagged_without_rewriting(self):
+        payload, segments = fixture()
+        payload["executive_summary"] = "Broken text \ufffd"
+        before = copy.deepcopy(payload)
+        state = types.SimpleNamespace(quality_guard_flags=0)
+        result = bench_module.validate_text_llm_payload(payload, segments, state=state)
+        self.assertEqual(result, before)
+        self.assertGreater(state.quality_guard_flags, 0)
 
     def test_focused_quality_benchmark_selects_baseline_b_and_4b_path(self):
         focused = bench_module.benchmark_variants(focused_quality=True)
@@ -108,42 +93,37 @@ class FinalSceneQualityGuardTests(unittest.TestCase):
         self.assertEqual([name for name, _model, _flags in full],
                          ["baseline", "A_thinking_off", "B_fast_summary", "C_compact_context"])
 
-    def test_benchmark_and_installed_engine_guard_match(self):
-        payload = {
-            "key_points": [{"scene_id": 2, "text": "AND JU", "evidence": ["visual"]}],
-            "scene_enrichment": [{"scene_id": 2, "topic": "Результат проверки",
-                                  "improved_description": "D_ NC END", "key_points": []}],
-        }
-        segments = [{"scene_id": 2, "start": 4, "end": 8, "ocr_text": "THE END",
-                     "visual_description": "На чёрном фоне титр THE END."}]
-        import copy
-        engine_result = guard_module.repair_final_scene_artifacts(copy.deepcopy(payload), segments)
-        bench_result = bench_module.repair_final_scene_artifacts(copy.deepcopy(payload), segments)
+    def test_benchmark_and_installed_engine_validators_match(self):
+        payload, segments = fixture()
+        payload_a = copy.deepcopy(payload)
+        payload_b = copy.deepcopy(payload)
+        engine_result = guard_module.validate_text_llm_payload(payload_a, segments)
+        state = types.SimpleNamespace(quality_guard_flags=0)
+        bench_result = bench_module.validate_text_llm_payload(payload_b, segments, state=state)
         self.assertEqual(engine_result, bench_result)
+        self.assertEqual(payload_a, payload_b)
 
     def test_patch_source_compiles_and_is_idempotent(self):
         source = (
-            "import re\n\n"
             "def run_text_llm_postprocess():\n"
-            "    try:\n"
-            "        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n"
-            "        return parsed\n"
-            "    finally:\n"
-            "        pass\n\n"
+            "    parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n"
+            "    return parsed\n\n"
             "def format_text_llm_report(payload):\n"
             "    return str(payload)\n"
         )
         patched, changed = guard_module.patch_source(source)
         self.assertTrue(changed)
         compile(patched, "fixture.py", "exec")
-        self.assertIn("parsed = _vce_v5_repair_final_scene_artifacts(parsed, segments)", patched)
+        self.assertIn(
+            "parsed = _vce_v6_validate_text_llm_payload(parsed, segments)", patched
+        )
         patched_again, changed_again = guard_module.patch_source(patched)
         self.assertFalse(changed_again)
         self.assertEqual(patched_again, patched)
 
     def test_refuses_partial_patch_state(self):
         source = (
-            "def _vce_v5_repair_final_scene_artifacts(payload, segments):\n"
+            "def _vce_v6_validate_text_llm_payload(payload, segments):\n"
             "    return payload\n\n"
             "def run_text_llm_postprocess():\n"
             "    return {}\n"
