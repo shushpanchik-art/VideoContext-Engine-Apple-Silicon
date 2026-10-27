@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "2026.10.27.4-scene-scoped-mismatch"
+SCRIPT_VERSION = "2026.10.27.5-single-evidence-mismatch"
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 SKIP_KEYS = {
@@ -283,6 +283,7 @@ def overlap_detail(claim_tokens: set[str], evidence_items: list[dict[str, Any]],
             "scene_id": item["scene_id"],
             "field_path": item["field_path"],
             "modality": item["modality"],
+            "matched_claim_token_count": len(matched),
             "claim_token_recall": round(recall, 4),
             "token_f1": round(f1, 4),
             "overlap_tokens": sorted(matched)[:20],
@@ -352,12 +353,31 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
             if best_other_scene_detail is not None else 0
         )
         meaningful_other_scene_recall = max(min_token_recall, 0.30)
+        best_other_evidence = (
+            best_other_scene_detail["best_evidence"][0]
+            if best_other_scene_detail is not None and best_other_scene_detail["best_evidence"]
+            else None
+        )
+        best_other_evidence_matches = (
+            best_other_evidence["matched_claim_token_count"]
+            if best_other_evidence is not None else 0
+        )
+        best_other_evidence_recall = (
+            best_other_evidence["claim_token_recall"]
+            if best_other_evidence is not None else None
+        )
         if (
             local_recall is not None
             and local_recall < min_token_recall
             and other_recall is not None
             and other_recall >= meaningful_other_scene_recall
             and other_matches >= 2
+            # Do not assemble a scene-mismatch cue from different weak fields:
+            # at least one source-text item must independently match >= 2 tokens
+            # at meaningful coverage within this same other scene.
+            and best_other_evidence_matches >= 2
+            and best_other_evidence_recall is not None
+            and best_other_evidence_recall >= meaningful_other_scene_recall
             and other_recall > local_recall
         ):
             findings.append("overlap_found_elsewhere_in_video_not_in_referenced_scene")
