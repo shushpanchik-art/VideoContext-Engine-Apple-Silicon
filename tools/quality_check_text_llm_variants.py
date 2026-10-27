@@ -86,9 +86,17 @@ def collect_strings(obj, *, skip_keys=None, parent=""):
                 out.extend(collect_strings(value, skip_keys=skip_keys, parent=k))
     elif isinstance(obj, list):
         for value in obj:
-            out.extend(collect_strings(value, skip_keys=skip_keys, parent=parent))
-    elif isinstance(obj, str) and len(obj.strip()) >= 18:
-        out.append(obj.strip())
+            # Preserve concise labels/names from topic, entity, tag and evidence lists.
+            if isinstance(value, str) and parent.casefold() in {"topics", "entities", "visual_tags", "tags", "evidence", "key_points", "uncertainties"}:
+                if value.strip():
+                    out.append(value.strip())
+            else:
+                out.extend(collect_strings(value, skip_keys=skip_keys, parent=parent))
+    elif isinstance(obj, str) and (
+        len(obj.strip()) >= 18 or parent.casefold() in {"topics", "entities", "visual_tags", "tags", "evidence"}
+    ):
+        if obj.strip():
+            out.append(obj.strip())
     return out
 
 
