@@ -67,5 +67,23 @@ class TextLLMBenchmarkProvenanceTests(unittest.TestCase):
         self.assertEqual(record["output_provenance"]["raw_scene_enrichment_count"], 0)
 
 
+    def test_focused_quality_uses_full_output_baseline_for_4b(self):
+        variants = BENCH.benchmark_variants(focused_quality=True)
+        chosen = BENCH.comparison_reference_variant("B_fast_summary", focused_quality=True)
+        flags = BENCH.flags_for_variant(variants, chosen)
+
+        self.assertEqual(chosen, "baseline")
+        self.assertEqual(flags, {})
+        self.assertNotIn("fast", flags)
+
+    def test_nonfocused_benchmark_retains_selected_variant_flags(self):
+        variants = BENCH.benchmark_variants(focused_quality=False)
+        chosen = BENCH.comparison_reference_variant("B_fast_summary", focused_quality=False)
+        flags = BENCH.flags_for_variant(variants, chosen)
+
+        self.assertEqual(chosen, "B_fast_summary")
+        self.assertTrue(flags.get("fast"))
+
+
 if __name__ == "__main__":
     unittest.main()
