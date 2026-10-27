@@ -63,6 +63,9 @@ def validate_text_llm_payload(payload, segments, state=None):
     summary = payload.get("executive_summary")
     if not isinstance(summary, str) or not summary.strip():
         flags.append("executive_summary_empty_or_missing")
+    for field in ("topics", "entities", "uncertainties"):
+        if not isinstance(payload.get(field), list):
+            flags.append(f"{field}_not_array")
 
     texts = [summary] if isinstance(summary, str) else []
     for field in ("topics", "entities", "uncertainties"):
