@@ -104,7 +104,7 @@ class State:
         self.start=time.perf_counter(); self.load=0.; self.config=0.; self.prompt=0.; self.template=0.; self.parse=0.; self.reconcile=0.
         self.processor=None; self.prompt_text=""; self.formatted=""; self.in_tokens=None; self.in_method="unknown"; self.prompt_chars=0; self.prompt_started=None
         self.ttft=None; self.decode=0.; self.wall=0.; self.out_tokens=0; self.out_text=[]; self.calls=[]; self.repair=0; self.parse_fail=0
-        self.stream_calls=0; self.generate_calls=0; self.fallback=0; self.stream_error=0; self.thinking_fallback=False
+        self.stream_calls=0; self.generate_calls=0; self.fallback=0; self.stream_error=0; self.thinking_fallback=False; self.json_repair_helper=0
         self.prompt_rewrite=None; self.template_thinking=None; self.stream_thinking=None; self.primary_raw=""; self.result=None; self.error=None; self.drafter=None; self.draft_kind=None
         self.compact_info={}; self.draft_load=0.
 
@@ -242,7 +242,7 @@ def install_hooks(mod, state):
         try: mod.BENCH_real_repair=importlib.import_module("json_repair").repair_json
         except Exception: mod.BENCH_real_repair=lambda *a,**k: None
     def wrepair(*a,**k):
-        state.repair+=1
+        state.json_repair_helper+=1
         return mod.BENCH_real_repair(*a,**k)
     mod.BENCH_repair=wrepair
     if not hasattr(mod,"BENCH_parse"): mod.BENCH_parse=mod._text_llm_parse_json
@@ -365,7 +365,7 @@ def run_variant(mod,segments,summary,source,duration,name,model,iteration,flags)
           "primary_output_near_token_limit":bool(primary and primary.get("output_tokens",0)>=4094),
           "decode_tokens_per_second":round(rate,3) if rate else None,"thinking_tokens_observed":think_tokens,
           "thinking_off_requested":bool(flags.get("thinking_off")),"thinking_fallback_used":st.thinking_fallback,"stream_calls":st.stream_calls,
-          "generate_calls":st.generate_calls,"stream_errors":st.stream_error,"nonstream_fallbacks":st.fallback,"json_repair_passes":st.repair,
+          "generate_calls":st.generate_calls,"stream_errors":st.stream_error,"nonstream_fallbacks":st.fallback,"json_repair_passes":st.repair,"json_repair_helper_calls":st.json_repair_helper,
           "json_parse_failures":st.parse_fail,"json_parse_seconds":round(st.parse,4),"reconciliation_seconds":round(st.reconcile,4),
           "primary_raw_json_parseable":isinstance(raw_obj,dict),"generated_scene_enrichment_count":len(raw_enrich) if isinstance(raw_enrich,list) else None,
           "generated_scene_enrichment_empty":raw_enrich==[] if isinstance(raw_enrich,list) else None,"prompt_rewrite_ok":st.prompt_rewrite,"compaction":compact_info or None,
@@ -414,7 +414,7 @@ def maybe_use_vce_python():
 
 def main():
     ap=argparse.ArgumentParser(description="Run VCE Text LLM optimization benchmarks A-E on one fixed video input.")
-    ap.add_argument("--video",type=Path,default=VIDEO_DEFAULT); ap.add_argument("--api-url",default=os.getenv("VCE_API_URL","http://127.0.0.1:8000"))
+    ap.add_argument("--video",type=Path,default=VIDEO_DEFAULT); ap.add_argument("--api-url",default=os.getenv("VCE_API_URL","http://127.0.0.1:7555"))
     ap.add_argument("--repeats",type=int,default=3); ap.add_argument("--output-dir",type=Path)
     ap.add_argument("--input-json",type=Path,help="Reuse existing VCE JSON with segments[] and skip video analysis.")
     ap.add_argument("--skip-4b",action="store_true"); ap.add_argument("--skip-speculative",action="store_true")
@@ -498,7 +498,7 @@ def main():
         outputs_doc={"manifest":{k:v for k,v in manifest.items() if k!="input_segments_sha256_local_only"},
           "warning":"Generated Text LLM outputs are published; raw video and raw scene/transcript/OCR input are not published.","outputs_by_variant":outputs}
         write_json(outdir/"metrics.local.json",doc); write_json(outdir/"metrics.json",public); write_json(outdir/"llm_outputs.json",outputs_doc)
-        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","error"]
+        csvpath=outdir/"runs.csv"; fields=["variant","model","iteration","success","total_seconds","model_load_seconds","config_load_seconds","input_tokens","input_token_count_method","time_to_first_token_seconds","decode_seconds","output_tokens","decode_tokens_per_second","json_repair_passes","json_repair_helper_calls","error"]
         with csvpath.open("w",encoding="utf-8-sig",newline="") as f:
             w=csv.DictWriter(f,fieldnames=fields,extrasaction="ignore"); w.writeheader(); w.writerows(flat)
         lines=["# VCE Text LLM benchmark","",f"- Run: {run_id}",f"- Scenes: {len(segments)}",f"- Repeats: {args.repeats}",f"- Selected 9B candidate for D/E: {best}",f"- Timing deltas within ±{NOISE:.0f}% count as test noise.","",
