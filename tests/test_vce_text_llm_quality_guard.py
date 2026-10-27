@@ -67,6 +67,13 @@ class FinalSceneQualityGuardTests(unittest.TestCase):
         result = guard_module.repair_final_scene_artifacts(payload, segments)
         self.assertEqual(repr(result), before)
 
+    def test_focused_quality_benchmark_selects_baseline_b_and_4b_path(self):
+        focused = bench_module.benchmark_variants(focused_quality=True)
+        self.assertEqual([name for name, _model, _flags in focused], ["baseline", "B_fast_summary"])
+        full = bench_module.benchmark_variants(focused_quality=False)
+        self.assertEqual([name for name, _model, _flags in full],
+                         ["baseline", "A_thinking_off", "B_fast_summary", "C_compact_context"])
+
     def test_benchmark_and_installed_engine_guard_match(self):
         payload = {
             "key_points": [{"scene_id": 2, "text": "AND JU", "evidence": ["visual"]}],
