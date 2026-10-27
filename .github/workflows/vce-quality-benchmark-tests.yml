@@ -15,6 +15,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Check Python syntax of quality audit
+        run: python -m py_compile tools/quality_check_text_llm_variants.py
       - name: Check icon installer shell syntax
         run: bash -n scripts/install_vce_macos_icon.command
       - name: Run benchmark and icon unit tests
