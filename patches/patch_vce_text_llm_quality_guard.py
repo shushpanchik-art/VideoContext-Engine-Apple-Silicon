@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Safely add an evidence-gated final-title/audio attribution guard to an installed VCE engine.
+"""Safely add a video-agnostic, non-mutating Text LLM output-integrity validator.
 
-The guard only edits user-facing final-scene text when source OCR/visual description
-already confirms THE END or КОНЕЦ. It never edits source segments, summaries, or
-non-final scenes. Run --dry-run first.
+The guard checks the VCE output schema and scene IDs. It deliberately does not rewrite
+user-facing content or contain video-specific vocabulary. Run --dry-run first.
 """
 from __future__ import annotations
 
@@ -16,128 +15,106 @@ from datetime import datetime
 from pathlib import Path
 
 ENGINE_NAME = "VideoContextEngine_v3.19.py"
-HELPER_NAME = "_vce_v5_repair_final_scene_artifacts"
+HELPER_NAME = "_vce_v6_validate_text_llm_payload"
 CALL_MARKER = "parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)"
 CALL_GUARD = f"parsed = {HELPER_NAME}(parsed, segments)"
 
 
-def repair_final_scene_artifacts(payload, segments):
-    """Repair final-scene corruption/conflicting visual claims using source evidence."""
+def validate_text_llm_payload(payload, segments):
+    """Validate generic VCE output invariants without altering content."""
     import re
 
-    if not isinstance(payload, dict) or not isinstance(segments, list) or not segments:
+    flags = []
+    if not isinstance(payload, dict):
+        print("⚠️ [Text LLM integrity guard] Output is not a JSON object.")
+        return payload
+    if not isinstance(segments, list) or not segments:
         return payload
 
-    valid = []
+    expected_ids = []
     for index, segment in enumerate(segments):
         if not isinstance(segment, dict):
+            flags.append(f"source_scene[{index}]_not_object")
             continue
         try:
-            sid = int(segment.get("scene_id", index + 1))
-            start = float(segment.get("start", 0) or 0)
-            end = float(segment.get("end", start) or start)
+            expected_ids.append(int(segment.get("scene_id", index + 1)))
         except (TypeError, ValueError):
-            continue
-        valid.append((end, start, sid, segment))
-    if not valid:
-        return payload
-    _end, _start, last_id, last_scene = max(valid, key=lambda item: (item[0], item[1], item[2]))
+            flags.append(f"source_scene[{index}]_invalid_id")
+    if len(expected_ids) != len(set(expected_ids)):
+        flags.append("source_scene_ids_not_unique")
+    expected = set(expected_ids)
 
-    ocr = str(last_scene.get("ocr_text") or "")
-    visual = str(last_scene.get("visual_description") or "")
-    audio = re.sub(r"\s+", " ", str(last_scene.get("audio_transcript") or "")).strip()
-    visible_source = ocr + "\n" + visual
-    marker = re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visible_source)
-    if marker is None:
-        return payload
-
-    title = "THE END" if re.search(r"(?i)\bTHE\s+END\b", marker.group(0)) else "КОНЕЦ"
-    clean_title = f"Финальная заставка с текстом «{title}»."
-    visual_title = f"Визуально показана финальная заставка «{title}»."
-    corrupt_re = re.compile(r"(?i)\bAND\s+JU\b|\bNC\s+END\b|(?<!\w)D_(?!\w)")
-    result_re = re.compile(r"(?i)\b(?:коллиз\w*|несоответств\w*|не\s+соответств\w*|наруш\w*|превыш\w*|mismatch\w*|collision\w*)\b")
-    audio_supports_result = bool(audio and result_re.search(audio))
-    audio_quote = audio
-    if len(audio_quote) > 240:
-        audio_quote = audio_quote[:237].rsplit(" ", 1)[0].rstrip() + "…"
-    channels = []
-    if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", ocr):
-        channels.append("ocr")
-    if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visual):
-        channels.append("visual")
-    if not channels:
-        return payload
-
-    if audio_supports_result:
-        safe_description = f"В аудио сообщается: «{audio_quote}». {visual_title}"
-        safe_points = [f"В аудио говорится: «{audio_quote}».", visual_title]
-    else:
-        safe_description = clean_title
-        safe_points = [f"Видео завершается финальной заставкой «{title}»."]
-
-    repairs = 0
-    key_points = payload.get("key_points")
-    if isinstance(key_points, list):
-        for item in key_points:
-            if not isinstance(item, dict):
+    def check_records(field, require_all=False):
+        records = payload.get(field)
+        if not isinstance(records, list):
+            flags.append(f"{field}_not_array")
+            return
+        seen = []
+        for index, record in enumerate(records):
+            if not isinstance(record, dict):
+                flags.append(f"{field}[{index}]_not_object")
                 continue
             try:
-                sid = int(item.get("scene_id"))
+                sid = int(record.get("scene_id"))
+                seen.append(sid)
             except (TypeError, ValueError):
-                continue
-            text = str(item.get("text") or item.get("description") or "")
-            has_bad_fragment = bool(corrupt_re.search(text))
-            claims_result = bool(result_re.search(text))
-            evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
-            visual_only = bool(set(map(str, evidence)) & {"visual", "ocr"}) and "speech" not in evidence
-            has_audio_attribution = bool(re.search(r"(?i)по словам диктора|в аудио|в речи|диктор\s+(?:сообщает|говорит|уточняет)|согласно аудио", text))
-            should_rewrite = sid == last_id and (has_bad_fragment or (claims_result and (not audio_supports_result or visual_only or not has_audio_attribution)))
-            if not should_rewrite:
-                continue
-            item["text"] = safe_description
-            item.pop("description", None)
-            new_evidence = list(channels)
-            if audio_supports_result and "speech" not in new_evidence:
-                new_evidence.insert(0, "speech")
-            item["evidence"] = new_evidence
-            repairs += 1
+                flags.append(f"{field}[{index}]_invalid_scene_id")
+        if len(seen) != len(set(seen)):
+            flags.append(f"{field}_duplicate_scene_ids")
+        unexpected = sorted(set(seen) - expected)
+        if unexpected:
+            flags.append(f"{field}_unexpected_scene_ids:{unexpected}")
+        if require_all:
+            missing = sorted(expected - set(seen))
+            if missing:
+                flags.append(f"{field}_missing_scene_ids:{missing}")
 
-    enrichment = payload.get("scene_enrichment")
-    if isinstance(enrichment, list):
-        for item in enrichment:
-            if not isinstance(item, dict):
-                continue
-            try:
-                sid = int(item.get("scene_id"))
-            except (TypeError, ValueError):
-                continue
-            if sid != last_id:
-                continue
-            fields = [
-                str(item.get("topic") or ""),
-                str(item.get("improved_description") or ""),
-            ]
-            points = item.get("key_points")
-            if isinstance(points, list):
-                fields.extend(str(point or "") for point in points)
-            combined = "\n".join(fields)
-            has_bad_fragment = bool(corrupt_re.search(combined))
-            claims_result = bool(result_re.search(combined))
-            mentions_closing_title = bool(re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", combined))
-            # Per-scene enrichment must not state a visual technical result in a frame
-            # whose source evidence only establishes a closing title. Preserve an
-            # independently supported spoken result with explicit audio attribution.
-            should_rewrite = has_bad_fragment or claims_result or (not mentions_closing_title and not combined.strip())
-            if not should_rewrite:
-                continue
-            item["topic"] = "Завершение видео"
-            item["improved_description"] = safe_description
-            item["key_points"] = safe_points
-            repairs += 1
+    check_records("key_points", require_all=False)
+    check_records("scene_enrichment", require_all=True)
 
-    if repairs:
-        print(f"🛡️ [Text LLM quality guard] Исправлены артефакты/конфликт финальной заставки: {repairs}.")
+    summary = payload.get("executive_summary")
+    if not isinstance(summary, str) or not summary.strip():
+        flags.append("executive_summary_empty_or_missing")
+
+    # Generic text-integrity checks only: no language, domain, brand, or title keywords.
+    text_values = [summary] if isinstance(summary, str) else []
+    for field in ("topics", "entities", "uncertainties"):
+        value = payload.get(field)
+        if isinstance(value, list):
+            text_values.extend(
+                item if isinstance(item, str) else json_text(item)
+                for item in value
+            )
+    for field in ("key_points", "scene_enrichment"):
+        value = payload.get(field)
+        if isinstance(value, list):
+            for item in value:
+                if not isinstance(item, dict):
+                    continue
+                for key in ("text", "description", "topic", "improved_description"):
+                    if isinstance(item.get(key), str):
+                        text_values.append(item[key])
+                child = item.get("key_points")
+                if isinstance(child, list):
+                    text_values.extend(str(x) for x in child)
+    for index, text in enumerate(text_values):
+        if "\ufffd" in text:
+            flags.append(f"text[{index}]_unicode_replacement_character")
+        if any(ord(char) < 32 and char not in "\n\r\t" for char in text):
+            flags.append(f"text[{index}]_control_character")
+
+    if flags:
+        print(f"⚠️ [Text LLM integrity guard] Найдено структурных/текстовых предупреждений: {len(flags)}; текст не переписывался.")
     return payload
+
+
+def json_text(value):
+    import json
+    try:
+        return json.dumps(value, ensure_ascii=False)
+    except Exception:
+        return str(value)
+
 
 
 
@@ -160,9 +137,9 @@ def patch_source(source: str) -> tuple[str, bool]:
     if source.count(function_marker) != 1:
         raise ValueError("Не найден единственный run_text_llm_postprocess; изменения не записаны.")
 
-    helper_source = inspect.getsource(repair_final_scene_artifacts)
+    helper_source = inspect.getsource(validate_text_llm_payload)
     helper_source = helper_source.replace(
-        "def repair_final_scene_artifacts(",
+        "def validate_text_llm_payload(",
         f"def {HELPER_NAME}(",
         1,
     )
@@ -173,7 +150,7 @@ def patch_source(source: str) -> tuple[str, bool]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Add an evidence-gated final-scene quality guard to local VCE.")
+    parser = argparse.ArgumentParser(description="Add a generic non-mutating Text LLM integrity validator to local VCE.")
     parser.add_argument("--project", type=Path, default=Path.home() / "VideoContext-Engine")
     parser.add_argument("--dry-run", action="store_true", help="Validate patch applicability without writing files.")
     args = parser.parse_args()
@@ -190,8 +167,8 @@ def main():
             print("Quality guard is already installed; no changes needed.")
             return 0
         if args.dry_run:
-            print("DRY RUN OK: evidence-gated final-title quality guard can be applied.")
-            print("Only the Text LLM postprocess function is changed; source scenes/settings remain untouched.")
+            print("DRY RUN OK: generic non-mutating output-integrity validator can be applied.")
+            print("Only output-schema warnings are added; generated text, source scenes and settings remain untouched.")
             print("No files were written.")
             return 0
 
@@ -202,7 +179,7 @@ def main():
         temp.write_text(patched, encoding="utf-8")
         compile(temp.read_text(encoding="utf-8"), str(temp), "exec")
         temp.replace(engine_path)
-        print("Quality guard applied.")
+        print("Generic integrity validator applied.")
         print(f"Backup: {backup}")
         print("Restart VideoContext Engine before the next analysis.")
         return 0
