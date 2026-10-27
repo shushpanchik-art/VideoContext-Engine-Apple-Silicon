@@ -671,7 +671,8 @@ def main():
         for n,r in agg.items():
             def fmt(k):
                 v=r.get(k); return "—" if v is None else f"{v:.2f}"
-            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {fmt('critical_atom_coverage_median')} | {r.get('runs_with_quality_guard_flags',0)} |")
+            grounding = "not evaluated" if r.get("critical_atom_coverage_median") is None else f"{r['critical_atom_coverage_median']:.1%}"
+            lines.append(f"| {n} | {r.get('successful_runs')}/{r.get('runs')} | {fmt('total_seconds_median')} | {fmt('model_load_seconds_median')} | {fmt('input_tokens_median')} | {fmt('time_to_first_token_seconds_median')} | {fmt('decode_seconds_median')} | {fmt('output_tokens_median')} | {fmt('decode_tokens_per_second_median')} | {grounding} | {r.get('runs_with_quality_guard_flags',0)} |")
         lines += ["","## Interpretation notes","",
           "- TTFT/prefill is stream start to first non-empty text chunk, a proxy rather than an internal MLX kernel timer.",
           "- Token counts use the model tokenizer when available; otherwise metrics mark a lexical estimate.",
