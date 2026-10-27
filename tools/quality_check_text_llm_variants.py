@@ -16,11 +16,6 @@ import sys
 from pathlib import Path
 
 SCRIPT_VERSION = "2026.10.27.6-universal-default"
-DEFAULT_RESULTS = Path.home() / "Downloads" / "vce_text_llm_benchmarks" / "20261027T005522Z_2cb3f5"
-DEFAULT_SOURCE = (
-    Path.home() / "Downloads" / "NSR Specification" /
-    "Новые модули NSR Specification автоматизация проектирования _context.json"
-)
 
 SKIP_KEYS = {
     "scene_id", "id", "time", "timestamp", "start", "end", "start_time",
@@ -595,9 +590,9 @@ def quality_run(output, source_segments, scene_ids, evidence, metric_run, profil
         "subscores": {
             "scene_enrichment_completeness_and_timestamps": round(completeness_score, 1),
             "structure": round(structure_score, 1),
-            "technical_fact_coverage": round(technical_score, 1),
+            "technical_fact_coverage": round(technical_score, 1) if profile != "generic" else None,
             "text_integrity": round(integrity_score, 1),
-            "grounding_proxy": round(grounding_score, 1),
+            "grounding_proxy": round(grounding_score, 1) if profile != "generic" else None,
         },
         "manual_review_required": True,
     }
@@ -664,8 +659,8 @@ def build_report(report):
             f"- Missing scene-enrichment IDs: {row['missing_scene_ids']}",
             f"- Key-point scene gaps (informational; key_points are selective): {row.get('key_point_scene_gaps', [])}",
             f"- Garbled output snippets: {row['garbled_key_points']}",
-            f"- Missing technical atoms: {row['missing_source_atoms'][:20]}",
-            f"- Unsupported numeric/identifier atoms: {row['unsupported_numeric_or_identifier_atoms'][:20]}",
+            (f"- Missing technical atoms: {row['missing_source_atoms'][:20]}" if row.get("audit_profile") != "generic" else "- Domain-specific fact extraction: not evaluated by generic profile."),
+            (f"- Unsupported numeric/identifier atoms: {row['unsupported_numeric_or_identifier_atoms'][:20]}" if row.get("audit_profile") != "generic" else "- Unsupported numeric/identifier check: not evaluated by generic profile."),
             "",
         ]
     lines += [
@@ -686,9 +681,9 @@ def build_report(report):
 def main():
     parser = argparse.ArgumentParser(description="Quality-first audit for VCE Text LLM benchmark variants.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {SCRIPT_VERSION}")
-    parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS,
+    parser.add_argument("--results-dir", type=Path, required=True,
                         help="Completed benchmark result directory containing metrics.local.json and llm_outputs.json")
-    parser.add_argument("--source-json", type=Path, default=DEFAULT_SOURCE,
+    parser.add_argument("--source-json", type=Path, required=True,
                         help="Local VCE context JSON whose segments[] are the source evidence")
     parser.add_argument("--profile", choices=("generic", "nsr-case-study"), default="generic",
                         help="generic validates schema/text integrity only; nsr-case-study enables sample-specific lexical diagnostics")
@@ -751,6 +746,8 @@ def main():
             else:
                 status = "MANUAL_REVIEW_REQUIRED"
             report["variants"][variant] = {
+                "audit_profile": args.profile,
+                "quality_score_scope": ("structure_and_text_integrity_only" if args.profile == "generic" else "nsr_case_study_heuristics"),
                 "status": status,
                 "quality_score_heuristic": round(statistics.median(scores), 1),
                 "worst_run_score": min(scores),
