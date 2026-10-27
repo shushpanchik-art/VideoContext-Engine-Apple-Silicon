@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Safely add an evidence-gated final-title text guard to an installed VCE engine.
+"""Safely add an evidence-gated final-title/audio attribution guard to an installed VCE engine.
 
 The guard only edits user-facing final-scene text when source OCR/visual description
 already confirms THE END or КОНЕЦ. It never edits source segments, summaries, or
@@ -22,7 +22,7 @@ CALL_GUARD = f"parsed = {HELPER_NAME}(parsed, segments)"
 
 
 def repair_final_scene_artifacts(payload, segments):
-    """Repair garbled final-title fields only with source OCR/visual confirmation."""
+    """Repair final-scene corruption/conflicting visual claims using source evidence."""
     import re
 
     if not isinstance(payload, dict) or not isinstance(segments, list) or not segments:
@@ -45,21 +45,35 @@ def repair_final_scene_artifacts(payload, segments):
 
     ocr = str(last_scene.get("ocr_text") or "")
     visual = str(last_scene.get("visual_description") or "")
+    audio = re.sub(r"\s+", " ", str(last_scene.get("audio_transcript") or "")).strip()
     visible_source = ocr + "\n" + visual
     marker = re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visible_source)
     if marker is None:
         return payload
 
     title = "THE END" if re.search(r"(?i)\bTHE\s+END\b", marker.group(0)) else "КОНЕЦ"
-    clean_text = f"Финальная заставка с текстом «{title}»."
+    clean_title = f"Финальная заставка с текстом «{title}»."
+    visual_title = f"Визуально показана финальная заставка «{title}»."
     corrupt_re = re.compile(r"(?i)\bAND\s+JU\b|\bNC\s+END\b|(?<!\w)D_(?!\w)")
-    marker_channels = []
+    result_re = re.compile(r"(?i)\b(?:коллиз\w*|несоответств\w*|не\s+соответств\w*|наруш\w*|превыш\w*|mismatch\w*|collision\w*)\b")
+    audio_supports_result = bool(audio and result_re.search(audio))
+    audio_quote = audio
+    if len(audio_quote) > 240:
+        audio_quote = audio_quote[:237].rsplit(" ", 1)[0].rstrip() + "…"
+    channels = []
     if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", ocr):
-        marker_channels.append("ocr")
+        channels.append("ocr")
     if re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", visual):
-        marker_channels.append("visual")
-    if not marker_channels:
+        channels.append("visual")
+    if not channels:
         return payload
+
+    if audio_supports_result:
+        safe_description = f"В аудио сообщается: «{audio_quote}». {visual_title}"
+        safe_points = [f"В аудио говорится: «{audio_quote}».", visual_title]
+    else:
+        safe_description = clean_title
+        safe_points = [f"Видео завершается финальной заставкой «{title}»."]
 
     repairs = 0
     key_points = payload.get("key_points")
@@ -72,11 +86,20 @@ def repair_final_scene_artifacts(payload, segments):
             except (TypeError, ValueError):
                 continue
             text = str(item.get("text") or item.get("description") or "")
-            if sid == last_id and corrupt_re.search(text):
-                item["text"] = clean_text
-                item.pop("description", None)
-                item["evidence"] = list(marker_channels)
-                repairs += 1
+            has_bad_fragment = bool(corrupt_re.search(text))
+            claims_result = bool(result_re.search(text))
+            evidence = item.get("evidence") if isinstance(item.get("evidence"), list) else []
+            visual_only = bool(set(map(str, evidence)) & {"visual", "ocr"}) and "speech" not in evidence
+            should_rewrite = sid == last_id and (has_bad_fragment or (claims_result and (not audio_supports_result or visual_only)))
+            if not should_rewrite:
+                continue
+            item["text"] = safe_description
+            item.pop("description", None)
+            new_evidence = list(channels)
+            if audio_supports_result and "speech" not in new_evidence:
+                new_evidence.insert(0, "speech")
+            item["evidence"] = new_evidence
+            repairs += 1
 
     enrichment = payload.get("scene_enrichment")
     if isinstance(enrichment, list):
@@ -96,16 +119,25 @@ def repair_final_scene_artifacts(payload, segments):
             points = item.get("key_points")
             if isinstance(points, list):
                 fields.extend(str(point or "") for point in points)
-            if not any(corrupt_re.search(field) for field in fields):
+            combined = "\n".join(fields)
+            has_bad_fragment = bool(corrupt_re.search(combined))
+            claims_result = bool(result_re.search(combined))
+            mentions_closing_title = bool(re.search(r"(?i)\bTHE\s+END\b|\bКОНЕЦ\b", combined))
+            # Per-scene enrichment must not state a visual technical result in a frame
+            # whose source evidence only establishes a closing title. Preserve an
+            # independently supported spoken result with explicit audio attribution.
+            should_rewrite = has_bad_fragment or claims_result or (not mentions_closing_title and not combined.strip())
+            if not should_rewrite:
                 continue
             item["topic"] = "Завершение видео"
-            item["improved_description"] = clean_text
-            item["key_points"] = [f"Видео завершается финальной заставкой «{title}»."]
+            item["improved_description"] = safe_description
+            item["key_points"] = safe_points
             repairs += 1
 
     if repairs:
-        print(f"🛡️ [Text LLM quality guard] Исправлены подтверждённые артефакты последней заставки: {repairs}.")
+        print(f"🛡️ [Text LLM quality guard] Исправлены артефакты/конфликт финальной заставки: {repairs}.")
     return payload
+
 
 
 def patch_source(source: str) -> tuple[str, bool]:
