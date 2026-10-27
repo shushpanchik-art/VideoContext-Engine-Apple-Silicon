@@ -68,3 +68,33 @@ To reproduce the old NSR-specific diagnostics, opt in explicitly:
     python tools/quality_check_text_llm_variants.py --results-dir /path/to/benchmark-run --source-json /path/to/context.json --profile nsr-case-study
 
 The source JSON is read locally. The audit writes its JSON/Markdown result into the selected run folder by default and does not upload the source payload.
+
+## Source-aware grounding screen: lexical evidence pointers, not semantic scoring
+
+The separate `tools/evaluate_text_llm_grounding.py` tool is an additional diagnostic step after the structural audit. It is universal by default and uses the source context JSON supplied by the caller; it contains no NSR/product/topic vocabulary.
+
+It extracts report-facing text from the executive summary, selected key points, topics, entity names and per-scene enrichment. Each output phrase is compared with text evidence in the source context:
+- Summary-level claims are compared with text evidence across the video.
+- Scene-level claims are compared first with evidence from their referenced scene. Whole-video overlap is also reported separately so text found only in a different scene can be inspected as a possible attribution error.
+- Evidence matches retain pointers to source scene ID, source field path and a coarse modality group (audio/transcript, OCR, visual description/tags, or other text).
+- When overlap is low, the tool emits a manual-review cue and shows the closest textual evidence candidates. It does not label the claim false and it never edits output text.
+
+This is deliberately a **lexical overlap screen**, not a semantic entailment evaluator. It cannot reliably recognize paraphrase, translation, implication, contradiction, sarcasm, speaker attribution, visual reasoning, or whether a copied phrase is interpreted correctly. Low overlap can be a valid paraphrase or a source-context omission; high overlap can still be a false or misattributed claim. It does not inspect raw video frames or audio waveforms. The report's `semantic_quality_score` is always `null`, and every claim remains marked for manual review.
+
+Run both stages locally against the same historical benchmark folder:
+
+```bash
+python tools/quality_check_text_llm_variants.py \
+  --results-dir /path/to/benchmark-run \
+  --source-json /path/to/context.json \
+  --profile generic
+
+python tools/evaluate_text_llm_grounding.py \
+  --results-dir /path/to/benchmark-run \
+  --source-json /path/to/context.json
+```
+
+The second tool writes `quality_grounding_audit/quality_grounding_audit.md` and `quality_grounding_audit.json` in the run folder by default. `--min-token-recall` changes only the sensitivity of the low-overlap review cue; it is not a truth threshold. Both reports stay local and neither tool uploads source JSON or changes generated output.
+
+A proper semantic evaluator remains future work. It should use an evidence-linked verifier that can assess support, contradiction, modality and uncertainty on multiple unrelated videos and languages. Its assertions must be calibrated against human-labeled positive and negative examples before being used as an acceptance gate. Do not promote any candidate based on structural or lexical overlap scores alone.
+
