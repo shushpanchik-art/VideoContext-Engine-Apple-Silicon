@@ -263,7 +263,7 @@ def is_garbled(text: str, profile: str = "generic"):
         return True
     if any(ord(char) < 32 and char not in "\n\r\t" for char in raw):
         return True
-    clean = re.sub(r"\\s+", " ", raw).strip()
+    clean = re.sub(r"\s+", " ", raw).strip()
     if not clean:
         return False
     # Exact strings from a single benchmark sample must never be global rules.
