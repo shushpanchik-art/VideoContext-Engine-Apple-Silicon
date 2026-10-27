@@ -94,6 +94,43 @@ class TextLLMGroundingTests(unittest.TestCase):
         self.assertEqual(claim["whole_video_lexical_evidence"]["claim_token_recall"], 1.0)
         self.assertIn("low_lexical_overlap_requires_manual_review", claim["findings"])
         self.assertIn("overlap_found_elsewhere_in_video_not_in_referenced_scene", claim["findings"])
+        self.assertEqual(claim["best_other_scene_lexical_evidence"]["scene_id"], 2)
+        markdown = grounding.build_markdown(report)
+        self.assertIn("scene 2:", markdown)
+
+    def test_distributed_generic_words_do_not_create_a_scene_mismatch(self):
+        source = {"segments": [
+            {"scene_id": 1, "audio_transcript": "A person opens a blank notebook and writes a single line."},
+            {"scene_id": 2, "audio_transcript": "Scene footage was archived safely."},
+            {"scene_id": 3, "audio_transcript": "Data was stored separately."},
+        ]}
+        outputs = {"outputs_by_variant": {"generic_claim": [{
+            "iteration": 1,
+            "output": {
+                "scene_enrichment": [{
+                    "scene_id": 1,
+                    "topic": "General overview",
+                    "improved_description": "This scene shows general technical work with data.",
+                    "key_points": [],
+                }],
+            },
+        }]}}
+        report = grounding.build_report(source, outputs, min_token_recall=0.15)
+        run = report["variants"]["generic_claim"]["runs"][0]
+        claim = next(c for c in run["claims"]
+                     if c["output_field"] == "scene_enrichment[0].improved_description")
+
+        # "scene" and "data" appear somewhere in the video, but only in
+        # separate scenes; the union must not be mistaken for one other scene
+        # supporting this description.
+        self.assertGreaterEqual(
+            claim["whole_video_lexical_evidence"]["claim_token_recall"], 0.15
+        )
+        self.assertNotIn(
+            "overlap_found_elsewhere_in_video_not_in_referenced_scene",
+            claim["findings"],
+        )
+        self.assertEqual(claim["diagnostic_status"], "low_overlap_review_cue")
 
     def test_high_overlap_is_never_automatically_approved_or_reported_as_a_cue(self):
         source, outputs = make_docs()
