@@ -14,6 +14,7 @@ MODEL9 = "mlx-community/Qwen3.5-9B-MLX-4bit"
 MODEL4 = "mlx-community/Qwen3.5-4B-MLX-4bit"
 DRAFTER9 = "mlx-community/Qwen3.5-9B-MTP-4bit"
 NOISE = 5.0
+SCRIPT_VERSION = "2026.10.27.1-ssl-fix"
 
 def write_json(path, value):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -442,6 +443,7 @@ def maybe_use_vce_python():
 
 def main():
     ap=argparse.ArgumentParser(description="Run VCE Text LLM optimization benchmarks A-E on one fixed video input.")
+    ap.add_argument("--version", action="version", version=f"%(prog)s {SCRIPT_VERSION}")
     ap.add_argument("--video",type=Path,default=VIDEO_DEFAULT); ap.add_argument("--api-url",default=os.getenv("VCE_API_URL","http://127.0.0.1:7555"))
     ap.add_argument("--repeats",type=int,default=3); ap.add_argument("--output-dir",type=Path)
     ap.add_argument("--input-json",type=Path,help="Reuse existing VCE JSON with segments[] and skip video analysis.")
