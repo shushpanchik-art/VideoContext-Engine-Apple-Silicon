@@ -18,6 +18,7 @@ ENGINE_NAME = "VideoContextEngine_v3.19.py"
 HELPER_NAME = "_vce_v6_validate_text_llm_payload"
 CALL_MARKER = "parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)"
 CALL_GUARD = f"parsed = {HELPER_NAME}(parsed, segments)"
+LEGACY_MUTATING_CALL = "parsed = _vce_v5_repair_final_scene_artifacts(parsed, segments)"
 
 
 def validate_text_llm_payload(payload, segments):
@@ -114,6 +115,11 @@ def validate_text_llm_payload(payload, segments):
 
 def patch_source(source: str) -> tuple[str, bool]:
     """Return patched source and whether a new patch was applied; no file writes."""
+    if LEGACY_MUTATING_CALL in source:
+        raise ValueError(
+            "Обнаружен старый sample-specific rewriting guard v5. Не накладывайте generic guard поверх него; "
+            "восстановите backup чистого движка, затем запустите patcher v6."
+        )
     helper_marker = f"def {HELPER_NAME}("
     has_helper = helper_marker in source
     has_call = CALL_GUARD in source
