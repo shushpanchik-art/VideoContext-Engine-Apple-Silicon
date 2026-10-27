@@ -71,6 +71,9 @@ def validate_text_llm_payload(payload, segments):
 
     check_records("key_points", require_all=False)
     check_records("scene_enrichment", require_all=True)
+    for field in ("topics", "entities", "uncertainties"):
+        if not isinstance(payload.get(field), list):
+            flags.append(f"{field}_not_array")
 
     summary = payload.get("executive_summary")
     if not isinstance(summary, str) or not summary.strip():
