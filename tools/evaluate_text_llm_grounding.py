@@ -310,11 +310,13 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
     scoped = overlap_detail(tokens, scoped_evidence)
     global_detail = overlap_detail(tokens, all_evidence)
 
-    # A whole-video union can assemble unrelated words from many scenes and
-    # falsely suggest misattribution. For a scene-mismatch cue, require the
-    # lexical overlap to be concentrated in at least one *other individual
-    # scene*, with at least two matched claim tokens and meaningful coverage.
+    # A whole-video or per-scene union can assemble unrelated words from
+    # multiple weak fields and falsely suggest misattribution. Prefer an other
+    # scene that has at least one *individual source-text item* matching two
+    # claim tokens at meaningful coverage; only fall back to aggregate overlap
+    # for diagnostics when no such candidate exists.
     best_other_scene_detail: dict[str, Any] | None = None
+    meaningful_other_scene_recall = max(min_token_recall, 0.30)
     if sid is not None and len(tokens) >= 2:
         other_candidates: list[dict[str, Any]] = []
         for other_sid, other_items in by_scene.items():
@@ -324,16 +326,28 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
             recall = detail["claim_token_recall"]
             if recall is None:
                 continue
-            other_candidates.append({"scene_id": other_sid, **detail})
+            best_item = detail["best_evidence"][0] if detail["best_evidence"] else None
+            individual_evidence_support = bool(
+                best_item is not None
+                and best_item["matched_claim_token_count"] >= 2
+                and best_item["claim_token_recall"] >= meaningful_other_scene_recall
+            )
+            other_candidates.append({
+                "scene_id": other_sid,
+                **detail,
+                "_individual_evidence_supports_mismatch": individual_evidence_support,
+            })
         if other_candidates:
             best_other_scene_detail = max(
                 other_candidates,
                 key=lambda item: (
+                    item["_individual_evidence_supports_mismatch"],
                     item["claim_token_recall"],
                     item["matched_claim_token_count"],
                     item["textual_evidence_items"],
                 ),
             )
+            best_other_scene_detail.pop("_individual_evidence_supports_mismatch", None)
 
     findings: list[str] = []
     if not tokens:
@@ -352,7 +366,6 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
             best_other_scene_detail["matched_claim_token_count"]
             if best_other_scene_detail is not None else 0
         )
-        meaningful_other_scene_recall = max(min_token_recall, 0.30)
         best_other_evidence = (
             best_other_scene_detail["best_evidence"][0]
             if best_other_scene_detail is not None and best_other_scene_detail["best_evidence"]
