@@ -421,7 +421,8 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
 
 def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
                  min_token_recall: float = 0.15, *, source_json_path: str | None = None,
-                 results_dir: str | None = None) -> dict[str, Any]:
+                 results_dir: str | None = None,
+                 metrics_doc: dict[str, Any] | None = None) -> dict[str, Any]:
     by_scene, all_evidence = build_source_index(source_doc)
     variants = outputs_doc.get("outputs_by_variant")
     if not isinstance(variants, dict) or not variants:
@@ -452,6 +453,7 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
             "finalized_output": "The VCE payload after post-processing/reconciliation; it may include deterministic fallbacks.",
             "raw_model_output": "Parsed primary model JSON before VCE finalization; available only when the benchmark stores raw_model_output.",
         },
+        "output_provenance_warnings": [],
         "variants": {},
     }
     for variant, runs in variants.items():
@@ -486,11 +488,39 @@ def build_report(source_doc: dict[str, Any], outputs_doc: dict[str, Any],
                              claim["lexical_evidence"]["claim_token_recall"] is not None]
                 low_overlap = [claim for claim in claims if "low_lexical_overlap_requires_manual_review" in claim["findings"]]
                 coverages = [claim["lexical_evidence"]["claim_token_recall"] for claim in evaluable]
+                output_provenance = run.get("output_provenance") if stage_name == "finalized_output" else None
+                if stage_name == "finalized_output" and not isinstance(output_provenance, dict):
+                    metrics_row = None
+                    if isinstance(metrics_doc, dict) and isinstance(metrics_doc.get("runs"), list):
+                        metrics_row = next((
+                            item for item in metrics_doc["runs"]
+                            if isinstance(item, dict)
+                            and item.get("variant") == variant
+                            and item.get("iteration") == run.get("iteration")
+                        ), None)
+                    if metrics_row is not None:
+                        output_provenance = {
+                            "output": "vce_finalized_payload_after_postprocess",
+                            "raw_model_output": "not_retained_in_legacy_artifact",
+                            "raw_model_output_retained": False,
+                            "prompt_rewrite_applied": metrics_row.get("prompt_rewrite_ok"),
+                            "raw_scene_enrichment_count": metrics_row.get("generated_scene_enrichment_count"),
+                            "raw_scene_enrichment_empty": metrics_row.get("generated_scene_enrichment_empty"),
+                        }
+                        if metrics_row.get("generated_scene_enrichment_empty") is True:
+                            warning = (
+                                f"{variant} iteration {run.get('iteration')}: model JSON had an empty "
+                                "scene_enrichment, but this legacy artifact did not retain raw model JSON. "
+                                "Its finalized per-scene enrichment may contain deterministic downstream fallback "
+                                "text and must not be attributed directly to the LLM."
+                            )
+                            if warning not in report["output_provenance_warnings"]:
+                                report["output_provenance_warnings"].append(warning)
                 run_reports.append({
                     "iteration": run.get("iteration"),
                     "model": run.get("model"),
                     "output_stage": stage_name,
-                    "output_provenance": run.get("output_provenance") if stage_name == "finalized_output" else None,
+                    "output_provenance": output_provenance,
                     "claim_count": len(claims),
                     "evaluable_claim_count": len(evaluable),
                     "low_overlap_review_cue_count": len(low_overlap),
@@ -535,6 +565,19 @@ def build_markdown(report: dict[str, Any], *, include_all_claims: bool = False) 
         "| Variant | Runs | Claims | Low-overlap cues | Cue rate |",
         "|---|---:|---:|---:|---:|",
     ]
+    if report.get("output_provenance_warnings"):
+        table_index = next(
+            index for index, line in enumerate(lines)
+            if line == "| Variant | Runs | Claims | Low-overlap cues | Cue rate |"
+        )
+        warning_lines = [
+            "",
+            "## Output provenance warnings",
+            "",
+            *[f"- {warning}" for warning in report["output_provenance_warnings"]],
+            "",
+        ]
+        lines[table_index:table_index] = warning_lines
     for name, row in report["variants"].items():
         lines.append(
             f"| {name} | {row['run_count']} | {row['claim_count']} | {row['low_overlap_review_cue_count']} | "
@@ -635,9 +678,12 @@ def main() -> int:
             raise RuntimeError(f"Source JSON not found: {source_path}")
         if not outputs_path.is_file():
             raise RuntimeError(f"llm_outputs.json not found: {outputs_path}")
+        metrics_path = results_dir / "metrics.json"
+        metrics_doc = read_json(metrics_path) if metrics_path.is_file() else None
         report = build_report(
             read_json(source_path), read_json(outputs_path), args.min_token_recall,
             source_json_path=str(source_path), results_dir=str(results_dir),
+            metrics_doc=metrics_doc,
         )
         out_dir = (args.output_dir or (results_dir / "quality_grounding_audit")).expanduser().resolve()
         out_dir.mkdir(parents=True, exist_ok=True)
