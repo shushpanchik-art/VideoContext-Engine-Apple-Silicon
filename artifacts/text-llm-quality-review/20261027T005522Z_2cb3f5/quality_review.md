@@ -38,3 +38,28 @@ The updated checker in this PR implements this distinction, flags garbled text a
 ## Reproducibility and privacy
 
 The sibling \`benchmark/\` directory contains \`metrics.json\`, \`runs.csv\`, \`report.md\`, and \`llm_outputs.json\` for all 18 runs. The raw input video and original scene/transcript/OCR payload are not included in this PR. The separate quality checker consumes the private source JSON locally and writes its audit locally; it does not upload that data.
+
+
+## Follow-up fix included in this PR
+
+This PR now includes an **evidence-gated final-title guard** in \`patches/patch_vce_text_llm_quality_guard.py\` and in the benchmark's pinned-source instrumentation. When the last source scene's OCR or visual description explicitly confirms \`THE END\` or \`КОНЕЦ\`, it replaces only clearly corrupted final-scene fragments such as \`AND JU\`, \`D_\` or \`NC END\` in \`key_points\` and \`scene_enrichment\`. It does not change the executive summary, source scenes, timestamps, technical facts or any non-final scene. If the source does not confirm a closing title, it makes no change.
+
+The prior results in this bundle are **unpatched historical outputs**. They are not relabeled as repaired. The next benchmark should re-run baseline/A/B/C/D with the updated harness (\`--skip-speculative\`) and then run the local quality audit over the new run folder.
+
+### Apply to the installed engine
+
+First stop VideoContext Engine only when no analysis is active, then download and validate the patcher:
+
+\`\`\`bash
+curl -fL --retry 3 \\
+  "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/review/text-llm-quality-bundle-20261027/patches/patch_vce_text_llm_quality_guard.py" \\
+  -o "$HOME/Downloads/patch_vce_text_llm_quality_guard.py"
+
+"$HOME/VideoContext-Engine/.venv/bin/python" \\
+  "$HOME/Downloads/patch_vce_text_llm_quality_guard.py" \\
+  --project "$HOME/VideoContext-Engine" --dry-run
+\`\`\`
+
+Only if the dry run prints \`DRY RUN OK\`, apply it by repeating the command without \`--dry-run\`. The patch creates a timestamped backup before writing; restart VCE before using the modified engine. The benchmark harness applies the same guard to its pinned source snapshot so a new benchmark can measure the model outputs plus this deterministic post-parse guard without re-running the VLM video stage.
+
+The guard and audit tests pass in GitHub Actions. See the [quality benchmark test run](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/40442476959).
