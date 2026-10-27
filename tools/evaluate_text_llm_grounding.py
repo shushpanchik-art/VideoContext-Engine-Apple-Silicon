@@ -19,7 +19,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-SCRIPT_VERSION = "2026.10.27.3-compact-diagnostics"
+SCRIPT_VERSION = "2026.10.27.4-scene-scoped-mismatch"
 TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
 SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?。！？])\s+|\n+")
 SKIP_KEYS = {
@@ -294,6 +294,7 @@ def overlap_detail(claim_tokens: set[str], evidence_items: list[dict[str, Any]],
         item.pop("_sort", None)
     return {
         "claim_token_recall": round(coverage, 4) if coverage is not None else None,
+        "matched_claim_token_count": len(claim_tokens & source_union),
         "modality_token_recall": modality_coverage,
         "best_evidence": ranked[:top_n],
         "textual_evidence_items": len(usable),
@@ -307,6 +308,32 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
     scoped_evidence = by_scene.get(sid, []) if sid is not None else all_evidence
     scoped = overlap_detail(tokens, scoped_evidence)
     global_detail = overlap_detail(tokens, all_evidence)
+
+    # A whole-video union can assemble unrelated words from many scenes and
+    # falsely suggest misattribution. For a scene-mismatch cue, require the
+    # lexical overlap to be concentrated in at least one *other individual
+    # scene*, with at least two matched claim tokens and meaningful coverage.
+    best_other_scene_detail: dict[str, Any] | None = None
+    if sid is not None and len(tokens) >= 2:
+        other_candidates: list[dict[str, Any]] = []
+        for other_sid, other_items in by_scene.items():
+            if other_sid == sid:
+                continue
+            detail = overlap_detail(tokens, other_items)
+            recall = detail["claim_token_recall"]
+            if recall is None:
+                continue
+            other_candidates.append({"scene_id": other_sid, **detail})
+        if other_candidates:
+            best_other_scene_detail = max(
+                other_candidates,
+                key=lambda item: (
+                    item["claim_token_recall"],
+                    item["matched_claim_token_count"],
+                    item["textual_evidence_items"],
+                ),
+            )
+
     findings: list[str] = []
     if not tokens:
         findings.append("insufficient_tokens_for_lexical_check")
@@ -314,10 +341,25 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
         findings.append("no_textual_source_evidence_in_scope")
     elif scoped["claim_token_recall"] is not None and scoped["claim_token_recall"] < min_token_recall:
         findings.append("low_lexical_overlap_requires_manual_review")
-    if sid is not None and global_detail["claim_token_recall"] is not None:
+    if sid is not None:
         local_recall = scoped["claim_token_recall"]
-        global_recall = global_detail["claim_token_recall"]
-        if local_recall is not None and local_recall < min_token_recall <= global_recall:
+        other_recall = (
+            best_other_scene_detail["claim_token_recall"]
+            if best_other_scene_detail is not None else None
+        )
+        other_matches = (
+            best_other_scene_detail["matched_claim_token_count"]
+            if best_other_scene_detail is not None else 0
+        )
+        meaningful_other_scene_recall = max(min_token_recall, 0.30)
+        if (
+            local_recall is not None
+            and local_recall < min_token_recall
+            and other_recall is not None
+            and other_recall >= meaningful_other_scene_recall
+            and other_matches >= 2
+            and other_recall > local_recall
+        ):
             findings.append("overlap_found_elsewhere_in_video_not_in_referenced_scene")
     has_low_overlap = "low_lexical_overlap_requires_manual_review" in findings
     has_scope_mismatch = "overlap_found_elsewhere_in_video_not_in_referenced_scene" in findings
@@ -336,6 +378,7 @@ def evaluate_claim(claim: dict[str, Any], by_scene: dict[int, list[dict[str, Any
         "scope": "scene" if sid is not None else "whole_video",
         "lexical_evidence": scoped,
         "whole_video_lexical_evidence": global_detail if sid is not None else None,
+        "best_other_scene_lexical_evidence": best_other_scene_detail,
         "findings": findings,
         "diagnostic_status": diagnostic_status,
         "manual_review_required": True,
@@ -473,11 +516,23 @@ def build_markdown(report: dict[str, Any], *, include_all_claims: bool = False) 
                     "lexical_overlap_observed_semantics_unverified": "TEXT OVERLAP — SEMANTICS UNVERIFIED",
                 }
                 diagnostic = status_labels.get(claim["diagnostic_status"], claim["diagnostic_status"])
-                best = claim["lexical_evidence"]["best_evidence"]
-                pointer = "; ".join(
-                    f"{e['field_path']} ({e['modality']}, recall {e['claim_token_recall']:.2f})"
-                    for e in best[:2]
-                ) or "no lexical match"
+                if (
+                    claim["diagnostic_status"] == "low_overlap_with_possible_scene_mismatch"
+                    and claim.get("best_other_scene_lexical_evidence")
+                ):
+                    other_detail = claim["best_other_scene_lexical_evidence"]
+                    best = other_detail["best_evidence"]
+                    pointer = "; ".join(
+                        f"scene {other_detail['scene_id']}: {e['field_path']} "
+                        f"({e['modality']}, recall {e['claim_token_recall']:.2f})"
+                        for e in best[:2]
+                    ) or "no single other-scene evidence match"
+                else:
+                    best = claim["lexical_evidence"]["best_evidence"]
+                    pointer = "; ".join(
+                        f"{e['field_path']} ({e['modality']}, recall {e['claim_token_recall']:.2f})"
+                        for e in best[:2]
+                    ) or "no lexical match"
                 text = claim["text"].replace("|", "\\|").replace("\n", " ")
                 lines.append(
                     f"| {claim['output_field']} | {claim['scene_id'] if claim['scene_id'] is not None else 'whole video'} | "
