@@ -111,6 +111,50 @@ class QualityAuditTests(unittest.TestCase):
         self.assertEqual(result["status"], "HOLD")
         self.assertIn("garbled_or_truncated_output_text", result["hard_issues"])
 
+    def test_final_title_blocks_summary_claim_that_collision_was_shown(self):
+        segments, evidence, output = make_fixture()
+        output["executive_summary"] = (
+            "Видео показывает поиск норматива и использование CADLib для проверки модели. "
+            "В конце показано, что проверка выявила коллизию и уклон пандуса не соответствует нормативу. "
+            "Финальная сцена служит подтверждением результата."
+        )
+        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertTrue(result["closing_title_evidence"])
+        self.assertTrue(result["summary_visual_overclaim"])
+        self.assertIn("closing_title_conflicts_with_summary_visual_result_claim", result["hard_issues"])
+        self.assertEqual(result["status"], "HOLD")
+
+    def test_result_claim_supported_by_audio_requires_explicit_attribution(self):
+        segments, evidence, output = make_fixture()
+        segments[1]["audio_transcript"] = "Диктор сообщает: проверка выявила несоответствие уклона пандуса нормативу."
+        output["executive_summary"] = (
+            "Видео описывает поиск норматива и проверку модели. Обнаружено несоответствие уклона пандуса нормативу. "
+            "Это относится к результату проверки и завершает демонстрацию."
+        )
+        evidence = "\\n".join(
+            str(seg.get(key) or "") for seg in segments
+            for key in ("audio_transcript", "ocr_text", "visual_description")
+        )
+        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertTrue(result["summary_has_result_claim"])
+        self.assertFalse(result["summary_has_audio_attribution"])
+        self.assertIn("summary_result_claim_not_attributed_to_speech", result["hard_issues"])
+
+    def test_result_claim_without_audio_support_is_a_hard_blocker(self):
+        segments, evidence, output = make_fixture()
+        output["executive_summary"] = (
+            "Видео показывает поиск норматива и работу с CADLib. Обнаружено несоответствие уклона пандуса нормативу. "
+            "В исходной речи нет такого утверждения, а последний кадр содержит только финальную заставку."
+        )
+        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertIn("summary_result_claim_not_found_in_audio_despite_closing_title", result["hard_issues"])
+
+    def test_suspicious_ocr_topic_blocks_candidate(self):
+        segments, evidence, output = make_fixture()
+        output["topics"].append("АИ ИИ ПОМОЩНИК")
+        result = audit_module.quality_run(output, segments, [1, 2, 3], evidence, {})
+        self.assertIn("suspected_ocr_garbled_topic:АИ ИИ ПОМОЩНИК", result["hard_issues"])
+
     def test_hyphenated_term_aliases_normalize_equally(self):
         self.assertEqual(
             audit_module.normalize_atom("ИИ помощник"),
