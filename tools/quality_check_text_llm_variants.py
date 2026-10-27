@@ -130,32 +130,73 @@ def normalize_atom(value: str) -> str:
     return re.sub(r"\s+", "", value).casefold().strip(".,;:()[]{}\"'")
 
 
-def important_atoms(evidence: str):
-    atoms = set()
-    for regex in (STANDARD_RE, DATE_RE, RATIO_RE, PERCENT_RE, UNIT_RE, LONG_ID_RE):
-        for match in regex.finditer(evidence):
-            atom = normalize_atom(match.group(0))
-            if atom:
-                atoms.add(atom)
+# Core technical context: avoid counting video timecodes, frame counters and arbitrary OCR digits
+# as critical facts. Context-qualified numbers are useful for engineering reports.
+RATIO_CONTEXT_RE = re.compile(
+    r"(?i)(?:уклон|пандус|норматив|эвакуац|соотношени|наклон|коэффициент|"
+    r"пропорци|slope|ratio|grade)"
+)
+DATE_CONTEXT_RE = re.compile(
+    r"(?i)(?:КСИ|классификатор|стандарт|верси|редакци|действи|ГОСТ|СП\\s|ISO|"
+    r"дата|утвержд|принят|актуальн)"
+)
+UNIT_CONTEXT_RE = re.compile(
+    r"(?i)(?:уклон|пандус|норматив|размер|длин|ширин|высот|диаметр|толщин|"
+    r"допустим|значени|коэффициент|расстояни|нагрузк|давлени|мощност|частот|"
+    r"разрешени|параметр|характеристик)"
+)
+PERCENT_CONTEXT_RE = re.compile(
+    r"(?i)(?:эффективност|процент|готовност|точност|доля|успеш|показател|"
+    r"производительност|экономи|сокращени|увеличени)"
+)
+ID_CONTEXT_RE = re.compile(
+    r"(?i)(?:код|идентификатор|шифр|номер|документ|запис|требовани|КСИ|ГОСТ|СП\\s|"
+    r"каталог|классификатор|артикул|id\\b)"
+)
+# Do not treat durations such as "0.451452с" as core report facts.
+ENGINEERING_UNIT_RE = re.compile(
+    r"(?i)\\b\\d+(?:[.,]\\d+)?\\s*(?:мм|см|м|км|кг|г|мг|°C|кВт|МВт|МПа|Па|ГПа|"
+    r"px|fps|Гц|МГц|ГБ|МБ|GB|MB)\\b"
+)
+
+
+def _context_matches(regex, text: str, context_regex=None, radius: int = 100):
+    found = set()
+    for match in regex.finditer(text):
+        if context_regex is not None:
+            left = max(0, match.start() - radius)
+            right = min(len(text), match.end() + radius)
+            if not context_regex.search(text[left:right]):
+                continue
+        atom = normalize_atom(match.group(0))
+        if atom:
+            found.add(atom)
+    return found
+
+
+def find_claim_numbers(text: str):
+    """Extract report-relevant technical anchors, not every OCR number/timecode."""
+    claims = set()
+    claims |= _context_matches(STANDARD_RE, text)
+    claims |= _context_matches(RATIO_RE, text, RATIO_CONTEXT_RE)
+    claims |= _context_matches(DATE_RE, text, DATE_CONTEXT_RE)
+    claims |= _context_matches(ENGINEERING_UNIT_RE, text, UNIT_CONTEXT_RE)
+    claims |= _context_matches(PERCENT_RE, text, PERCENT_CONTEXT_RE)
+    claims |= _context_matches(LONG_ID_RE, text, ID_CONTEXT_RE)
     for term in KNOWN_TERMS:
-        if term.casefold() in evidence.casefold():
-            atoms.add(normalize_atom(term))
-    return atoms
+        if term.casefold() in text.casefold():
+            claims.add(normalize_atom(term))
+    return claims
+
+
+def important_atoms(evidence: str):
+    """Core facts supported by the evidence bundle; timecodes/random OCR are excluded."""
+    return find_claim_numbers(evidence)
 
 
 def output_text(obj):
     # Ignore timestamps and IDs for content/fact comparisons.
     return "\n".join(collect_strings(obj))
-
-
-def find_claim_numbers(text: str):
-    claims = set()
-    for regex in (STANDARD_RE, DATE_RE, RATIO_RE, PERCENT_RE, UNIT_RE, LONG_ID_RE):
-        for match in regex.finditer(text):
-            atom = normalize_atom(match.group(0))
-            if atom:
-                claims.add(atom)
-    return claims
 
 
 def parse_seconds(value):
