@@ -127,7 +127,7 @@ def source_data(path: Path):
 
 
 def normalize_atom(value: str) -> str:
-    return re.sub(r"\s+", "", value).casefold().strip(".,;:()[]{}\"'")
+    return re.sub(r"[\s\-‐‑–—]+", "", value).casefold().strip(".,;:()[]{}\"\'")
 
 
 # Core technical context: avoid counting video timecodes, frame counters and arbitrary OCR digits
