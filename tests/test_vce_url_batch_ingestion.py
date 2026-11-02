@@ -28,7 +28,13 @@ async def analyze_video(
     enable_ffmpeg_ocr: bool = Form(False),
 ):
     temp_path = None
-    if video_url.strip():
+    local_video_token = ""
+    output_directory = Path.cwd()
+    owns_temp_path = False
+    if local_video_token.strip():
+        pass
+    elif video_url.strip():
+        owns_temp_path = True
         clean_title = "fixture"
         try:
             temp_path = download_video_from_url(
@@ -111,7 +117,14 @@ UI_FIXTURE = r'''<!doctype html>
           if (!e.lengthComputable) return;
         };
       }
-      xhr.onload = () => {};
+      xhr.onload = () => {
+        const links = [];
+        for (const [label, filename, href] of links) {
+          const a = document.createElement('a');
+          a.textContent = label; a.href = href; a.download = filename;
+          entry.links.appendChild(a);
+        }
+      };
       xhr.onerror = () => {};
       xhr.onabort = () => {};
       if (!entry.localToken) xhr.upload.onload = () => setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');
@@ -161,6 +174,9 @@ class TestUrlBatchIngestion(unittest.TestCase):
         self.assertIn('set_job_progress(job_id, "download_video"', updated)
         self.assertIn("except yt_dlp.utils.DownloadError as download_error:", updated)
         self.assertIn("HTTPException(409", updated)
+        self.assertIn('output_directory = Path.home() / "Downloads"', updated)
+        self.assertIn("output_directory.mkdir(parents=True, exist_ok=True)", updated)
+        self.assertIn("# VCE_URL_REPORTS_TO_DOWNLOADS_V1", updated)
         self.assertEqual(patch.patch_engine(updated), updated)
 
     def test_ui_patch_queues_urls_and_local_files(self):
@@ -174,6 +190,10 @@ class TestUrlBatchIngestion(unittest.TestCase):
         self.assertIn(": entry.url", updated)
         self.assertIn("form.append('local_video_token', entry.localToken)", updated)
         self.assertIn("else if (entry.url) form.append('video_url', entry.url)", updated)
+        self.assertIn("a.target = '_blank'", updated)
+        self.assertIn("a.rel = 'noopener'", updated)
+        self.assertNotIn("a.download = filename", updated)
+        self.assertIn("// VCE_URL_REPORT_DOWNLOAD_TARGET_V1", updated)
         self.assertEqual(patch.patch_ui(updated), updated)
 
 
