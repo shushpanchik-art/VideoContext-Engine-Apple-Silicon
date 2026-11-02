@@ -112,6 +112,7 @@ class TextLLMBenchmarkProvenanceTests(unittest.TestCase):
         self.assertNotIn("/Users/", source)
         self.assertNotIn("VIDEO_DEFAULT = Path(", source)
         self.assertIn("if not args.input_json and args.video is None:", source)
+        self.assertIn("args.input_json.name", source)
         self.assertIn('ap.add_argument("--upload", action="store_true"', source)
         self.assertIn('ap.add_argument("--upload-outputs", action="store_true"', source)
         self.assertIn("if args.upload:", source)

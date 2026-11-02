@@ -686,7 +686,7 @@ def main():
             if not args.video.is_file(): raise RuntimeError(f"Не найден видеофайл: {args.video}")
             payload=analyze_video_once(args.video.resolve(),args.api_url,outdir)
         segments=payload["segments"]; meta=payload.get("meta") or {}; summary=str(meta.get("global_summary") or "")
-        source=Path(str(meta.get("source") or args.video.name)).name; duration=float(meta.get("duration") or 0)
+        source=Path(str(meta.get("source") or (args.video.name if args.video else args.input_json.name))).name; duration=float(meta.get("duration") or 0)
         input_hash=hashlib.sha256(json.dumps(segments,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
         if not importlib.util.find_spec("mlx_vlm"): raise RuntimeError("mlx-vlm не импортируется. Активируйте venv VideoContext Engine, затем запустите скрипт.")
         mod=load_source(outdir)
