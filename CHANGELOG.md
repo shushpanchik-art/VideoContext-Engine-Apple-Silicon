@@ -1,31 +1,19 @@
 # Changelog
 
-## Unreleased — Analysis profiles
+## 0.2.0 — Full public runtime distribution (2026-11-02)
 
-- Added Full, Whisper + Apple Vision OCR without Qwen3-VL, and OCR-only analysis profiles.
-- Kept the Qwen3.5 text post-processing stage active in every profile so it can synthesize the final report from the enabled evidence sources.
-- Added optional FFmpeg/Tesseract OCR, runtime capability detection, per-scene provenance, and a non-fatal fallback when the installed FFmpeg lacks the `ocr` filter.
-- Added regression tests for profile behavior, settings migration, FFmpeg metadata parsing, idempotency, and Qwen3.5 stage preservation.
+- Published the complete customized VideoContext Engine v3.19 runtime and matching web UI in this repository.
+- Added URL batch ingestion for VK Video, YouTube and RuTube, with queue progress, cancellation, and TXT/JSON reports.
+- Included Apple Silicon/macOS patchers, native AppKit/WebKit app sources and a clean-install path for Python 3.11.
+- Added dependency manifests, sanitized settings examples, publication/privacy manifest, and third-party MIT attribution.
+- Removed local backup files, private benchmark logs, and other non-distribution artifacts from the published source tree.
+- Merged as PR #15 into `main` using squash commit `549186bbf9c4653955cb8d8f4d1e967055e80b55`.
 
+## Earlier development
 
-## Unreleased — ASR/OCR reconciliation
-
-- Added an optional patcher that exposes the name-reconciliation prompt in the settings UI for extended builds with Qwen3.5 text post-processing.
-- The prompt is persisted as text_llm_name_reconciliation_prompt and appended to the actual text post-processing instruction, while original transcript/OCR/timestamps remain protected by the engine's fixed rules.
-- Added a qualitative audit documenting remaining summary inconsistency for standard identifiers. A single different-video sample is not treated as a controlled quality comparison.
-- Strengthened the editable default prompt with a final cross-field consistency check.
-- Added optional OCR-gated v2 runtime patch: normalize a known СП-number alias across derived fields and the base summary while preserving raw evidence.
-
-
-## 0.1.0 — Apple Silicon patch set
-
-- Aspect-ratio-safe VLM preprocessing.
-- Apple Vision OCR at original source-frame resolution; OCR text passed as a grounding hint to Qwen and included in TXT/JSON.
-- Persistent JSON settings and a Web UI settings panel.
-- Whisper acceleration toggle and MPS/CUDA/CPU device selection.
-- Word-level timestamps, per-scene speech grouping/audio features, and Qwen audio context.
-- Whisper DTW MPS fix (`x.cpu().double()` before NumPy conversion).
-- Batch video selection with per-file status, sequential processing, cooperative cancel.
-- TXT/JSON autosave beside the source video through native macOS file selection.
-- macOS `.app` launcher, `/Applications` installer, desktop alias.
-- Benchmarked a quality/speed profile for Apple Silicon on lecture/presentation footage.
+- Analysis profiles: Full, Whisper + Apple Vision OCR without Qwen3-VL, and OCR-only.
+- Optional FFmpeg/Tesseract OCR with runtime capability detection and non-fatal fallback.
+- ASR/OCR name reconciliation prompts and cross-field consistency improvements.
+- Apple Vision OCR, Whisper acceleration/MPS fixes, word-level timestamps, audio features, and persistent JSON settings.
+- Sequential multi-video processing, cooperative cancellation, TXT/JSON autosave and native macOS launcher.
+- Benchmark-informed Apple Silicon quality/speed profile and memory-safety improvements.
