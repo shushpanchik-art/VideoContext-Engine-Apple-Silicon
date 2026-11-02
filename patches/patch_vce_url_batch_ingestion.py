@@ -108,7 +108,126 @@ def patch_engine_startup_cleanup(source):
             raise ValueError("Partial startup cleanup patch detected; missing: " + ", ".join(missing))
         return source
 
-    helper = r'''__HELPER__'''
+    helper = r'''# VCE_STARTUP_STALE_TEMP_CLEANUP_V1
+def _vce_cleanup_stale_temp_artifacts(
+    project_root=None,
+    temp_root=None,
+    max_age_seconds=3600,
+    now=None,
+):
+    """Delete only old VCE temporary media/partials; never touch model caches or reports."""
+    import re as _vce_re
+    import shutil as _vce_shutil
+    import stat as _vce_stat
+    import tempfile as _vce_tempfile
+    import time as _vce_time
+    from pathlib import Path as _vce_Path
+
+    current_time = _vce_time.time() if now is None else float(now)
+    cutoff = current_time - max(0, float(max_age_seconds))
+    project_root = (
+        _vce_Path(project_root).expanduser().resolve()
+        if project_root is not None
+        else _vce_Path(__file__).resolve().parent
+    )
+    temp_root = (
+        _vce_Path(temp_root).expanduser().resolve()
+        if temp_root is not None
+        else _vce_Path(_vce_tempfile.gettempdir()).resolve()
+    )
+
+    removed_project = 0
+    removed_system_temp = 0
+    removed_temp_dirs = 0
+    errors = 0
+
+    media_suffixes = (
+        ".mp4", ".m4v", ".mov", ".mkv", ".webm", ".avi",
+        ".m4a", ".mp3", ".wav", ".aac",
+    )
+
+    # URL downloads and multipart uploads are created in the engine project root
+    # as temp_<unix-seconds>_<sanitized-name>.<extension>.
+    try:
+        project_items = list(project_root.iterdir())
+    except OSError:
+        project_items = []
+        errors += 1
+
+    for path in project_items:
+        if not _vce_re.match(r"^temp_\d{10,}_", path.name):
+            continue
+        folded = path.name.casefold()
+        is_partial = (
+            folded.endswith((".part", ".ytdl"))
+            or ".part-frag" in folded
+        )
+        is_media = folded.endswith(media_suffixes)
+        if not (is_partial or is_media):
+            continue
+        try:
+            info = path.lstat()
+            if not _vce_stat.S_ISREG(info.st_mode) or info.st_mtime > cutoff:
+                continue
+            path.unlink()
+            removed_project += 1
+        except OSError:
+            errors += 1
+
+    # FFmpeg/OpenCV helper artifacts use these explicit VCE prefixes in macOS
+    # temporary storage. Only entries older than the grace period are eligible.
+    temp_file_prefixes = (
+        "vce_compatible_",
+        "vce_mp4_recovery_",
+        "vce_audio_fallback_",
+        "vce_audio_only_",
+        "vce_ffmpeg_ocr_",
+    )
+    temp_dir_prefixes = ("vce_ffmpeg_tesseract_",)
+    try:
+        temp_items = list(temp_root.iterdir())
+    except OSError:
+        temp_items = []
+        errors += 1
+
+    for path in temp_items:
+        if not path.name.startswith(temp_file_prefixes + temp_dir_prefixes):
+            continue
+        try:
+            info = path.lstat()
+            if info.st_mtime > cutoff:
+                continue
+            if _vce_stat.S_ISREG(info.st_mode):
+                path.unlink()
+                removed_system_temp += 1
+            elif (
+                _vce_stat.S_ISDIR(info.st_mode)
+                and path.name.startswith(temp_dir_prefixes)
+            ):
+                _vce_shutil.rmtree(path)
+                removed_temp_dirs += 1
+        except OSError:
+            errors += 1
+
+    total = removed_project + removed_system_temp + removed_temp_dirs
+    if total or errors:
+        print(
+            "[VCE cleanup] Старые временные артефакты: удалено "
+            + str(total)
+            + " (проект: " + str(removed_project)
+            + ", системный temp: " + str(removed_system_temp)
+            + ", папки: " + str(removed_temp_dirs)
+            + "); ошибок: " + str(errors)
+        )
+    return {
+        "removed_project": removed_project,
+        "removed_system_temp": removed_system_temp,
+        "removed_temp_dirs": removed_temp_dirs,
+        "errors": errors,
+    }
+
+
+'''
     anchor = "@asynccontextmanager\nasync def lifespan(app: FastAPI):\n"
     source = _replace_once(source, anchor, helper + anchor, "startup cleanup helper insertion")
     lifespan_anchor = (
