@@ -214,13 +214,11 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
         f'{arg_indent}    total = download_status.get("total_bytes") or download_status.get("total_bytes_estimate")\n'
         f'{arg_indent}    if total:\n'
         f'{arg_indent}        fraction = max(0.0, min(1.0, downloaded / max(1, int(total))))\n'
-        f'{arg_indent}        set_job_progress(job_id, "download_video", 1.5 + fraction * 1.2,\n'
+        f'{arg_indent}        set_job_progress(job_id, "download_video", 1.5 + fraction * 0.5,\n'
         f'{arg_indent}            f"yt-dlp: скачивание видео · {{fraction * 100:.0f}}%",\n'
         f'{arg_indent}            downloaded_bytes=downloaded, total_bytes=int(total))\n'
         f'{arg_indent}    else:\n'
         f'{arg_indent}        set_job_progress(job_id, "download_video", None, "yt-dlp: скачивание видео…", indeterminate=True)\n'
-        f'{arg_indent}elif download_status.get("status") == "finished":\n'
-        f'{arg_indent}    set_job_progress(job_id, "download_video", 2.7, "Загрузка завершена; проверяем видеопоток")\n'
         f"{indent}try:\n"
         f"{arg_indent}temp_path = await asyncio.to_thread(\n"
         f"{arg_indent}    download_video_from_url,\n"
