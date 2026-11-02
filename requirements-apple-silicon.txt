@@ -1,0 +1,4 @@
+mlx-vlm
+torchvision
+ocrmac
+certifi

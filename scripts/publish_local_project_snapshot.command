@@ -28,19 +28,19 @@ for n in core:
         raise SystemExit("В "+n+" похожий на секрет токен. Push остановлен.")
     if home in t: raise SystemExit("В "+n+" найден персональный путь. Push остановлен.")
     shutil.copy2(src/n,dst/n)
-skip_dirs={".git",".venv","venv","env","__pycache__",".pytest_cache",".mypy_cache",".ruff_cache",".cache","cache","caches","models","model","model_cache","models_cache","checkpoints","hf_cache","huggingface","whisper_cache","mlx_cache","node_modules","site-packages","temp","tmp","downloads","Downloads","logs","log","outputs","output"}
+skip_dirs={".git",".venv","venv","env","__pycache__",".pytest_cache",".mypy_cache",".ruff_cache",".cache","cache","caches","models","model","model_cache","models_cache","checkpoints","hf_cache","huggingface","whisper_cache","mlx_cache","node_modules","site-packages","temp","tmp","downloads","Downloads","logs","log","outputs","output","benchmark_results"}
 skip_ext={".mp4",".m4v",".mov",".mkv",".webm",".avi",".mpeg",".mpg",".mp3",".m4a",".wav",".aac",".flac",".part",".ytdl",".sqlite",".db",".pyc",".pyo",".bak",".orig",".swp",".tmp"}
 secrets=re.compile(r"\b(sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{20,})")
 secret_key=re.compile(r"(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|password|passwd|secret|cookie|authorization|credential)([_-]|$)",re.I)
 added=list(core); excluded=[]
 for root,dirs,files in os.walk(src,followlinks=False):
-    root=Path(root); dirs[:]=[d for d in dirs if d not in skip_dirs and not (root/d).is_symlink()]
+    root=Path(root); dirs[:]=[d for d in dirs if d not in skip_dirs and not d.lower().startswith(".backup") and ".backup" not in d.lower() and ".bak" not in d.lower() and not (root/d).is_symlink()]
     for fn in files:
         p=root/fn
         if p.is_symlink() or not p.is_file(): continue
         rel=p.relative_to(src); low=fn.lower()
         if rel.as_posix() in core: continue
-        if low in {".ds_store",".env","credentials","credentials.json","cookies.txt","id_rsa","id_ed25519","auth.json"} or low.startswith(".env.") or p.suffix.lower() in skip_ext or low.endswith(("_context.txt","_context.json")) or ".before_" in low or ".backup." in low:
+        if low in {".ds_store",".env","credentials","credentials.json","cookies.txt","id_rsa","id_ed25519","auth.json"} or low.startswith(".env.") or p.suffix.lower() in skip_ext or low.endswith((".log",".worker.json","_context.txt","_context.json")) or any(".bak" in part.lower() or ".backup" in part.lower() or ".before_" in part.lower() for part in rel.parts):
             excluded.append(str(rel)); continue
         if p.stat().st_size>50*1024*1024: excluded.append(str(rel)+" [over 50MB]"); continue
         if low=="videocontext_settings.json":

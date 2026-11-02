@@ -17,3 +17,15 @@ video_ocr_output*/
 # Local ASR benchmark inputs and generated results
 benchmarks/private/
 benchmarks/results/
+
+# Local backups and profiling files
+.backup*/
+**/.backup*/
+*.bak*
+*.before_*
+benchmark_results/
+**/benchmark_results/
+*.log
+*.worker.json
+*.part
+*.ytdl

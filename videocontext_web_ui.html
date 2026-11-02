@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>VideoContext Engine — обработка видео</title>
+<style>
+:root{color-scheme:light dark;--bg:#10151d;--panel:#191f2a;--line:#303949;--text:#eef3fa;--muted:#aab6c7;--accent:#6ea8fe;--good:#39c58a;--bad:#ff7272}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:28px 18px 54px}h1{font-size:clamp(25px,4vw,36px);margin:0 0 8px}p{color:var(--muted)}.panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:20px;margin-top:18px}.actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}button,.button{border:1px solid var(--line);border-radius:10px;background:#252e3d;color:var(--text);padding:10px 14px;font:inherit;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:7px}button.primary{background:#245eb7;border-color:#397bdc}button:disabled{opacity:.45;cursor:not-allowed}.hint{font-size:13px;color:var(--muted)}#empty{border:1px dashed #4b586c;border-radius:14px;padding:28px;text-align:center;color:var(--muted);margin-top:14px}.file-card{border:1px solid var(--line);border-radius:14px;padding:14px;margin-top:12px}.file-top{display:flex;align-items:flex-start;gap:12px;justify-content:space-between}.file-name{font-weight:650;overflow-wrap:anywhere}.file-meta,.status,.progress-caption{font-size:13px;color:var(--muted)}.status{margin-top:8px}.status.good{color:var(--good)}.status.bad{color:var(--bad)}.progress-track{height:10px;background:#303848;border-radius:99px;overflow:hidden;margin-top:9px}.progress-fill{height:100%;width:0;background:var(--accent);border-radius:99px;transition:width .18s linear}.progress-fill.working{width:38%;background:linear-gradient(90deg,#3e79d5,#a9cdfd,#3e79d5);background-size:200% 100%;animation:scan 1.2s linear infinite}.progress-fill.finished{width:100%;background:var(--good)}.progress-fill.failed{width:100%;background:var(--bad)}@keyframes scan{from{background-position:100% 0}to{background-position:-100% 0}}.file-links{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}.file-links a{color:#9dc4ff;text-decoration:none;border-bottom:1px solid #597eaf}.remove{padding:5px 9px;font-size:13px}.topline{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}.pill{font-size:12px;color:var(--muted);border:1px solid var(--line);padding:4px 8px;border-radius:99px}.alert{display:none;border:1px solid #814747;color:#ffbdbd;border-radius:10px;padding:10px;margin-top:12px}.footer{margin-top:24px;color:var(--muted);font-size:13px}.footer a{color:#9dc4ff}
+
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:16px}.setting{display:flex;flex-direction:column;gap:6px;color:var(--muted);font-size:13px}.setting input:not([type=checkbox]),.setting select{width:100%;padding:9px 10px;border-radius:9px;border:1px solid var(--line);background:#111720;color:var(--text);font:inherit}.setting-checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:16px}.setting-checks label{display:flex;align-items:center;gap:8px;color:var(--text);font-size:14px}.setting-checks input{accent-color:var(--accent)}#settings-status{min-width:180px}#settings-pill.saved{color:var(--good);border-color:var(--good)}#settings-pill.bad{color:var(--bad);border-color:var(--bad)}
+
+
+/* UI Fine-tuning: clear primary/stop actions + meaningful phase progress */
+button#start { background:#188447 !important; border-color:#22a35c !important; color:#fff !important; font-weight:700; box-shadow:0 3px 12px rgba(24,132,71,.24); }
+button#start:hover:not(:disabled) { background:#146c39 !important; }
+button#stop { background:#facc15 !important; border-color:#eab308 !important; color:#25220b !important; font-weight:750; }
+button#stop:hover:not(:disabled) { background:#eab308 !important; }
+button#stop:disabled { color:#4b4217 !important; }
+.progress-track { height:13px !important; position:relative; }
+.progress-fill { min-width:0; transition:width .35s ease; }
+.progress-fill.determinate { background:linear-gradient(90deg,#2774d8,#62a5ff) !important; box-shadow:0 0 10px rgba(82,156,255,.25); }
+.progress-fill.working, .progress-fill.phase-indeterminate { width:26%; background:linear-gradient(100deg,#1d4ed8 0%,#60a5fa 30%,#dbeafe 48%,#60a5fa 66%,#1d4ed8 100%) !important; background-size:240% 100% !important; animation:vce-progress-sweep 1.4s linear infinite !important; }
+.progress-caption { display:block; line-height:1.45; min-height:1.45em; margin-top:6px; overflow-wrap:anywhere; }
+.status.processing { color:#93c5fd; }
+@keyframes vce-progress-sweep { from { background-position:100% 0; } to { background-position:-140% 0; } }
+@media (prefers-reduced-motion: reduce) { .progress-fill.working, .progress-fill.phase-indeterminate { animation:none !important; background:#60a5fa !important; } }
+
+
+.settings-disclosure{margin:16px 0}
+.settings-disclosure>summary{list-style:none;cursor:pointer;display:flex;align-items:center;gap:12px;padding:13px 16px;border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--text);font-weight:650;user-select:none}
+.settings-disclosure>summary::-webkit-details-marker{display:none}
+.settings-disclosure>summary::after{content:"＋";margin-left:auto;font-size:18px;line-height:1}
+.settings-disclosure[open]>summary::after{content:"−"}
+.settings-disclosure[open]>summary{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.settings-disclosure[open]>#settings-panel{margin-top:0;border-top-left-radius:0;border-top-right-radius:0}
+.settings-disclosure-hint{font-size:12px;font-weight:400;color:var(--muted)}
+
+
+/* VCE URL queue */
+.url-entry{margin:16px 0 8px;padding:14px;border:1px solid var(--line);border-radius:12px;background:rgba(110,168,254,.045)}
+.url-entry label{display:block;font-weight:650;margin-bottom:7px}
+.url-entry textarea{display:block;width:100%;min-height:88px;resize:vertical;padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:#111720;color:var(--text);font:inherit}
+.url-entry .hint{display:block;margin-top:7px}
+
+</style>
+<link rel="icon" type="image/png" data-vce-favicon="1" href="/favicon.ico?v=20261023-ui2">
+</head>
+<body>
+<main>
+  <div class="topline"><span class="pill">локальная обработка · Apple Silicon / MLX</span><a class="hint" href="/docs">API и настройки (Swagger) →</a></div>
+  <h1>VideoContext Engine</h1>
+  <p>Выберите видео, добавляйте следующие кнопкой ниже и запускайте пакетную обработку. Файлы анализируются последовательно, у каждого — собственный индикатор загрузки и состояния.</p>
+  <details id="settings-disclosure" class="settings-disclosure">
+  <summary><span>⚙ Настройки анализа</span><span class="settings-disclosure-hint">Открыть параметры</span></summary>
+<section class="panel" id="settings-panel">
+    <div class="topline"><div><strong>Параметры анализа</strong><div class="hint">Значения сохраняются в videocontext_settings.json и применяются к следующим запускам из этого интерфейса.</div></div><span class="pill" id="settings-pill">Загрузка…</span></div>
+    <div class="settings-grid">
+      <!-- VCE_ANALYSIS_PROFILES_FFMPEG_OCR_V1 -->
+      <label class="setting">Сценарий анализа
+        <select id="cfg-analysis-mode">
+          <option value="full">Полный анализ — Whisper + OCR + Qwen3-VL</option>
+          <option value="whisper_ocr">Whisper + Apple OCR — без Qwen3-VL</option>
+          <option value="ocr_only">Только Apple OCR — без Whisper и Qwen3-VL</option>
+        </select>
+        <span class="hint">Qwen3.5 текстовая постобработка не отключается сценариями: она собирает итог из доступных транскрипта и OCR.</span>
+      </label>
+      <label class="setting">VLM-модель
+        <select id="cfg-vlm-model"><option value="mlx-community/Qwen3-VL-8B-Instruct-4bit">Qwen3-VL-8B · качество</option><option value="mlx-community/Qwen3-VL-4B-Instruct-4bit">Qwen3-VL-4B · быстрее</option></select>
+      </label>
+      <label class="setting">Whisper-модель
+        <select id="cfg-whisper-model"><option>large</option><option>medium</option><option>small</option><option>base</option><option>tiny</option></select>
+      </label>
+      <label class="setting">Разрешение Qwen (px)<input id="cfg-vlm-resolution" type="number" min="128" max="2048" step="64" value="1280"></label>
+      <label class="setting">Порог смены сцены<input id="cfg-scene-threshold" type="number" min="0.01" max="1" step="0.01" value="0.15"></label>
+      <label class="setting">Мин. длительность сцены (с)<input id="cfg-min-scene-duration" type="number" min="0.5" max="60" step="0.5" value="1.5"></label>
+      <label class="setting">Макс. длительность сцены (с)<input id="cfg-max-scene-duration" type="number" min="5" max="300" step="1" value="20"></label>
+      <label class="setting">Кадров на сцену<input id="cfg-keyframes" type="number" min="1" max="5" step="1" value="1"></label>
+      <label class="setting">Токенов на сцену<input id="cfg-scene-tokens" type="number" min="16" max="1024" step="16" value="1024"></label>
+      <label class="setting">Токенов на резюме<input id="cfg-summary-tokens" type="number" min="16" max="2048" step="16" value="2048"></label>
+    </div>
+      <label class="setting">Текстовая LLM-модель
+        <input id="cfg-text-llm-model" type="text" value="mlx-community/Qwen3.5-9B-MLX-4bit" readonly>
+      </label>
+      <label class="setting">Макс. токенов текстовой LLM<input id="cfg-text-llm-max-tokens" type="number" min="1024" max="4096" step="256" value="4096"></label>
+    <div class="setting-checks">
+          <strong id="vce-optimization-title" style="grid-column:1 / -1">Экспериментальные оптимизации (все выключены по умолчанию)</strong>
+    <label><input id="cfg-stage-timing" type="checkbox"> Подробные тайминги этапов в JSON</label>
+    <label><input id="cfg-adaptive-keyframes" type="checkbox"> Адаптивное число кадров на сцену (настройка количества кадров — верхний предел)</label>
+    <label><input id="cfg-ocr-cache" type="checkbox"> Кэш OCR Apple Vision для повторяющихся кадров</label>
+    <label><input id="cfg-mlx-whisper" type="checkbox"> MLX Whisper вместо PyTorch Whisper (нужен пакет mlx-whisper и совместимая MLX-модель)</label>
+    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропускать короткие переходы</label>
+    <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->
+  <div id="vce-server-controls" style="grid-column:1 / -1; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+    <button type="button" id="vce-stop-server">Остановить сервер VCE</button>
+    <span id="vce-stop-server-status" role="status" aria-live="polite">Для запуска после остановки откройте приложение заново.</span>
+  </div>
+  <!-- VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_V1 -->
+
+<label><input id="cfg-apple-ocr" type="checkbox" checked> Apple Vision OCR</label>
+      <label><input id="cfg-ffmpeg-ocr" type="checkbox"> Дополнительный OCR через FFmpeg/Tesseract (экспериментально)</label>
+      <label class="setting">Интервал FFmpeg OCR (сек)
+        <input id="cfg-ffmpeg-ocr-interval" type="number" min="1" max="60" step="1" value="5">
+        <span class="hint">Распознаётся один кадр за интервал. Чем меньше значение, тем дольше обработка.</span>
+      </label>
+      <label class="setting">Параллельные CPU-воркеры Tesseract
+        <input id="cfg-ffmpeg-ocr-workers" type="number" min="1" max="8" step="1" value="2">
+        <span class="hint">2 обычно достаточно; больше воркеров ускоряют OCR, но увеличивают нагрузку на CPU и память.</span>
+      </label>
+      <div id="ffmpeg-ocr-status" class="hint" role="status">Проверка поддержки OCR в FFmpeg…</div>
+      <label><input id="cfg-whisper-acceleration" type="checkbox" checked> Ускорение Whisper (MPS)</label>
+      <label><input id="cfg-audio-features" type="checkbox" checked> Аудиопризнаки по сценам</label>
+      <label><input id="cfg-summary" type="checkbox" checked> Глобальный конспект</label>
+      <label><input id="cfg-txt" type="checkbox" checked> Автосохранение TXT</label>
+      <label><input id="cfg-json" type="checkbox" checked> Автосохранение JSON</label>
+      <label><input id="cfg-word-timestamps" type="checkbox" checked> Метки времени отдельных слов</label>
+      <label><input id="cfg-text-llm-enabled" type="checkbox" checked> Улучшенная структура и смысловой анализ (Qwen3.5-9B)</label>
+    </div>
+    <div class="actions"><button id="save-settings" class="primary" type="button">Сохранить настройки</button><button id="reload-settings" type="button">Загрузить сохранённые</button><span id="settings-status" class="hint" role="status"></span></div>
+  </section>
+</details>
+  <section class="panel">
+    <div class="topline"><div><strong>2. Видео для анализа</strong><div class="hint">MP4, MOV, AVI, MKV, WEBM и M4V</div></div><span class="pill" id="count">0 видео</span></div>
+    <input id="picker" type="file" accept="video/*,.mp4,.mov,.avi,.mkv,.webm,.m4v" multiple hidden>
+    <!-- VCE_URL_BATCH_INGESTION_V1 -->
+    <div class="url-entry">
+      <label for="urlInput">Или добавьте ссылки на видео / подкасты</label>
+      <textarea id="urlInput" rows="3" placeholder="По одной ссылке на строку: VK Видео, YouTube, RuTube и другие сайты, поддерживаемые yt-dlp"></textarea>
+      <div class="actions"><button id="addUrls" type="button">＋ Добавить ссылки в очередь</button></div>
+      <span class="hint">Можно вставить несколько ссылок сразу. Разрешение загрузки подбирается автоматически из текущих настроек VLM и OCR.</span>
+    </div>
+    <div class="actions">
+      <button id="choose" class="primary">Выбрать первое видео</button>
+      <button id="add" hidden>＋ Добавить ещё видео</button>
+      <button id="start" disabled>Запустить обработку</button>
+      <button id="stop" type="button" hidden>Остановить распознавание</button>
+    </div>
+    <div id="empty">Выберите локальные видео или добавьте одну / несколько ссылок выше.</div>
+    <div id="files"></div>
+    <div id="alert" class="alert"></div>
+  </section>
+  <section class="panel">
+    <strong>3. Автоматическое сохранение</strong>
+    <p style="margin-bottom:0">Для каждого выбранного через системное окно видео движок автоматически сохраняет <b>TXT и JSON</b> в ту же папку, где находится исходный ролик. Здесь доступны ссылки для скачивания отчётов. Whisper, Apple OCR и Qwen используют текущие настройки из <code>videocontext_settings.json</code>.</p>
+  </section>
+  <div class="footer">Индикатор загрузки показывает реальный процент передачи файла. Во время анализа отображается анимированный статус; он завершается на 100% только после получения результата. Очередь работает последовательно, чтобы не перегружать память и MLX.</div>
+</main>
+<script>
+(() => {
+  const picker = document.getElementById('picker');
+  const urlInput = document.getElementById('urlInput');
+  const addUrlsButton = document.getElementById('addUrls');
+  const choose = document.getElementById('choose');
+  const add = document.getElementById('add');
+  const start = document.getElementById('start');
+  const stop = document.getElementById('stop');
+  const empty = document.getElementById('empty');
+  const filesEl = document.getElementById('files');
+  const count = document.getElementById('count');
+  const alertEl = document.getElementById('alert');
+
+  const settingsPill = document.getElementById('settings-pill');
+  const settingsStatus = document.getElementById('settings-status');
+  const saveSettingsButton = document.getElementById('save-settings');
+  const readSettings = () => ({
+    enable_stage_timing: document.getElementById('cfg-stage-timing').checked,
+    enable_adaptive_keyframes: document.getElementById('cfg-adaptive-keyframes').checked,
+    enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked,
+    enable_mlx_whisper: document.getElementById('cfg-mlx-whisper').checked,
+    enable_fast_scene_detection: document.getElementById('cfg-fast-scene-detection').checked,
+    analysis_mode: document.getElementById('cfg-analysis-mode').value,
+    vlm_model: document.getElementById('cfg-vlm-model').value,
+    whisper_model: document.getElementById('cfg-whisper-model').value,
+    vlm_resolution: Number(document.getElementById('cfg-vlm-resolution').value),
+    scene_threshold: Number(document.getElementById('cfg-scene-threshold').value),
+    min_scene_duration: Number(document.getElementById('cfg-min-scene-duration').value),
+    max_scene_duration: Number(document.getElementById('cfg-max-scene-duration').value),
+    keyframes_per_scene: Number(document.getElementById('cfg-keyframes').value),
+    vlm_max_tokens_scene: Number(document.getElementById('cfg-scene-tokens').value),
+    vlm_max_tokens_summary: Number(document.getElementById('cfg-summary-tokens').value),
+    enable_ffmpeg_ocr: document.getElementById('cfg-ffmpeg-ocr').checked,
+    ffmpeg_ocr_interval: Number(document.getElementById('cfg-ffmpeg-ocr-interval').value),
+    ffmpeg_ocr_workers: Number(document.getElementById('cfg-ffmpeg-ocr-workers').value),
+    enable_apple_ocr: document.getElementById('cfg-apple-ocr').checked,
+    whisper_acceleration: document.getElementById('cfg-whisper-acceleration').checked,
+    enable_audio_features: document.getElementById('cfg-audio-features').checked,
+    generate_summary: document.getElementById('cfg-summary').checked,
+    generate_txt: document.getElementById('cfg-txt').checked,
+    generate_json: document.getElementById('cfg-json').checked,
+    word_timestamps: document.getElementById('cfg-word-timestamps').checked,
+    text_llm_enabled: document.getElementById('cfg-text-llm-enabled').checked,
+    text_llm_model: document.getElementById('cfg-text-llm-model').value,
+    text_llm_max_tokens: Number(document.getElementById('cfg-text-llm-max-tokens').value)
+  });
+  function fillSettings(s) {
+    const fields = {
+      'cfg-analysis-mode':'analysis_mode',
+      'cfg-ffmpeg-ocr-interval':'ffmpeg_ocr_interval',
+      'cfg-ffmpeg-ocr-workers':'ffmpeg_ocr_workers',
+      'cfg-vlm-model':'vlm_model','cfg-whisper-model':'whisper_model','cfg-vlm-resolution':'vlm_resolution',
+      'cfg-scene-threshold':'scene_threshold','cfg-min-scene-duration':'min_scene_duration',
+      'cfg-max-scene-duration':'max_scene_duration','cfg-keyframes':'keyframes_per_scene',
+      'cfg-scene-tokens':'vlm_max_tokens_scene','cfg-summary-tokens':'vlm_max_tokens_summary',
+      'cfg-text-llm-model':'text_llm_model','cfg-text-llm-max-tokens':'text_llm_max_tokens'
+    };
+    for (const [id,key] of Object.entries(fields)) if (s[key] !== undefined) document.getElementById(id).value = s[key];
+    const checks = {
+      'cfg-stage-timing':'enable_stage_timing',
+      'cfg-adaptive-keyframes':'enable_adaptive_keyframes',
+      'cfg-ocr-cache':'enable_ocr_cache',
+      'cfg-mlx-whisper':'enable_mlx_whisper',
+      'cfg-fast-scene-detection':'enable_fast_scene_detection','cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',
+      'cfg-audio-features':'enable_audio_features','cfg-summary':'generate_summary','cfg-txt':'generate_txt',
+      'cfg-json':'generate_json','cfg-word-timestamps':'word_timestamps','cfg-text-llm-enabled':'text_llm_enabled'};
+    for (const [id,key] of Object.entries(checks)) if (s[key] !== undefined) document.getElementById(id).checked = Boolean(s[key]);
+  }
+  async function loadSettings() {
+    settingsPill.textContent = 'Загрузка…'; settingsPill.className = 'pill'; settingsStatus.textContent = '';
+    try {
+      const res = await fetch('/api/v1/ui-settings', {cache:'no-store'});
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+      fillSettings(body); settingsPill.textContent = 'Сохранённые настройки';
+      const ffmpegStatus = document.getElementById('ffmpeg-ocr-status');
+      if (ffmpegStatus) {
+        ffmpegStatus.textContent = body.ffmpeg_ocr_available
+          ? `FFmpeg/Tesseract доступен: ${body.ffmpeg_ocr_reason || 'готов к работе'}. Apple Vision остаётся основным OCR.`
+          : `FFmpeg OCR недоступен: ${body.ffmpeg_ocr_reason || 'проверь FFmpeg и Tesseract'}`;
+      }
+    } catch (err) { settingsPill.textContent = 'Ошибка'; settingsPill.className = 'pill bad'; settingsStatus.textContent = `Не удалось загрузить: ${err.message}`; }
+  }
+  saveSettingsButton.addEventListener('click', async () => {
+    saveSettingsButton.disabled = true; settingsStatus.textContent = 'Сохранение…';
+    try {
+      const res = await fetch('/api/v1/ui-settings', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(readSettings())});
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.detail || `HTTP ${res.status}`);
+      settingsPill.textContent = 'Сохранено'; settingsPill.className = 'pill saved'; settingsStatus.textContent = 'Настройки записаны в videocontext_settings.json.';
+    } catch (err) { settingsPill.textContent = 'Ошибка'; settingsPill.className = 'pill bad'; settingsStatus.textContent = `Не удалось сохранить: ${err.message}`; }
+    finally { saveSettingsButton.disabled = false; }
+  });
+  document.getElementById('reload-settings').addEventListener('click', loadSettings);
+  loadSettings();
+  const queue = [];
+  let nextId = 1;
+  let busy = false;
+  let stopRequested = false;
+  let currentEntry = null;
+  const fmtSize = n => n < 1024*1024 ? `${(n/1024).toFixed(0)} KB` : `${(n/1024/1024).toFixed(1)} MB`;
+  const setAlert = message => { alertEl.textContent = message || ''; alertEl.style.display = message ? 'block' : 'none'; };
+  function refresh() {
+    const total = queue.length;
+    count.textContent = 'В очереди: ' + total;
+    choose.hidden = total > 0;
+    add.hidden = total === 0;
+    empty.style.display = total === 0 ? 'block' : 'none';
+    start.disabled = busy || !queue.some(x => x.state === 'queued');
+    choose.disabled = busy; add.disabled = busy;
+    addUrlsButton.disabled = busy; urlInput.disabled = busy;
+    stop.hidden = !busy; stop.disabled = !busy || stopRequested;
+  }
+  function makeRow(entry) {
+    const card = document.createElement('article');
+    card.className = 'file-card';
+    card.innerHTML = `<div class="file-top"><div style="min-width:0;flex:1"><div class="file-name"></div><div class="file-meta"></div></div><button class="remove" type="button">Убрать</button></div><div class="status">В очереди</div><div class="progress-track" role="progressbar" aria-label="Прогресс обработки видео" aria-valuemin="0" aria-valuemax="100"><div class="progress-fill"></div></div><div class="progress-caption">Ожидает обработки</div><div class="file-links"></div>`;
+    card.querySelector('.file-name').textContent = entry.file ? entry.file.name : entry.displayName;
+    card.querySelector('.file-meta').textContent = entry.file ? `${fmtSize(entry.file.size)} · ${entry.file.type || 'видеофайл'}` : entry.url;
+    entry.node = card;
+    entry.statusEl = card.querySelector('.status');
+    entry.fill = card.querySelector('.progress-fill');
+    entry.track = card.querySelector('.progress-track');
+    entry.caption = card.querySelector('.progress-caption');
+    entry.links = card.querySelector('.file-links');
+    card.querySelector('.remove').addEventListener('click', () => {
+      if (busy || entry.state === 'processing') return;
+      const i = queue.indexOf(entry); if (i >= 0) queue.splice(i, 1);
+      card.remove(); refresh();
+    });
+    filesEl.appendChild(card);
+  }
+  function setState(entry, state, message) {
+    if (entry.progressTimer && (state === 'done' || state === 'error' || state === 'stopped' || state === 'queued')) clearProgressPolling(entry);
+    entry.state = state;
+    entry.statusEl.className = 'status' + (state === 'done' ? ' good' : state === 'error' ? ' bad' : '');
+    entry.statusEl.textContent = message;
+    entry.fill.className = 'progress-fill';
+    entry.caption.textContent = message;
+    if (state === 'processing') entry.fill.classList.add('working');
+    else if (state === 'done') { entry.fill.classList.add('finished'); entry.fill.style.width = '100%'; entry.caption.textContent = '100% · Завершено'; }
+    else if (state === 'error') { entry.fill.classList.add('failed'); entry.fill.style.width = '100%'; }
+    else if (state === 'uploading') entry.fill.style.width = '0%';
+    else if (state === 'queued') { entry.fill.style.width = '0%'; entry.caption.textContent = 'Ожидает обработки'; }
+  }
+  function addFiles(fileList) {
+    setAlert('');
+    const picked = Array.from(fileList || []);
+    if (!picked.length) return;
+    for (const file of picked) {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      if (!['mp4','mov','avi','mkv','webm','m4v'].includes(ext)) {
+        setAlert(`Файл «${file.name}» пропущен: формат не поддерживается.`); continue;
+      }
+      const entry = {id: String(nextId++), file, state:'queued', node:null};
+      queue.push(entry); makeRow(entry); setState(entry, 'queued', 'В очереди');
+    }
+    picker.value = '';
+    refresh();
+  }
+  async function pickLocalVideos() {
+    if (busy) return;
+    setAlert('');
+    choose.disabled = true; add.disabled = true;
+    try {
+      const response = await fetch('/api/v1/select-local-videos', {method:'POST'});
+      let body = {};
+      try { body = await response.json(); } catch (_) {}
+      if (!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+      if (body.rejected && body.rejected.length) setAlert(body.rejected.join(' · '));
+      for (const selected of (body.files || [])) {
+        const entry = {
+          id: String(nextId++),
+          localToken: selected.token,
+          file: {name:selected.name, size:selected.size, type:selected.type || 'video'},
+          state:'queued', node:null
+        };
+        queue.push(entry); makeRow(entry); setState(entry, 'queued', 'В очереди · исходный файл будет обработан на месте');
+      }
+      refresh();
+    } catch (error) {
+      setAlert(`Не удалось выбрать локальные видео: ${error.message}. Откройте интерфейс с этого Mac и проверьте, что сервер запущен через приложение VideoContext Engine.`);
+    } finally { refresh(); }
+  }
+  function normalizeVideoUrl(raw) {
+    let value = String(raw || '').trim();
+    const markdown = value.match(/^\[[^\]]+\]\((https?:\/\/[^)\s]+)\)$/i);
+    if (markdown) value = markdown[1];
+    if (value.startsWith('<') && value.endsWith('>')) value = value.slice(1, -1).trim();
+    const parsed = new URL(value);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error('разрешены только ссылки http:// и https://');
+    }
+    if (!parsed.hostname) throw new Error('в ссылке отсутствует адрес сайта');
+    return parsed.href;
+  }
+
+  function addUrls() {
+    setAlert('');
+    const lines = urlInput.value.split(/\r?\n/).map(x => x.trim()).filter(Boolean);
+    if (!lines.length) { setAlert('Вставьте хотя бы одну ссылку.'); return; }
+    const existing = new Set(queue.filter(x => x.url).map(x => x.url));
+    let addedCount = 0;
+    for (const line of lines) {
+      try {
+        const url = normalizeVideoUrl(line);
+        if (existing.has(url)) {
+          setAlert('Повторная ссылка пропущена: ' + url);
+          continue;
+        }
+        existing.add(url);
+        const parsed = new URL(url);
+        const shortPath = parsed.pathname.length > 64 ? parsed.pathname.slice(0, 64) + '…' : parsed.pathname;
+        const entry = {
+          id: String(nextId++),
+          file: null,
+          url,
+          displayName: 'Ссылка: ' + parsed.hostname + shortPath,
+          state: 'queued',
+          node: null
+        };
+        queue.push(entry);
+        makeRow(entry);
+        setState(entry, 'queued', 'Ссылка добавлена в очередь');
+        addedCount++;
+      } catch (error) {
+        setAlert('Некорректная ссылка пропущена: ' + line + ' (' + error.message + ')');
+      }
+    }
+    urlInput.value = '';
+    refresh();
+    if (addedCount) setAlert('Добавлено ссылок в очередь: ' + addedCount);
+  }
+
+  choose.addEventListener('click', pickLocalVideos);
+  add.addEventListener('click', pickLocalVideos);
+  picker.addEventListener('change', e => addFiles(e.target.files));
+  addUrlsButton.addEventListener('click', addUrls);
+
+  function formatElapsed(seconds) {
+    const n = Math.max(0, Math.floor(Number(seconds) || 0));
+    const h = Math.floor(n / 3600), m = Math.floor((n % 3600) / 60), s = n % 60;
+    return h ? `${h} ч ${m} мин` : (m ? `${m} мин ${String(s).padStart(2,'0')} с` : `${s} с`);
+  }
+  function clearProgressPolling(entry) {
+    if (entry && entry.progressTimer) { clearInterval(entry.progressTimer); entry.progressTimer = null; }
+  }
+  function stopProgressPolling(entry) { clearProgressPolling(entry); }
+  async function pollEntryProgress(entry, jobId) {
+    try {
+      const response = await fetch('/api/v1/progress/' + encodeURIComponent(jobId), {cache:'no-store'});
+      if (!response.ok) return;
+      const p = await response.json();
+      if (!p || !p.phase || p.phase === 'waiting') return;
+      if (entry.state === 'done' || entry.state === 'error' || entry.state === 'stopped') return;
+      entry.state = 'processing';
+      entry.statusEl.className = 'status processing';
+      const elapsed = formatElapsed(p.elapsed_seconds);
+      const msg = String(p.message || 'Выполняется обработка');
+      const stageLabel = p.stage_index && p.stage_count ? `Этап ${p.stage_index}/${p.stage_count} · ` : '';
+      const pct = Math.max(0, Math.min(99.6, Number(p.percent) || 0));
+      entry.statusEl.textContent = stageLabel + msg;
+      entry.fill.classList.remove('finished','failed','phase-indeterminate','working');
+      entry.fill.classList.add('determinate');
+      entry.fill.style.width = `${pct}%`;
+      entry.track?.setAttribute('aria-valuenow', String(Math.round(pct)));
+      entry.track?.setAttribute('aria-valuetext', `примерно ${Math.round(pct)}% · ${stageLabel}${msg}`);
+      let detail = `${stageLabel}${msg}`;
+      if (p.scene_index && p.scene_total) detail += ` · сцена ${p.scene_index}/${p.scene_total}`;
+      if (p.generated_tokens) {
+        const rate = Number(p.tokens_per_second) > 0 ? ` · ${Number(p.tokens_per_second).toFixed(1)} ток/с` : '';
+        detail += ` · ${p.generated_tokens} токенов${rate}`;
+      }
+      entry.caption.textContent = `Примерный прогресс · ${Math.round(pct)}% · ${detail} · прошло ${elapsed}`;
+      if (p.status === 'done') {
+        entry.fill.classList.remove('working','phase-indeterminate','determinate');
+        entry.fill.classList.add('finished');
+        entry.fill.style.width = '100%';
+        entry.track?.setAttribute('aria-valuenow','100');
+        entry.caption.textContent = `100% · Анализ завершён, получаем файлы · ${elapsed}`;
+      } else if (p.status === 'failed' || p.status === 'stopped') {
+        entry.fill.classList.remove('working','phase-indeterminate','determinate');
+        entry.fill.classList.add('failed');
+        entry.caption.textContent = `${Math.round(pct)}% · ${msg} · ${elapsed}`;
+      }
+    } catch (_) { /* polling is advisory; the main XHR remains authoritative */ }
+  }
+
+  function startProgressPolling(entry, jobId) {
+    entry.fill.classList.remove('finished','failed','phase-indeterminate','working');
+    entry.fill.classList.add('determinate');
+    entry.fill.style.width = '0%';
+    entry.track?.setAttribute('aria-valuenow', '0');
+    entry.track?.setAttribute('aria-valuetext', '0% · подготовка к обработке');
+    entry.caption.textContent = 'Примерный прогресс · 0% · подготавливаем задачу';
+    pollEntryProgress(entry, jobId);
+    entry.progressTimer = setInterval(() => pollEntryProgress(entry, jobId), 1000);
+  }
+  function processOne(entry) {
+    return new Promise(resolve => {
+      const jobId = `ui_${Date.now()}_${entry.id}_${Math.random().toString(36).slice(2,8)}`;
+      const xhr = new XMLHttpRequest();
+      entry.xhr = xhr;
+      const form = new FormData();
+      if (entry.localToken) form.append('local_video_token', entry.localToken);
+      else if (entry.url) form.append('video_url', entry.url);
+      else form.append('video_file', entry.file, entry.file.name);
+      form.append('response_format', 'json');
+      // Per-request settings make saved values effective immediately in this Web UI.
+      const cfg = readSettings();
+      for (const [key, value] of Object.entries(cfg)) form.append(key, String(value));
+      form.append('skip_audio', String(cfg.analysis_mode === 'ocr_only'));
+      form.append('skip_visual', String(cfg.analysis_mode !== 'full'));
+      if (!entry.localToken && entry.url) {
+        setState(entry, 'processing', 'yt-dlp: получение видео по ссылке…');
+        entry.caption.textContent = 'Ссылка отправлена движку; загрузка и анализ выполняются на этом Mac.';
+      } else if (!entry.localToken) {
+        setState(entry, 'uploading', 'Загрузка файла…');
+        entry.caption.textContent = 'Загрузка: 0%';
+      } else {
+        setState(entry, 'processing', 'Анализ локального видео…');
+        entry.caption.textContent = 'Файл читается с диска; отчёты сохранятся рядом с видео.';
+      }
+      form.append('job_id', jobId);
+      entry.jobId = jobId;
+      xhr.open('POST', '/api/v1/analyze', true);
+      if (!entry.localToken && !entry.url) {
+        xhr.upload.onprogress = e => {
+          if (!e.lengthComputable) return;
+          const pct = Math.max(0, Math.min(100, Math.round(100*e.loaded/e.total)));
+          entry.fill.className = 'progress-fill'; entry.fill.style.width = `${pct}%`;
+          entry.statusEl.textContent = `Загрузка · ${pct}%`;
+          entry.caption.textContent = `Передано ${pct}% файла`;
+          if (pct >= 100) setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');
+        };
+      }
+      xhr.onload = () => {
+        stopProgressPolling(entry);
+        if (xhr.status < 200 || xhr.status >= 300) {
+          let detail = `HTTP ${xhr.status}`;
+          try { const err = JSON.parse(xhr.responseText); detail = err.detail || detail; } catch (_) {}
+          if (stopRequested && (xhr.status === 409 || xhr.status === 0)) setState(entry, 'stopped', 'Остановлено пользователем');
+          else setState(entry, 'error', `Ошибка: ${detail}`);
+          resolve(); return;
+        }
+        let data;
+        try { data = JSON.parse(xhr.responseText); }
+        catch (_) { setState(entry, 'error', 'Ошибка: сервер вернул невалидный JSON'); resolve(); return; }
+        setState(entry, 'done', data.output_directory ? `Готово · TXT/JSON сохранены в ${data.output_directory}` : 'Готово · TXT и JSON сохранены');
+        const links = [];
+        if (data.txt_filename) links.push(['Скачать TXT', data.txt_filename, data.txt_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.txt_download_id) : '/api/v1/output/' + encodeURIComponent(data.txt_filename)]);
+        if (data.json_filename) links.push(['Скачать JSON', data.json_filename, data.json_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.json_download_id) : '/api/v1/output/' + encodeURIComponent(data.json_filename)]);
+        for (const [label, filename, href] of links) {
+          const a = document.createElement('a');
+// VCE_URL_REPORT_DOWNLOAD_TARGET_V1
+          a.textContent = label; a.href = href; a.target = '_blank'; a.rel = 'noopener';
+          entry.links.appendChild(a);
+        }
+        if (!links.length) entry.caption.textContent = '100% · Завершено, но имена выходных файлов не вернулись сервером.';
+        resolve();
+      };
+      xhr.onerror = () => { stopProgressPolling(entry); if (stopRequested) setState(entry, 'stopped', 'Остановлено пользователем'); else setState(entry, 'error', 'Ошибка сети: проверьте, что движок работает.'); resolve(); };
+      xhr.onabort = () => { stopProgressPolling(entry); if (stopRequested) setState(entry, 'stopped', 'Загрузка/запрос остановлены'); else setState(entry, 'error', 'Запрос прерван.'); resolve(); };
+      // Upload progress is real. After upload, the moving bar honestly indicates analysis
+      // without inventing a percentage while synchronous inference is running.
+      if (!entry.localToken && !entry.url) xhr.upload.onload = () => setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');
+      xhr.send(form);
+      startProgressPolling(entry, jobId);
+    });
+  }
+  stop.addEventListener('click', async () => {
+    if (!busy || stopRequested) return;
+    stopRequested = true;
+    stop.disabled = true;
+    setAlert('Остановка запрошена. Текущая вычислительная операция завершится, затем очередь остановится.');
+    const item = currentEntry;
+    if (item && item.jobId) {
+      // Do not wait before aborting a file that is still uploading.
+      const cancelPromise = fetch('/api/v1/cancel/' + encodeURIComponent(item.jobId), {method:'POST'}).catch(() => null);
+      if (item.state === 'uploading' && item.xhr) item.xhr.abort();
+      await cancelPromise;
+    }
+  });
+
+  start.addEventListener('click', async () => {
+    if (busy) return;
+    const pending = queue.filter(x => x.state === 'queued');
+    if (!pending.length) return;
+    busy = true; stopRequested = false; currentEntry = null; setAlert(''); refresh();
+    for (let i = 0; i < pending.length; i++) {
+      const item = pending[i];
+      if (stopRequested) { setState(item, 'stopped', 'Остановлено до запуска'); continue; }
+      currentEntry = item;
+      setState(item, 'processing', `Обработка ${i+1} из ${pending.length}…`);
+      await processOne(item);
+      currentEntry = null;
+      if (stopRequested) {
+        for (const rest of pending.slice(i + 1)) {
+          if (rest.state === 'queued') setState(rest, 'stopped', 'Остановлено до запуска');
+        }
+        break;
+      }
+    }
+    const wasStopped = stopRequested;
+    busy = false; currentEntry = null; stopRequested = false; refresh();
+    const errors = queue.filter(x => x.state === 'error').length;
+    if (wasStopped) setAlert('Распознавание остановлено. Оставшиеся видео не запускались. Уже сохранённые результаты не удалены.');
+    else if (errors) setAlert(`Очередь завершена. С ошибкой: ${errors}. Эти файлы можно удалить и выбрать повторно.`);
+  });
+  refresh();
+})();
+
+  // VCE_LOCAL_SERVER_SHUTDOWN_BUTTON_HANDLER_V1
+  const stopServerButton = document.getElementById('vce-stop-server');
+  const stopServerStatus = document.getElementById('vce-stop-server-status');
+  if (stopServerButton) {
+    stopServerButton.addEventListener('click', async () => {
+      const confirmed = window.confirm(
+        'Остановить сервер VideoContext Engine? Текущие запросы прервутся. Для следующего запуска откройте приложение заново.'
+      );
+      if (!confirmed) return;
+      stopServerButton.disabled = true;
+      if (stopServerStatus) stopServerStatus.textContent = 'Отправляется команда остановки сервера...';
+      try {
+        const response = await fetch('/api/v1/server/shutdown', {
+          method: 'POST',
+          headers: { 'Accept': 'application/json' }
+        });
+        if (!response.ok) {
+          const details = await response.text();
+          throw new Error('HTTP ' + response.status + (details ? ': ' + details : ''));
+        }
+        if (stopServerStatus) {
+          stopServerStatus.textContent = 'Команда принята. Сервер остановится; для нового запуска откройте VideoContext Engine.app.';
+        }
+      } catch (error) {
+        if (stopServerStatus) stopServerStatus.textContent = 'Не удалось подтвердить остановку: ' + error.message;
+        stopServerButton.disabled = false;
+      }
+    });
+  }
+
+</script>
+<!-- VCE_NAME_RECONCILIATION_PROMPT_V1 -->
+<script>
+(() => {
+  "use strict";
+  const KEY = "text_llm_name_reconciliation_prompt";
+  const DEFAULT_PROMPT = "### Согласование названий и собственных имён между источниками\n\nПри подготовке итогового отчёта сопоставляй распознанную речь (ASR), визуальное описание и текст на экране (OCR).\n\n1. Не считай фонетическую запись ASR правильным написанием имени. Распознавание речи может искажать названия программ, брендов, продуктов, аббревиатуры и имена собственные.\n2. Используй читаемую надпись на экране для уточнения написания, если она явно относится к сущности, о которой говорит диктор в том же или соседнем связанном эпизоде. Учитывай смысл фразы и последовательность событий, а не только сходство звучания.\n3. Если связь между произнесённым названием и видимой надписью достаточно убедительна, используй написание с экрана в нормализованных полях итогового отчёта: entities, topics, key_points, описаниях сцен и сводках. Не дублируй одну сущность под фонетическим вариантом ASR и написанием с экрана.\n4. Не изменяй исходные данные. Поля audio_transcript, ocr_text, visual_description и временные метки должны оставаться исходными. Нормализация относится только к производным аналитическим полям.\n5. Не считай любое слово на экране подтверждением услышанного названия. Надпись должна относиться к тому же продукту или объекту по контексту. Если связь неоднозначна, противоречива или OCR ненадёжен, сохрани неопределённость и укажи, какие источники дают разные варианты.\n6. Не придумывай официальное написание на основании одного только звучания или общих знаний. Приоритет доказательств: чёткая относящаяся к объекту надпись на экране, контекст речи и видео, затем внешние сведения — если они доступны и разрешены. Не делай категоричного вывода, когда доказательств недостаточно.\n7. В итоговом отчёте различай три уровня: непосредственно наблюдаемое написание, вероятную идентификацию сущности и неподтверждённую гипотезу. Не выдавай вероятную идентификацию за факт.";
+  const FIELD_ID = "vceNameReconciliationPrompt";
+  if (window.__VCE_NAME_RECONCILIATION_PROMPT_V1) return;
+  window.__VCE_NAME_RECONCILIATION_PROMPT_V1 = true;
+
+  const getText = (el) => String(el?.innerText || el?.value || el?.textContent || "").replace(/\s+/g, " ").trim();
+  const isSettingsUrl = (url) => String(url || "").includes("/api/v1/ui-settings");
+  let editor = null;
+
+  function findButton(regex) {
+    return [...document.querySelectorAll("button, input[type='button'], input[type='submit']")]
+      .find((el) => regex.test(getText(el)));
+  }
+
+  function installEditor(attempt = 0) {
+    if (document.getElementById(FIELD_ID)) {
+      editor = document.getElementById(FIELD_ID);
+      return true;
+    }
+    const saveButton = findButton(/сохранить\s+настройки/i);
+    if (!saveButton) {
+      if (attempt < 40) setTimeout(() => installEditor(attempt + 1), 250);
+      return false;
+    }
+
+    let settingsPanel = saveButton.parentElement;
+    for (let node = saveButton.parentElement, n = 0; node && n < 10; node = node.parentElement, n++) {
+      if (/параметры\s+анализа/i.test(getText(node)) && node.contains(saveButton)) {
+        settingsPanel = node;
+        break;
+      }
+    }
+
+    // Put the editor immediately before the settings action row, not in the video form.
+    let actionRow = saveButton.parentElement;
+    for (let n = 0; n < 6 && actionRow.parentElement && actionRow.parentElement !== settingsPanel; n++) {
+      const count = actionRow.querySelectorAll("button, input[type='button'], input[type='submit']").length;
+      if (count >= 2) break;
+      actionRow = actionRow.parentElement;
+    }
+    const insertionParent = actionRow.parentElement || settingsPanel;
+
+    const wrapper = document.createElement("section");
+    wrapper.id = "vceNameReconciliationPromptBlock";
+    wrapper.style.cssText = "box-sizing:border-box;width:100%;flex:0 0 100%;grid-column:1 / -1;margin:16px 0;padding:12px;border:1px solid #b8b8b8;border-radius:8px;";
+
+    const label = document.createElement("label");
+    label.htmlFor = FIELD_ID;
+    label.textContent = "Системный промпт: согласование названий и собственных имён (ASR ↔ OCR)";
+    label.style.cssText = "display:block;font-weight:600;margin-bottom:8px;";
+
+    const help = document.createElement("p");
+    help.textContent = "Этот редактируемый блок добавляется к фиксированной инструкции Qwen3.5 при смысловой постобработке. Сохраните настройки, чтобы применить изменения к следующим анализам. Схема JSON и защита исходных транскрипта/OCR остаются фиксированными правилами движка.";
+    help.style.cssText = "margin:0 0 8px;font-size:0.92em;opacity:0.85;";
+
+    const textarea = document.createElement("textarea");
+    textarea.id = FIELD_ID;
+    textarea.rows = 12;
+    textarea.spellcheck = true;
+    textarea.autocapitalize = "sentences";
+    textarea.value = DEFAULT_PROMPT;
+    textarea.setAttribute("aria-label", label.textContent);
+    textarea.style.cssText = "display:block;box-sizing:border-box;width:100%;min-height:240px;max-height:55vh;resize:vertical;padding:10px;border:1px solid #888;border-radius:6px;font:inherit;line-height:1.45;white-space:pre-wrap;";
+
+    wrapper.append(label, help, textarea);
+    if (insertionParent && actionRow.parentElement === insertionParent) {
+      insertionParent.insertBefore(wrapper, actionRow);
+    } else if (insertionParent) {
+      insertionParent.appendChild(wrapper);
+    } else {
+      settingsPanel.appendChild(wrapper);
+    }
+    editor = textarea;
+    return true;
+  }
+
+  function populateFromSettings(data) {
+    if (!editor) installEditor();
+    if (!editor) return;
+    const value = data?.settings?.[KEY] ?? data?.[KEY];
+    if (typeof value === "string") editor.value = value;
+  }
+
+  // The settings UI already uses this endpoint; intercept its save/load requests so the
+  // editor value participates in the same Save/Load workflow as other settings.
+  const nativeFetch = window.fetch.bind(window);
+  window.fetch = async function(input, init) {
+    let requestUrl = typeof input === "string" ? input : (input && input.url) || "";
+    const requestMethod = String(init?.method || (input && input.method) || "GET").toUpperCase();
+    let nextInit = init;
+    if (isSettingsUrl(requestUrl) && requestMethod === "POST" && init && typeof init.body === "string") {
+      try {
+        const payload = JSON.parse(init.body);
+        if (editor) payload[KEY] = editor.value;
+        nextInit = { ...init, body: JSON.stringify(payload) };
+      } catch (_) {
+        // Leave the original request untouched if another UI version uses a different body format.
+      }
+    }
+    const response = await nativeFetch(input, nextInit);
+    if (isSettingsUrl(requestUrl) && response.ok) {
+      response.clone().json().then(populateFromSettings).catch(() => {});
+    }
+    return response;
+  };
+
+  function start() {
+    installEditor();
+    // Explicit initial read also covers pages where the original UI fetched settings before
+    // this editor was installed.
+    nativeFetch("/api/v1/ui-settings", { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) populateFromSettings(data); })
+      .catch(() => {});
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", start, { once: true });
+  else start();
+})();
+</script>
+
+</body>
+</html>

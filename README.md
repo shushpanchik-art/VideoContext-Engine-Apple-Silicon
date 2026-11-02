@@ -1,3 +1,6 @@
+<!-- VCE_FULL_RUNTIME_SOURCE_NOTICE -->
+> **Полный runtime включён:** исходный движок VideoContextEngine_v3.19.py, веб-интерфейс videocontext_web_ui.html, патчеры, тесты и исходники нативного macOS-приложения. Инструкция установки с нуля: [docs/INSTALL_FROM_PUBLIC_REPO.md](docs/INSTALL_FROM_PUBLIC_REPO.md).
+
 # VideoContext Engine — Apple Silicon Optimization & macOS Workflow
 
 Русскоязычный набор патчей и macOS launcher для **VideoContext Engine v3.19**. Репозиторий описывает локальные доработки, которые применяются поверх исходного проекта; он не является официальным форком и не связан с автором upstream-проекта.
