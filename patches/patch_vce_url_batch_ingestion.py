@@ -74,6 +74,44 @@ def _replace_once(source, old, new, label):
     return source.replace(old, new, 1)
 
 
+def patch_engine_downloads_folder(source):
+    """Write reports from URL sources to the user's macOS Downloads folder."""
+    marker = "# VCE_URL_REPORTS_TO_DOWNLOADS_V1"
+    if marker in source:
+        if 'output_directory = Path.home() / "Downloads"' not in source:
+            raise ValueError("Partial Downloads-folder patch detected.")
+        return source
+
+    anchor = "        elif video_url.strip():\n            owns_temp_path = True\n"
+    replacement = (
+        "        elif video_url.strip():\n"
+        "            " + marker + "\n"
+        '            output_directory = Path.home() / "Downloads"\n'
+        "            output_directory.mkdir(parents=True, exist_ok=True)\n"
+        "            owns_temp_path = True\n"
+    )
+    return _replace_once(source, anchor, replacement, "URL output directory")
+
+
+def patch_ui_report_download_links(ui):
+    """Open report endpoints as normal attachment responses in a visible new tab."""
+    marker = "// VCE_URL_REPORT_DOWNLOAD_TARGET_V1"
+    if marker in ui:
+        if "a.target = '_blank'" not in ui or "a.download = filename" in ui:
+            raise ValueError("Partial report-download UI patch detected.")
+        return ui
+
+    old = (
+        "          a.textContent = label; a.href = href; a.download = filename;\n"
+        "          entry.links.appendChild(a);\n"
+    )
+    new = (
+        "          a.textContent = label; a.href = href; a.target = '_blank'; a.rel = 'noopener';\n"
+        "          entry.links.appendChild(a);\n"
+    )
+    return _replace_once(ui, old, marker + "\n" + new, "report download links")
+
+
 def patch_engine(source):
     if HELPER_MARKER in source:
         required = (
@@ -87,7 +125,8 @@ def patch_engine(source):
         missing = [item for item in required if item not in source]
         if missing:
             raise ValueError("Partial URL engine patch detected; missing: " + ", ".join(missing))
-        ast.parse(source)
+        source = patch_engine_downloads_folder(source)
+        ast.parse(source, filename=ENGINE_NAME)
         return source
 
     required = (
@@ -249,6 +288,8 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
     ):
         if item not in source:
             raise ValueError("Engine validation failed: missing " + item)
+    source = patch_engine_downloads_folder(source)
+    ast.parse(source, filename=ENGINE_NAME)
     return source
 
 
@@ -258,7 +299,7 @@ def patch_ui(ui):
         missing = [item for item in required if item not in ui]
         if missing:
             raise ValueError("Partial URL queue UI patch detected; missing: " + ", ".join(missing))
-        return ui
+        return patch_ui_report_download_links(ui)
 
     required = (
         '    <input id="picker" type="file" accept="video/*,.mp4,.mov,.avi,.mkv,.webm,.m4v" multiple hidden>\n',
@@ -456,7 +497,7 @@ def patch_ui(ui):
         "      if (!entry.localToken && !entry.url) xhr.upload.onload = () => setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');\n",
         "URL upload completion guard",
     )
-    return ui
+    return patch_ui_report_download_links(ui)
 
 
 def write_atomic(path, content):
@@ -585,6 +626,8 @@ def main():
     print(" - local files and URLs share one sequential queue")
     print(" - each URL uses the existing /api/v1/analyze route")
     print(" - yt-dlp resolution is derived from analysis_mode, vlm_resolution and OCR toggles")
+    print(" - URL reports are saved to ~/Downloads; local-video reports stay beside the source")
+    print(" - report links open the server's attachment response in a new tab")
     print(" - URL downloading moves to asyncio.to_thread; /ui and /docs remain responsive")
     print(" - existing Whisper/VLM/OCR/report/stop behavior is retained")
     print("".join(diff[:500]))
