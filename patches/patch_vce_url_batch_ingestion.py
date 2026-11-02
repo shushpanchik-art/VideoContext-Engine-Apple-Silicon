@@ -93,6 +93,36 @@ def patch_engine_downloads_folder(source):
     return _replace_once(source, anchor, replacement, "URL output directory")
 
 
+def patch_engine_startup_cleanup(source):
+    """Remove only old VCE-owned temporary media after the new API server has bound its port."""
+    marker = "# VCE_STARTUP_STALE_TEMP_CLEANUP_V1"
+    if marker in source:
+        required = (
+            "def _vce_cleanup_stale_temp_artifacts(",
+            "_vce_cleanup_stale_temp_artifacts()",
+            "max_age_seconds=3600",
+            "vce_ffmpeg_tesseract_",
+        )
+        missing = [item for item in required if item not in source]
+        if missing:
+            raise ValueError("Partial startup cleanup patch detected; missing: " + ", ".join(missing))
+        return source
+
+    helper = r'''__HELPER__'''
+    anchor = "@asynccontextmanager\nasync def lifespan(app: FastAPI):\n"
+    source = _replace_once(source, anchor, helper + anchor, "startup cleanup helper insertion")
+    lifespan_anchor = (
+        "async def lifespan(app: FastAPI):\n"
+        "    global vlm_engine, WHISPER_CACHE\n"
+    )
+    lifespan_replacement = (
+        "async def lifespan(app: FastAPI):\n"
+        "    global vlm_engine, WHISPER_CACHE\n"
+        "    _vce_cleanup_stale_temp_artifacts()\n"
+    )
+    return _replace_once(source, lifespan_anchor, lifespan_replacement, "startup cleanup hook")
+
+
 def patch_ui_report_download_links(ui):
     """Open report endpoints as normal attachment responses in a visible new tab."""
     marker = "// VCE_URL_REPORT_DOWNLOAD_TARGET_V1"
@@ -126,6 +156,7 @@ def patch_engine(source):
         if missing:
             raise ValueError("Partial URL engine patch detected; missing: " + ", ".join(missing))
         source = patch_engine_downloads_folder(source)
+        source = patch_engine_startup_cleanup(source)
         ast.parse(source, filename=ENGINE_NAME)
         return source
 
@@ -289,6 +320,7 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
         if item not in source:
             raise ValueError("Engine validation failed: missing " + item)
     source = patch_engine_downloads_folder(source)
+    source = patch_engine_startup_cleanup(source)
     ast.parse(source, filename=ENGINE_NAME)
     return source
 
@@ -627,6 +659,7 @@ def main():
     print(" - each URL uses the existing /api/v1/analyze route")
     print(" - yt-dlp resolution is derived from analysis_mode, vlm_resolution and OCR toggles")
     print(" - URL reports are saved to ~/Downloads; local-video reports stay beside the source")
+    print(" - server startup removes only VCE temp media/partials older than 1 hour; model caches and reports are untouched")
     print(" - report links open the server's attachment response in a new tab")
     print(" - URL downloading moves to asyncio.to_thread; /ui and /docs remain responsive")
     print(" - existing Whisper/VLM/OCR/report/stop behavior is retained")
