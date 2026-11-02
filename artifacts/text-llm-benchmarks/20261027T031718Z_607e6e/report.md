@@ -8,7 +8,7 @@
 - Selected 9B candidate for D/E: B_fast_summary
 - Timing deltas within ±5% count as test noise.
 
-> Raw video and raw scene/transcript/OCR input remain local. Generated Text LLM outputs are uploaded separately.
+> Raw video, scene/transcript/OCR input and generated model outputs are excluded from this public snapshot; only aggregate timing/quality metrics are retained.
 
 | Variant | Successful | Total median (s) | Load median (s) | Input tokens | TTFT (s) | Decode (s) | Output tokens | tok/s | Critical atom coverage | Guard-repaired runs |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|

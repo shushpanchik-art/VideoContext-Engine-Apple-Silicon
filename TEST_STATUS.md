@@ -22,6 +22,14 @@
 
 Также на предыдущих cleanup-коммитах успешно прошли VCE unattended benchmark validation и speed profile/macOS menu bar tests. Шесть проверок PR #15 прошли до merge.
 
+## Публичные benchmark-данные
+
+- Полные per-video VCE API JSON и манифесты с именами/хешами видео удалены из текущего дерева.
+- Сырые `llm_outputs.json` удалены; оставлены только агрегированные метрики с обезличенным идентификатором локального sample.
+- Локальный `comparison.md` с абсолютным домашним путём удалён.
+- Сводка параметрического бенчмарка сохранена в `docs/VCE_PARAMETER_BENCHMARK_2026-10-25.md`; в ней нет исходного имени видео или полного ответа API.
+- `.gitignore` исключает `results/vce-benchmark/` и `artifacts/text-llm-benchmarks/*/llm_outputs.json`.
+
 ## MLX / Metal — границы подтверждения
 
 В опубликованном runtime присутствуют выделенный MLX executor, wired_limit compatibility, worker trace и раздельные поля configured device/stream. Исторические прогоны показывали расхождение `vlm.runtime.device` с GPU/stream telemetry. Metal smoke test сам по себе не доказывает выполнение каждого VLM operator на GPU. Этот предел доказательств явно указан в [диагностической инструкции](MLX_METAL_DIAGNOSTICS.md); отдельный свежий hardware acceptance run на Mac в рамках данной GitHub-ревизии не заявляется.

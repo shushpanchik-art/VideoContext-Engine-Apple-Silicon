@@ -66,11 +66,17 @@
     "temporary_workflow_deleted": true,
     "pr15_merged": true,
     "pr13_pr14_closed_as_superseded": true,
-    "latest_ci": "Pending after this cleanup commit.",
+    "latest_ci": "Pending after removal of per-video outputs.",
     "no_dead_branch_urls": true,
     "unattended_benchmark_local_only": true,
     "root_duplicate_helpers_removed": true,
-    "legacy_overlay_publisher_removed": true
+    "legacy_overlay_publisher_removed": true,
+    "full_per_video_vce_json_removed": true,
+    "raw_text_llm_outputs_removed": true,
+    "local_absolute_path_comparison_report_removed": true,
+    "branch_links_in_docs_removed": true,
+    "private_video_identity_in_aggregate_metrics_redacted": true
   },
-  "notice": "The repository contains reusable source and tests; per-video artifacts and raw local telemetry are intentionally kept out of the public distribution. MLX telemetry caveat is documented; no unsupported claim of per-operator GPU acceptance is made."
+  "notice": "The repository contains reusable source and tests; per-video artifacts and raw local telemetry are intentionally kept out of the public distribution. MLX telemetry caveat is documented; no unsupported claim of per-operator GPU acceptance is made.",
+  "retained_benchmark_data": "Anonymized aggregate timing/quality metrics and an anonymized VCE parameter-tuning summary only."
 }
