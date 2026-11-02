@@ -29,6 +29,6 @@ echo "[3/3] Результаты останутся локально в ~/Downlo
 echo "Лог: $LOG_FILE"
 nohup "$PYTHON" "$SCRIPT" --video "$VIDEO" --project "$PROJECT" >> "$LOG_FILE" 2>&1 < /dev/null &
 PID=$!
-printf '%s\\n' "$PID" > "$LOG_DIR/VideoContext Engine benchmark.pid"
+echo "$PID" > "$LOG_DIR/VideoContext Engine benchmark.pid"
 echo "Запущено. PID=$PID"
 echo "Наблюдать: tail -f \"$LOG_FILE\""

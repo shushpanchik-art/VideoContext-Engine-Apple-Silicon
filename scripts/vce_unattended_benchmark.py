@@ -306,7 +306,7 @@ def main():
         "note": "Per-run JSON files contain full VCE responses and may contain private video-derived text. Do not commit or upload them.",
     }
     (results_dir / "manifest.json").write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print("Результаты будут храниться только локально:", results_dir)
 
@@ -337,7 +337,7 @@ def main():
         "storage": "local_only",
     }
     (results_dir / "summary.json").write_text(
-        json.dumps(summary, ensure_ascii=False, indent=2) + "\\n", encoding="utf-8"
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     print("Полные ответы VCE и извлечённый текст остались на этом Mac; загрузки в GitHub не было.")
