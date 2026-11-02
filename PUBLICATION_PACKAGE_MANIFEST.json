@@ -1,0 +1,38 @@
+{
+  "project": "VideoContext Engine — Apple Silicon",
+  "runtime": "VideoContext Engine v3.19",
+  "snapshot_branch": "feat/vk-url-batch-ingestion-20261102",
+  "public_contents": [
+    "Complete customized Python runtime",
+    "Matching web interface",
+    "Apple Silicon and macOS patches",
+    "VK Video, YouTube and RuTube URL queue",
+    "Native macOS application source and installer",
+    "Automated regression tests and GitHub Actions",
+    "Installation documentation",
+    "Sanitized maintainer settings example"
+  ],
+  "settings": {
+    "actual_runtime_config_published": false,
+    "example": "config/videocontext_settings.apple_silicon.example.json",
+    "sanitized_maintainer_snapshot": "config/videocontext_settings.local-example.json",
+    "sanitization": "Credential-like fields and absolute user home paths removed or replaced."
+  },
+  "excluded_categories": [
+    "Python virtual environments",
+    "Downloaded ML model weights and caches",
+    "Original/private video and audio files",
+    "Generated TXT/JSON reports",
+    "Logs and profiling output",
+    "Backup copies and temporary files",
+    "Credentials and local secrets"
+  ],
+  "checks": {
+    "runtime_and_ui_present": true,
+    "settings_examples_valid_json": true,
+    "private_absolute_home_paths_not_found_in_settings_example": true,
+    "backup_and_local_benchmark_files_removed": true,
+    "github_actions": "Five workflows passed on commit d142e05abdeb9e45e718a01641ce65295fd881d8; macOS status-bar/speed workflow also passed."
+  },
+  "notice": "Manifest intentionally records categories only and does not list filenames from the maintainer's local computer."
+}
