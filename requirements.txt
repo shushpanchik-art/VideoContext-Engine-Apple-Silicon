@@ -6,3 +6,4 @@ pillow
 numpy
 openai-whisper
 huggingface_hub
+python-multipart
