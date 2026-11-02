@@ -2,27 +2,28 @@
 
 Обновлено: 2026-11-02.
 
-## Публикация
+## Публикация и pull requests
 
-- PR #15 `Publish full VideoContext Engine v3.19 runtime for Apple Silicon` объединён в `main`.
-- Метод объединения: squash.
-- Merge commit: `549186bbf9c4653955cb8d8f4d1e967055e80b55`.
+- PR #15 `Publish full VideoContext Engine v3.19 runtime for Apple Silicon` объединён в `main` (squash), merge commit `549186bbf9c4653955cb8d8f4d1e967055e80b55`.
+- PR #14 закрыт как superseded: полезные универсальные audit-инструменты, тесты и документация перенесены в `main`; исторические per-video output artifacts не импортировались.
+- PR #13 закрыт как superseded: runtime thread-affinity/telemetry код уже присутствует в опубликованном engine; локальные observer/watchdog инструменты и тесты перенесены в `main`. Исторические сырые телеметрические дампы и app ZIP исключены.
+- Открытых PR нет.
 
-## GitHub Actions перед объединением
+## Последняя полная проверка основной ветки
 
-Все шесть проверок прошли успешно на HEAD PR `6ea3cb8681dae56c9d4ad9f36d4f1677fcfa804c`:
+На коммите `f2ce946a00ab998500341c943ec59532de6d0cd1` успешно завершились все четыре релевантных workflow:
 
-- URL batch ingestion.
-- FFmpeg OCR worker setting.
-- Audio resilience V6.
-- VCE quality benchmark.
-- VCE optimization checkboxes.
-- VCE speed profile and macOS menu bar.
+- [VCE quality benchmark tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631627) — success; включая Python syntax check и весь набор `test_vce_*.py`.
+- [VCE unattended benchmark validation](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631606) — success.
+- [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631613) — success.
+- [Audio resilience V6 patch tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631717) — success.
 
-## Проверки после объединения
+На предыдущем коммите `5dd86af118f336e929a92c33b60f317e2c431d73` также прошли speed profile/macOS menu bar tests. Шесть workflow PR #15 прошли до merge.
 
-На merge commit `549186bbf9c4653955cb8d8f4d1e967055e80b55` прошли post-merge workflow: speed profile/macOS menu bar, FFmpeg OCR workers, audio resilience V6, VCE quality benchmark и Graph Update dependency workflow.
+## Интерпретация MLX / Metal
 
-## Что не покрывается GitHub Actions
+Текущий runtime содержит выделенный MLX executor, wired_limit compatibility, worker trace и отдельные поля configured device/stream. Документация не считает Metal smoke test доказательством исполнения каждого VLM operator на GPU. Историческое расхождение `vlm.runtime.device` и GPU/stream telemetry сохранено как диагностическая оговорка; для строгого hardware acceptance нужен отдельный свежий прогон на конкретном Mac.
 
-CI проверяет код и отдельные патчи в автоматизированной среде. Он не заменяет полный end-to-end прогон реального локального видео на конкретном Mac, проверку загрузки выбранных пользователем URL, фактическое сохранение TXT/JSON на диск или проверку поведения GPU/MLX на конкретной конфигурации Apple Silicon. Такие результаты нужно фиксировать отдельно от CI.
+## Ограничения CI
+
+GitHub Actions проверяет код, синтаксис и автоматизированные тесты. Он не заменяет end-to-end тест реального видео и конкретного Apple Silicon устройства, проверку фактического появления файлов на диске или подтверждение per-operator GPU placement.

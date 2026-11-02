@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.1 — Quality audit, diagnostics and repository cleanup (2026-11-02)
+
+- Added a universal Text LLM structural audit and a source-aware lexical evidence screen with explicit limitations; neither is presented as a semantic truth verifier.
+- Added raw-model versus finalized-output provenance, invalid-JSON diagnostics and regression coverage.
+- Hardened the Text LLM benchmark: local video/JSON input must be selected explicitly; GitHub publication is disabled by default; generated outputs require a second explicit upload flag.
+- Added local-only MLX/Metal observer and watchdog tools with regression tests and a guide for interpreting device/stream telemetry.
+- Removed developer-specific video paths from the published benchmark and watchdog scripts.
+- Moved reusable code and tests from historical PRs #13 and #14 into `main`; excluded raw video-specific benchmark outputs, telemetry dumps and installed-app archives.
+- Closed superseded PRs #13 and #14; PR #15 remains the full-runtime publication merge.
+
 ## 0.2.0 — Full public runtime distribution (2026-11-02)
 
 - Published the complete customized VideoContext Engine v3.19 runtime and matching web UI in this repository.

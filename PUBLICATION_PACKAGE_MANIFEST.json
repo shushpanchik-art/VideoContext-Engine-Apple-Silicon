@@ -2,18 +2,21 @@
   "project": "VideoContext Engine — Apple Silicon",
   "runtime": "VideoContext Engine v3.19",
   "distribution_branch": "main",
-  "publication_status": "merged",
+  "publication_status": "merged_and_cleaned",
   "merge_pull_request": 15,
   "merge_commit": "549186bbf9c4653955cb8d8f4d1e967055e80b55",
+  "recent_cleanup_checkpoint": "f2ce946a00ab998500341c943ec59532de6d0cd1",
   "public_contents": [
-    "Complete customized Python runtime",
-    "Matching web interface",
-    "Apple Silicon and macOS patches",
+    "Complete customized Python runtime and matching web interface",
+    "Apple Silicon and macOS patches and native application sources",
     "VK Video, YouTube and RuTube URL queue",
-    "Native macOS application source and installer",
+    "Universal Text LLM structural quality audit",
+    "Source-aware lexical grounding review tool (not a semantic verifier)",
+    "Text LLM benchmark with raw/final output provenance",
+    "Local-only MLX/Metal observer and runtime watchdog",
     "Automated regression tests and GitHub Actions",
-    "Installation documentation",
-    "Sanitized maintainer settings example"
+    "Clean-install and diagnostics documentation",
+    "Sanitized settings examples and third-party license attribution"
   ],
   "settings": {
     "actual_runtime_config_published": false,
@@ -21,22 +24,35 @@
     "sanitized_maintainer_snapshot": "config/videocontext_settings.local-example.json",
     "sanitization": "Credential-like fields and absolute user home paths removed or replaced."
   },
+  "privacy_defaults": {
+    "benchmark_requires_explicit_video_or_input_json": true,
+    "github_upload_enabled_by_default": false,
+    "generated_model_output_upload_requires_explicit_flag": true,
+    "watchdog_video_path_required": true,
+    "local_responses_and_telemetry_committed": false
+  },
   "excluded_categories": [
     "Python virtual environments",
     "Downloaded ML model weights and caches",
     "Original/private video and audio files",
-    "Generated TXT/JSON reports",
-    "Logs and profiling output",
-    "Backup copies and temporary files",
+    "Generated per-user TXT/JSON reports",
+    "Raw Text LLM benchmark outputs from individual videos",
+    "Raw watchdog/process/memory telemetry dumps",
+    "Installed-app ZIP snapshots",
+    "Logs, backup copies and temporary files",
     "Credentials and local secrets"
   ],
   "checks": {
     "runtime_and_ui_present": true,
     "settings_examples_valid_json": true,
-    "private_absolute_home_paths_not_found_in_settings_example": true,
-    "backup_and_local_benchmark_files_removed": true,
-    "pr_head_ci": "All six workflows passed on PR head 6ea3cb8681dae56c9d4ad9f36d4f1677fcfa804c.",
-    "post_merge_ci": "Speed/menu bar, OCR workers, audio resilience, quality benchmark and Graph Update workflows passed on merge commit."
+    "no_developer_absolute_video_paths_in_benchmark_or_watchdog": true,
+    "benchmark_upload_opt_in": true,
+    "benchmark_inputs_explicit": true,
+    "no_empty_tracked_files": true,
+    "no_open_pull_requests": true,
+    "pr15_merged": true,
+    "pr13_pr14_closed_as_superseded": true,
+    "latest_ci": "All four relevant workflows passed on f2ce946a00ab998500341c943ec59532de6d0cd1; speed/macOS workflow passed on 5dd86af118f336e929a92c33b60f317e2c431d73."
   },
-  "notice": "Manifest intentionally records categories only and does not list filenames from the maintainer's local computer."
+  "notice": "The repository contains reusable source and tests; per-video artifacts and raw local telemetry are intentionally kept out of the public distribution."
 }
