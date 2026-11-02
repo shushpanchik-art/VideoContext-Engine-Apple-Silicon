@@ -21,5 +21,19 @@ class DistributionPrivacyDefaultsTests(unittest.TestCase):
         self.assertIn('if args.upload_outputs:', bench)
 
 
+    def test_unattended_vce_benchmark_is_local_and_requires_video(self):
+        runner = (ROOT / "scripts" / "vce_unattended_benchmark.py").read_text(encoding="utf-8")
+        launcher = (ROOT / "scripts" / "start_vce_benchmark.command").read_text(encoding="utf-8")
+        self.assertNotIn("/Users/", runner)
+        self.assertNotIn("NSR Specification", runner)
+        self.assertNotIn("feat/automated-vce-benchmark", runner + launcher)
+        self.assertIn('ap.add_argument("--video", type=pathlib.Path, required=True', runner)
+        self.assertIn('"storage": "local_only"', runner)
+        self.assertNotIn("gh repo clone", runner)
+        self.assertNotIn("git push", runner)
+        self.assertNotIn("curl -fL", launcher)
+        self.assertIn('--video "$VIDEO"', launcher)
+
+
 if __name__ == "__main__":
     unittest.main()

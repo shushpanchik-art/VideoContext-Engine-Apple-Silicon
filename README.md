@@ -56,6 +56,10 @@ bash macos/install_video_context_mac.command
 
 Установщику нужны Xcode Command Line Tools и подтверждение остановки сервера. Не запускайте установщик во время анализа. В репозитории есть исходники и installer, но нет заранее собранного и подписанного `.app`.
 
+## Benchmark анализа VCE
+
+`python scripts/vce_unattended_benchmark.py --video "$HOME/path/to/video.mp4" --dry-run` проверяет локальный план one-factor-at-a-time. Уберите `--dry-run`, чтобы выполнить прогоны. Полные JSON-ответы и транскрипты сохраняются локально в `~/Downloads/VCE_benchmark_runs`; отправки в GitHub больше нет. Подробнее: [docs/VCE_UNATTENDED_BENCHMARK.md](docs/VCE_UNATTENDED_BENCHMARK.md).
+
 ## Проверка качества Text LLM
 
 - `tools/quality_check_text_llm_variants.py` — универсальная структурная проверка JSON, scene IDs, полноты `scene_enrichment` и текстовой целостности.

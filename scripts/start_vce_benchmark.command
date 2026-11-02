@@ -1,35 +1,34 @@
 #!/bin/bash
-set -euo pipefail
+set -Eeuo pipefail
 
 PROJECT="$HOME/VideoContext-Engine"
-SCRIPT="$PROJECT/vce_unattended_benchmark.py"
+PYTHON="$PROJECT/.venv/bin/python"
+SCRIPT="$PROJECT/scripts/vce_unattended_benchmark.py"
 LOG_DIR="$HOME/Library/Logs"
 LOG_FILE="$LOG_DIR/VideoContext Engine benchmark.log"
-RAW="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/automated-vce-benchmark/scripts/vce_unattended_benchmark.py"
 
-mkdir -p "$PROJECT" "$LOG_DIR"
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "ОШИБКА: python3 не найден."; exit 2
+if [[ $# -lt 1 ]]; then
+  echo "Использование: $0 /полный/путь/к/видео.mp4"
+  exit 2
 fi
-if ! command -v gh >/dev/null 2>&1; then
-  echo "ОШИБКА: GitHub CLI (gh) не установлен. Установите gh и выполните gh auth login один раз."; exit 2
+VIDEO="$1"
+[[ -f "$VIDEO" ]] || { echo "ОШИБКА: видео не найдено: $VIDEO"; exit 2; }
+[[ -f "$PROJECT/VideoContextEngine_v3.19.py" ]] || { echo "ОШИБКА: не найден проект $PROJECT"; exit 2; }
+[[ -f "$SCRIPT" ]] || { echo "ОШИБКА: не найден benchmark runner $SCRIPT"; exit 2; }
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3 || true)"
 fi
-if ! gh auth status >/dev/null 2>&1; then
-  echo "ОШИБКА: GitHub CLI не авторизован. Один раз выполните gh auth login, затем повторите команду."; exit 2
-fi
+[[ -n "$PYTHON" && -x "$PYTHON" ]] || { echo "ОШИБКА: Python 3 не найден."; exit 2; }
 
-echo "[1/3] Загружаю проверяемый benchmark runner…"
-curl -fL --retry 3 "$RAW" -o "$SCRIPT"
-chmod 700 "$SCRIPT"
+mkdir -p "$LOG_DIR"
+echo "[1/3] Проверка API и параметров без загрузки видео…"
+"$PYTHON" "$SCRIPT" --video "$VIDEO" --project "$PROJECT" --dry-run
 
-echo "[2/3] Проверяю видео, API, параметры и отсутствие активного анализа…"
-python3 "$SCRIPT" --dry-run
-
-echo "[3/3] Запускаю автономный benchmark в фоне."
+echo "[2/3] Запуск benchmark в фоне."
+echo "[3/3] Результаты останутся локально в ~/Downloads/VCE_benchmark_runs."
 echo "Лог: $LOG_FILE"
-echo "Результаты будут коммититься по мере завершения каждого прогона."
-nohup python3 "$SCRIPT" >> "$LOG_FILE" 2>&1 < /dev/null &
+nohup "$PYTHON" "$SCRIPT" --video "$VIDEO" --project "$PROJECT" >> "$LOG_FILE" 2>&1 < /dev/null &
 PID=$!
-printf '%s\n' "$PID" > "$HOME/Library/Logs/VideoContext Engine benchmark.pid"
-echo "Запущено в фоне. PID=$PID"
-echo "Смотреть ход работы: tail -f \"$LOG_FILE\""
+printf '%s\\n' "$PID" > "$LOG_DIR/VideoContext Engine benchmark.pid"
+echo "Запущено. PID=$PID"
+echo "Наблюдать: tail -f \"$LOG_FILE\""

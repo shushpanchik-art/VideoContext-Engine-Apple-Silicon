@@ -5,7 +5,7 @@ set -Eeuo pipefail
 APP_TARGET="/Applications/VideoContext Engine.app"
 RESOURCE_DIR="$APP_TARGET/Contents/Resources"
 BINARY="$APP_TARGET/Contents/MacOS/VideoContextStatusBar"
-SWIFT_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/fix/vce-speed-profile-and-menubar-20261024/macos/VideoContext%20Engine.app/Contents/Resources/VideoContextStatusBar.swift"
+SWIFT_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/macos/VideoContext%20Engine.app/Contents/Resources/VideoContextStatusBar.swift"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 TMP_DIR="$(/usr/bin/mktemp -d)"
 cleanup() { /bin/rm -rf "$TMP_DIR"; }

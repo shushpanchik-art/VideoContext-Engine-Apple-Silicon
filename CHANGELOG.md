@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — Local benchmark safety and final repository tidy (2026-11-02)
+
+- Removed the retired unattended-benchmark dependency on a deleted feature branch; input video is now required explicitly and all reports stay local.
+- Removed the legacy publication helper and upstream overlay installer, superseded by the full-runtime installation path.
+- Removed redundant root-level copies of utilities; canonical scripts, patches and macOS tools remain in their dedicated directories.
+- Fixed the native-app repair utility to fetch its Swift source from `main`.
+
 ## 0.2.1 — Quality audit, diagnostics and repository cleanup (2026-11-02)
 
 - Added a universal Text LLM structural audit and a source-aware lexical evidence screen with explicit limitations; neither is presented as a semantic truth verifier.
