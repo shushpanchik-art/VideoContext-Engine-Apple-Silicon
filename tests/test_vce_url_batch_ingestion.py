@@ -58,7 +58,6 @@ UI_FIXTURE = r'''<!doctype html>
   const add = document.getElementById('add');
   const start = document.getElementById('start');
   const count = document.getElementById('count');
-  const alertEl = document.getElementById('alert');
   const queue = [];
   let nextId = 1;
   let busy = false;
@@ -75,15 +74,17 @@ UI_FIXTURE = r'''<!doctype html>
     card.querySelector('.file-name').textContent = entry.file.name;
     META_LINE
   }
-  function setAlert(x) { alertEl.textContent = x; }
+  function setAlert(x) {}
   function setState(entry, state, msg) { entry.state = state; }
+  function pickLocalVideos() {}
   // Per-request settings make saved values effective immediately in this Web UI
-  // const cfg = readSettings();
-  // for (const [key, value] of Object.entries(cfg)) form.append(key, String(value));
+  const cfg = readSettings();
+  for (const [key, value] of Object.entries(cfg)) form.append(key, String(value));
   // id="cfg-vlm-resolution" id="cfg-apple-ocr" id="cfg-analysis-mode"
+  function readSettings() { return {}; }
   function addFiles(fileList) {}
-  choose.addEventListener('click', () => picker.click());
-  add.addEventListener('click', () => picker.click());
+  choose.addEventListener('click', pickLocalVideos);
+  add.addEventListener('click', pickLocalVideos);
   picker.addEventListener('change', e => addFiles(e.target.files));
 
   function processOne(entry) {
@@ -91,21 +92,29 @@ UI_FIXTURE = r'''<!doctype html>
       const jobId = 'fixture';
       const xhr = new XMLHttpRequest();
       const form = new FormData();
-      form.append('video_file', entry.file, entry.file.name);
+      if (entry.localToken) form.append('local_video_token', entry.localToken);
+      else form.append('video_file', entry.file, entry.file.name);
       form.append('response_format', 'json');
-      form.append('generate_txt', 'true');
-      form.append('generate_json', 'true');
-      form.append('word_timestamps', 'true');
-      setState(entry, 'uploading', 'Загрузка файла…');
-      entry.caption.textContent = 'Загрузка: 0%';
+      // Per-request settings make saved values effective immediately in this Web UI.
+      const cfg = readSettings();
+      for (const [key, value] of Object.entries(cfg)) form.append(key, String(value));
+      if (!entry.localToken) {
+        setState(entry, 'uploading', 'Загрузка файла…');
+        entry.caption.textContent = 'Загрузка: 0%';
+      } else {
+        setState(entry, 'processing', 'Анализ локального видео…');
+        entry.caption.textContent = 'Файл читается с диска; отчёты сохранятся рядом с видео.';
+      }
       xhr.open('POST', '/api/v1/analyze', true);
-      xhr.upload.onprogress = e => {
-        if (!e.lengthComputable) return;
-      };
+      if (!entry.localToken) {
+        xhr.upload.onprogress = e => {
+          if (!e.lengthComputable) return;
+        };
+      }
       xhr.onload = () => {};
       xhr.onerror = () => {};
       xhr.onabort = () => {};
-      xhr.upload.onload = () => setState(entry, 'processing', 'Анализ Whisper + Apple OCR + Qwen3-VL…');
+      if (!entry.localToken) xhr.upload.onload = () => setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');
       xhr.send(form);
     });
   }
@@ -121,6 +130,7 @@ UI_FIXTURE = UI_FIXTURE.replace(
     "card.querySelector('.file-meta').textContent = " + chr(96) + chr(36)
     + "{fmtSize(entry.file.size)} · " + chr(36) + "{entry.file.type || 'видеофайл'}" + chr(96) + ";",
 )
+
 
 
 class TestUrlBatchIngestion(unittest.TestCase):
@@ -153,8 +163,11 @@ class TestUrlBatchIngestion(unittest.TestCase):
         self.assertIn('id="addUrls"', updated)
         self.assertIn("function addUrls()", updated)
         self.assertIn("form.append('video_url', entry.url)", updated)
-        self.assertIn("if (!entry.file) return;", updated)
+        self.assertIn("if (!entry.localToken && !entry.url)", updated)
         self.assertIn("entry.file ? entry.file.name : entry.displayName", updated)
+        self.assertIn("entry.url ? entry.url", updated) if "entry.url ? entry.url" in updated else self.assertIn(": entry.url", updated)
+        self.assertIn("form.append('local_video_token', entry.localToken)", updated)
+        self.assertIn("else if (entry.url) form.append('video_url', entry.url)", updated)
         self.assertEqual(patch.patch_ui(updated), updated)
 
 
