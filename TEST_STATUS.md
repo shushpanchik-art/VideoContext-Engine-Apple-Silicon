@@ -8,37 +8,36 @@
 - Единственная оставшаяся ветка: `main`; все 14 устаревших feature/research/benchmark веток удалены.
 - Открытых Pull Requests нет.
 - PR #15 объединён в `main` методом squash; merge commit: `549186bbf9c4653955cb8d8f4d1e967055e80b55`.
-- PR #13 и #14 закрыты как заменённые выборочным переносом полезных исходников и тестов в `main`; per-video результаты и сырые дампы не переносились.
-- Одноразовый cleanup workflow удалён после удаления веток.
-- На последнем проверенном дереве нет пустых отслеживаемых файлов.
+- PR #13 и #14 закрыты как заменённые выборочным переносом полезных исходников и тестов.
+- Одноразовый cleanup workflow удалён.
+- В финальном дереве нет пустых отслеживаемых файлов, резервных копий, локальных логов, пользовательских .env/cookie-файлов или полных per-video JSON outputs.
 
-## Последние CI-проверки на финальном cleanup-коммите `7eab34491c7ef2694fd0a0fbbed647f3b842f1ab`
+## CI на последнем коммите с изменениями кода
 
-Все три workflow завершились успешно:
+Все пять профильных workflow прошли успешно на `eec9fbaf44fcd6156630c55b302f2cf803776a28`:
 
-- [VCE quality benchmark tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543974375) — success; syntax checks и все `test_vce_*.py`.
-- [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543974485) — success.
-- [Audio resilience V6 patch tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543974958) — success.
+- [VCE quality benchmark tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41544862011) — success; syntax checks и все `test_vce_*.py`.
+- [VCE unattended benchmark validation](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41544861980) — success.
+- [VCE speed profile and macOS menu bar tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41544861953) — success, включая компиляцию нативной menu-bar оболочки.
+- [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41544861963) — success.
+- [Audio resilience V6 patch tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41544861958) — success.
 
-Также на предыдущих cleanup-коммитах успешно прошли VCE unattended benchmark validation и speed profile/macOS menu bar tests. Шесть проверок PR #15 прошли до merge.
+После заключительной очистки per-video артефактов все применимые workflow повторно прошли на `1f742ea72951bb171d198cbd9f90f3da6151557d`:
+
+- [VCE quality benchmark tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41545414261) — success.
+- [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41545414089) — success.
+- [Audio resilience V6 patch tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41545414115) — success.
 
 ## Публичные benchmark-данные
 
-- Полные per-video VCE API JSON и манифесты с именами/хешами видео удалены из текущего дерева.
-- Сырые `llm_outputs.json` удалены; оставлены только агрегированные метрики с обезличенным идентификатором локального sample.
-- Локальный `comparison.md` с абсолютным домашним путём удалён.
-- Сводка параметрического бенчмарка сохранена в `docs/VCE_PARAMETER_BENCHMARK_2026-10-25.md`; в ней нет исходного имени видео или полного ответа API.
-- `.gitignore` исключает `results/vce-benchmark/` и `artifacts/text-llm-benchmarks/*/llm_outputs.json`.
+- Полные per-video VCE API JSON, манифесты с именами/хешами видео, сырые `llm_outputs.json` и локальный `comparison.md` удалены из текущего дерева.
+- Оставлены только агрегированные timing/quality metrics с обезличенным идентификатором локального sample.
+- Анонимизированная параметрическая сводка: `docs/VCE_PARAMETER_BENCHMARK_2026-10-25.md`.
+- `.gitignore` исключает полные per-video VCE результаты и сырые LLM outputs.
+- Benchmark runner требует явный путь к видео, выполняет dry-run и хранит результаты вне проекта; GitHub upload отсутствует.
 
 ## MLX / Metal — границы подтверждения
 
 В опубликованном runtime присутствуют выделенный MLX executor, wired_limit compatibility, worker trace и раздельные поля configured device/stream. Исторические прогоны показывали расхождение `vlm.runtime.device` с GPU/stream telemetry. Metal smoke test сам по себе не доказывает выполнение каждого VLM operator на GPU. Этот предел доказательств явно указан в [диагностической инструкции](MLX_METAL_DIAGNOSTICS.md); отдельный свежий hardware acceptance run на Mac в рамках данной GitHub-ревизии не заявляется.
 
-## Приватность публикации
-
-- Бенчмарк требует явного `--video` или `--input-json`.
-- Отправка в GitHub выключена по умолчанию; `--upload` и дополнительный `--upload-outputs` требуют явного выбора.
-- Watchdog требует явный путь к видео.
-- Личные видео, полные ответы, локальные отчёты и сырая process/memory telemetry не включены в публичные артефакты.
-
-GitHub Actions проверяет код и автоматизированные тесты. Он не заменяет отдельный end-to-end прогон реального видео на конкретном Mac.
+GitHub Actions проверяет код и автоматизированные тесты. Он не заменяет end-to-end прогон реального видео на конкретном Mac.

@@ -2,11 +2,11 @@ Repository: VideoContext-Engine-Apple-Silicon
 Product: customized VideoContext Engine v3.19 for macOS / Apple Silicon
 Default branch: main
 Repository cleanup completed: 2026-11-02
-Current main checkpoint before this documentation sync: 7eab34491c7ef2694fd0a0fbbed647f3b842f1ab
+Current code validation checkpoint: eec9fbaf44fcd6156630c55b302f2cf803776a28
+Latest privacy/docs cleanup checkpoint: 1f742ea72951bb171d198cbd9f90f3da6151557d
 Only remaining branch: main
 Open pull requests: none
 Superseded branches removed: 14
-Temporary branch-cleanup workflow: removed
 PR #15 merge method: squash
 PR #15 merge commit: 549186bbf9c4653955cb8d8f4d1e967055e80b55
 PR #13 and #14: closed after selective migration of reusable code/tests
@@ -15,4 +15,5 @@ Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
 Upstream source file blob at reference: cfa22be84dfbb5f9e6f29269c9906c376e90ef17
 
 The repository contains the customized runtime, matching Web UI, patches, tests, benchmark/quality tools, local-only MLX diagnostics, macOS app sources, install instructions and license notices.
-ML model weights, local virtual environments, personal settings, source videos, generated per-video reports, raw telemetry and backup copies are intentionally excluded.
+Full per-video VCE API JSON, raw Text LLM outputs, local comparison reports, ML model weights, local virtual environments, personal settings, source videos, raw telemetry and backup copies are intentionally excluded from the current tree.
+Use `git rev-parse HEAD` for the exact current commit.
