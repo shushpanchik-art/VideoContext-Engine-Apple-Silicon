@@ -2,28 +2,35 @@
 
 Обновлено: 2026-11-02.
 
-## Публикация и pull requests
+## Итоговое состояние GitHub
 
-- PR #15 `Publish full VideoContext Engine v3.19 runtime for Apple Silicon` объединён в `main` (squash), merge commit `549186bbf9c4653955cb8d8f4d1e967055e80b55`.
-- PR #14 закрыт как superseded: полезные универсальные audit-инструменты, тесты и документация перенесены в `main`; исторические per-video output artifacts не импортировались.
-- PR #13 закрыт как superseded: runtime thread-affinity/telemetry код уже присутствует в опубликованном engine; локальные observer/watchdog инструменты и тесты перенесены в `main`. Исторические сырые телеметрические дампы и app ZIP исключены.
-- Открытых PR нет.
+- Основная ветка: `main`.
+- Единственная оставшаяся ветка: `main`; все 14 устаревших feature/research/benchmark веток удалены.
+- Открытых Pull Requests нет.
+- PR #15 объединён в `main` методом squash; merge commit: `549186bbf9c4653955cb8d8f4d1e967055e80b55`.
+- PR #13 и #14 закрыты как заменённые выборочным переносом полезных исходников и тестов в `main`; per-video результаты и сырые дампы не переносились.
+- Одноразовый cleanup workflow удалён после удаления веток.
+- На последнем проверенном дереве нет пустых отслеживаемых файлов.
 
-## Последняя полная проверка основной ветки
+## Последние CI-проверки на финальном cleanup-коммите `7eab34491c7ef2694fd0a0fbbed647f3b842f1ab`
 
-На коммите `f2ce946a00ab998500341c943ec59532de6d0cd1` успешно завершились все четыре релевантных workflow:
+Все три workflow завершились успешно:
 
-- [VCE quality benchmark tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631627) — success; включая Python syntax check и весь набор `test_vce_*.py`.
-- [VCE unattended benchmark validation](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631606) — success.
-- [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631613) — success.
-- [Audio resilience V6 patch tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543631717) — success.
+- [VCE quality benchmark tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543974375) — success; syntax checks и все `test_vce_*.py`.
+- [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543974485) — success.
+- [Audio resilience V6 patch tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41543974958) — success.
 
-На предыдущем коммите `5dd86af118f336e929a92c33b60f317e2c431d73` также прошли speed profile/macOS menu bar tests. Шесть workflow PR #15 прошли до merge.
+Также на предыдущих cleanup-коммитах успешно прошли VCE unattended benchmark validation и speed profile/macOS menu bar tests. Шесть проверок PR #15 прошли до merge.
 
-## Интерпретация MLX / Metal
+## MLX / Metal — границы подтверждения
 
-Текущий runtime содержит выделенный MLX executor, wired_limit compatibility, worker trace и отдельные поля configured device/stream. Документация не считает Metal smoke test доказательством исполнения каждого VLM operator на GPU. Историческое расхождение `vlm.runtime.device` и GPU/stream telemetry сохранено как диагностическая оговорка; для строгого hardware acceptance нужен отдельный свежий прогон на конкретном Mac.
+В опубликованном runtime присутствуют выделенный MLX executor, wired_limit compatibility, worker trace и раздельные поля configured device/stream. Исторические прогоны показывали расхождение `vlm.runtime.device` с GPU/stream telemetry. Metal smoke test сам по себе не доказывает выполнение каждого VLM operator на GPU. Этот предел доказательств явно указан в [диагностической инструкции](MLX_METAL_DIAGNOSTICS.md); отдельный свежий hardware acceptance run на Mac в рамках данной GitHub-ревизии не заявляется.
 
-## Ограничения CI
+## Приватность публикации
 
-GitHub Actions проверяет код, синтаксис и автоматизированные тесты. Он не заменяет end-to-end тест реального видео и конкретного Apple Silicon устройства, проверку фактического появления файлов на диске или подтверждение per-operator GPU placement.
+- Бенчмарк требует явного `--video` или `--input-json`.
+- Отправка в GitHub выключена по умолчанию; `--upload` и дополнительный `--upload-outputs` требуют явного выбора.
+- Watchdog требует явный путь к видео.
+- Личные видео, полные ответы, локальные отчёты и сырая process/memory telemetry не включены в публичные артефакты.
+
+GitHub Actions проверяет код и автоматизированные тесты. Он не заменяет отдельный end-to-end прогон реального видео на конкретном Mac.

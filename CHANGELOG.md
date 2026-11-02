@@ -9,6 +9,7 @@
 - Removed developer-specific video paths from the published benchmark and watchdog scripts.
 - Moved reusable code and tests from historical PRs #13 and #14 into `main`; excluded raw video-specific benchmark outputs, telemetry dumps and installed-app archives.
 - Closed superseded PRs #13 and #14; PR #15 remains the full-runtime publication merge.
+- Deleted all 14 superseded research/feature branches; only `main` remains. Removed the temporary one-time cleanup workflow after it completed.
 
 ## 0.2.0 — Full public runtime distribution (2026-11-02)
 

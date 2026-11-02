@@ -1,14 +1,18 @@
 Repository: VideoContext-Engine-Apple-Silicon
 Product: customized VideoContext Engine v3.19 for macOS / Apple Silicon
 Default branch: main
-Publication status: full runtime merged through PR #15 on 2026-11-02
+Repository cleanup completed: 2026-11-02
+Current main checkpoint before this documentation sync: 7eab34491c7ef2694fd0a0fbbed647f3b842f1ab
+Only remaining branch: main
+Open pull requests: none
+Superseded branches removed: 14
+Temporary branch-cleanup workflow: removed
 PR #15 merge method: squash
 PR #15 merge commit: 549186bbf9c4653955cb8d8f4d1e967055e80b55
-Recent cleanup checkpoint: f2ce946a00ab998500341c943ec59532de6d0cd1
+PR #13 and #14: closed after selective migration of reusable code/tests
 Upstream: dolphin-creator/VideoContext-Engine
 Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
 Upstream source file blob at reference: cfa22be84dfbb5f9e6f29269c9906c376e90ef17
 
 The repository contains the customized runtime, matching Web UI, patches, tests, benchmark/quality tools, local-only MLX diagnostics, macOS app sources, install instructions and license notices.
 ML model weights, local virtual environments, personal settings, source videos, generated per-video reports, raw telemetry and backup copies are intentionally excluded.
-Use git log -1 --oneline to inspect the current main HEAD.
