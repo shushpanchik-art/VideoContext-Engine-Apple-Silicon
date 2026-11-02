@@ -22,7 +22,7 @@
 - [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41544861963) — success.
 - [Audio resilience V6 patch tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41544861958) — success.
 
-После заключительной очистки per-video артефактов все применимые workflow повторно прошли на `1f742ea72951bb171d198cbd9f90f3da6151557d`:
+После заключительной очистки per-video артефактов все применимые workflow повторно прошли на `1f742ea72951bb171d198cbd9f90f3da6151557d`, а затем ещё раз прошли на документально-метаданном checkpoint `2f23a6b8cdc349f5a6dcb1c6e2c52c8ba82a0f42`:
 
 - [VCE quality benchmark tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41545414261) — success.
 - [FFmpeg OCR worker setting tests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41545414089) — success.
@@ -41,3 +41,5 @@
 В опубликованном runtime присутствуют выделенный MLX executor, wired_limit compatibility, worker trace и раздельные поля configured device/stream. Исторические прогоны показывали расхождение `vlm.runtime.device` с GPU/stream telemetry. Metal smoke test сам по себе не доказывает выполнение каждого VLM operator на GPU. Этот предел доказательств явно указан в [диагностической инструкции](MLX_METAL_DIAGNOSTICS.md); отдельный свежий hardware acceptance run на Mac в рамках данной GitHub-ревизии не заявляется.
 
 GitHub Actions проверяет код и автоматизированные тесты. Он не заменяет end-to-end прогон реального видео на конкретном Mac.
+
+Текущий проверенный checkpoint до этой записи статуса: `2f23a6b8cdc349f5a6dcb1c6e2c52c8ba82a0f42`.
