@@ -155,6 +155,12 @@ class TestUrlBatchIngestion(unittest.TestCase):
         self.assertIn("_vce_auto_download_dimension(", updated)
         self.assertIn("_vce_download_format_selector(max_dimension)", updated)
         self.assertIn('"noplaylist": True', updated)
+        self.assertIn('"progress_hooks": [progress_hook]', updated)
+        self.assertIn("def _vce_url_download_progress(download_status):", updated)
+        self.assertIn("VCE_CANCELLED_BY_USER", updated)
+        self.assertIn('set_job_progress(job_id, "download_video"', updated)
+        self.assertIn("except yt_dlp.utils.DownloadError as download_error:", updated)
+        self.assertIn("HTTPException(409", updated)
         self.assertEqual(patch.patch_engine(updated), updated)
 
     def test_ui_patch_queues_urls_and_local_files(self):
