@@ -31,18 +31,19 @@ async def analyze_video(
     local_video_token = ""
     output_directory = Path.cwd()
     owns_temp_path = False
-    if local_video_token.strip():
-        pass
-    elif video_url.strip():
-        owns_temp_path = True
-        clean_title = "fixture"
-        try:
-            temp_path = download_video_from_url(
-                video_url,
-                f"temp_{int(time.time())}_{clean_title}.%(ext)s",
-            )
-        except ValueError:
-            raise
+    try:
+        if local_video_token.strip():
+            pass
+        elif video_url.strip():
+            owns_temp_path = True
+            clean_title = "fixture"
+            try:
+                temp_path = download_video_from_url(
+                    video_url,
+                    f"temp_{int(time.time())}_{clean_title}.%(ext)s",
+                )
+            except ValueError:
+                raise
     return {"ok": True}
 '''
 
