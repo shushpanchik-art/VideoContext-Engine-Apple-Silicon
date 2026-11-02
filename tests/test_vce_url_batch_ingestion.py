@@ -77,6 +77,7 @@ UI_FIXTURE = r'''<!doctype html>
   }
   function setAlert(x) { alertEl.textContent = x; }
   function setState(entry, state, msg) { entry.state = state; }
+  // Per-request settings make saved values effective immediately in this Web UI
   function addFiles(fileList) {}
   choose.addEventListener('click', () => picker.click());
   add.addEventListener('click', () => picker.click());
