@@ -31,6 +31,7 @@ class DistributionPrivacyDefaultsTests(unittest.TestCase):
         self.assertIn('"storage": "local_only"', runner)
         self.assertNotIn("gh repo clone", runner)
         self.assertNotIn("git push", runner)
+        self.assertNotIn("BASE_URL", runner)
         self.assertNotIn("curl -fL", launcher)
         self.assertIn('--video "$VIDEO"', launcher)
 

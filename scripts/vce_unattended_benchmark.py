@@ -191,7 +191,7 @@ def run_one(name, overrides, current, props, video, results_dir, index, total, r
         if job_id:
             deadline=time.monotonic()+6*60*60
             while time.monotonic()<deadline:
-                try: progress=http_json(BASE_URL+"/api/v1/progress/"+urllib.parse.quote(str(job_id),safe=""),timeout=10)
+                try: progress=http_json(base_url+"/api/v1/progress/"+urllib.parse.quote(str(job_id),safe=""),timeout=10)
                 except Exception as exc:
                     record["progress_poll_error"]=str(exc); time.sleep(10); continue
                 record["latest_progress"]=progress
