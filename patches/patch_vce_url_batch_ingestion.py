@@ -239,12 +239,13 @@ def patch_ui(ui):
         "    count.textContent = ",
         "    card.querySelector('.file-name').textContent = entry.file.name;\n",
         "    card.querySelector('.file-meta').textContent = ",
-        "      form.append('video_file', entry.file, entry.file.name);\n",
+        "      if (entry.localToken) form.append('local_video_token', entry.localToken);\n",
+        "      else form.append('video_file', entry.file, entry.file.name);\n",
         "      setState(entry, 'uploading', 'Загрузка файла…');\n",
         "      xhr.upload.onprogress = e => {\n",
-        "      xhr.upload.onload = () => setState(entry, 'processing', 'Анализ Whisper + Apple OCR + Qwen3-VL…');\n",
-        "  choose.addEventListener('click', () => picker.click());\n",
-        "  add.addEventListener('click', () => picker.click());\n",
+        "      if (!entry.localToken) xhr.upload.onload = () => setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');\n",
+        "  choose.addEventListener('click', pickLocalVideos);\n",
+        "  add.addEventListener('click', pickLocalVideos);\n",
     )
     missing = [item for item in required if item not in ui]
     if missing:
@@ -307,15 +308,15 @@ def patch_ui(ui):
     )
 
     old_row = (
-        "    card.querySelector('.file-name').textContent = entry.file.name;\n"
+        "    card.querySelector('.file-name').textContent = entry.file.name;\\n"
         "    card.querySelector('.file-meta').textContent = " + tick
-        + chr(36) + "{fmtSize(entry.file.size)} · " + chr(36) + "{entry.file.type || 'видеофайл'}" + tick + ";\n"
+        + chr(36) + "{fmtSize(entry.file.size)} · " + chr(36) + "{entry.file.type || 'видеофайл'}" + tick + ";\\n"
     )
     new_row = (
-        "    card.querySelector('.file-name').textContent = entry.file ? entry.file.name : entry.displayName;\n"
+        "    card.querySelector('.file-name').textContent = entry.file ? entry.file.name : entry.displayName;\\n"
         "    card.querySelector('.file-meta').textContent = entry.file ? " + tick
         + chr(36) + "{fmtSize(entry.file.size)} · " + chr(36) + "{entry.file.type || 'видеофайл'}" + tick
-        + " : entry.url;\n"
+        + " : entry.url;\\n"
     )
     ui = _replace_once(ui, old_row, new_row, "queue row file/URL labels")
 
@@ -376,7 +377,7 @@ def patch_ui(ui):
   }
 
 '''
-    choose_anchor = "  choose.addEventListener('click', () => picker.click());\n"
+    choose_anchor = "  choose.addEventListener('click', pickLocalVideos);\n"
     ui = _replace_once(ui, choose_anchor, add_urls_function + choose_anchor, "URL parsing and queue insertion")
     listener_anchor = "  picker.addEventListener('change', e => addFiles(e.target.files));\n"
     ui = _replace_once(
@@ -387,40 +388,46 @@ def patch_ui(ui):
 
     ui = _replace_once(
         ui,
-        "      form.append('video_file', entry.file, entry.file.name);\n",
-        "      if (entry.file) form.append('video_file', entry.file, entry.file.name);\n"
-        "      else form.append('video_url', entry.url);\n",
-        "conditional local file / URL request",
+        "      else form.append('video_file', entry.file, entry.file.name);\\n",
+        "      else if (entry.url) form.append('video_url', entry.url);\\n"
+        "      else form.append('video_file', entry.file, entry.file.name);\\n",
+        "URL FormData branch",
     )
 
     ui = _replace_once(
         ui,
-        "      setState(entry, 'uploading', 'Загрузка файла…');\n"
-        "      entry.caption.textContent = 'Загрузка: 0%';\n",
-        "      if (entry.file) {\n"
-        "        setState(entry, 'uploading', 'Загрузка локального файла…');\n"
-        "        entry.caption.textContent = 'Загрузка: 0%';\n"
-        "      } else {\n"
-        "        setState(entry, 'processing', 'yt-dlp: получение видео и анализ по текущим настройкам…');\n"
-        "      }\n",
-        "URL download status",
+        "      if (!entry.localToken) {\\n"
+        "        setState(entry, 'uploading', 'Загрузка файла…');\\n"
+        "        entry.caption.textContent = 'Загрузка: 0%';\\n"
+        "      } else {\\n"
+        "        setState(entry, 'processing', 'Анализ локального видео…');\\n"
+        "        entry.caption.textContent = 'Файл читается с диска; отчёты сохранятся рядом с видео.';\\n"
+        "      }\\n",
+        "      if (!entry.localToken && entry.url) {\\n"
+        "        setState(entry, 'processing', 'yt-dlp: получение видео по ссылке…');\\n"
+        "        entry.caption.textContent = 'Ссылка отправлена движку; загрузка и анализ выполняются на этом Mac.';\\n"
+        "      } else if (!entry.localToken) {\\n"
+        "        setState(entry, 'uploading', 'Загрузка файла…');\\n"
+        "        entry.caption.textContent = 'Загрузка: 0%';\\n"
+        "      } else {\\n"
+        "        setState(entry, 'processing', 'Анализ локального видео…');\\n"
+        "        entry.caption.textContent = 'Файл читается с диска; отчёты сохранятся рядом с видео.';\\n"
+        "      }\\n",
+        "three-way source status",
     )
 
     ui = _replace_once(
         ui,
-        "      xhr.upload.onprogress = e => {\n",
-        "      xhr.upload.onprogress = e => {\n"
-        "        if (!entry.file) return;\n",
-        "URL-independent upload progress",
+        "      if (!entry.localToken) {\\n        xhr.upload.onprogress = e => {\\n",
+        "      if (!entry.localToken && !entry.url) {\\n        xhr.upload.onprogress = e => {\\n",
+        "URL upload progress guard",
     )
 
     ui = _replace_once(
         ui,
-        "      xhr.upload.onload = () => setState(entry, 'processing', 'Анализ Whisper + Apple OCR + Qwen3-VL…');\n",
-        "      xhr.upload.onload = () => {\n"
-        "        if (entry.file) setState(entry, 'processing', 'Анализ по текущим настройкам VLM / OCR / Whisper…');\n"
-        "      };\n",
-        "generic per-source analysis status",
+        "      if (!entry.localToken) xhr.upload.onload = () => setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');\\n",
+        "      if (!entry.localToken && !entry.url) xhr.upload.onload = () => setState(entry, 'processing', 'Whisper + Apple OCR + Qwen3-VL + смысловая постобработка…');\\n",
+        "URL upload completion guard",
     )
     return ui
 
