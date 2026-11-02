@@ -4,7 +4,7 @@
 
 ## Профиль настроек из бенчмарка
 
-При применении патчера перечисленные ниже параметры **будут заданы явно** в `videocontext_settings.json` по рекомендациям отчёта [бенчмарка от 25.10.2026](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/blob/feat/automated-vce-benchmark/results/vce-benchmark/20261025_120626/analysis.md):
+При применении патчера перечисленные ниже параметры **будут заданы явно** в `videocontext_settings.json` по рекомендациям отчёта [бенчмарка от 25.10.2026](APPLE_SILICON_BENCHMARKS.md):
 
 | Параметр | Значение | Основание |
 |---|---:|---|

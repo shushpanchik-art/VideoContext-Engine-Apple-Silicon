@@ -29,3 +29,7 @@ benchmark_results/
 *.worker.json
 *.part
 *.ytdl
+
+# Full per-video VCE benchmark payloads are local-only
+results/vce-benchmark/
+artifacts/text-llm-benchmarks/*/llm_outputs.json

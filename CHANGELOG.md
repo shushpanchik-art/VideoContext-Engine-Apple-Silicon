@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.3 — Remove per-video outputs from public tree (2026-11-02)
+
+- Deleted full VCE API response JSONs, manifests containing local video identity, raw Text LLM generated-output bundles, and a generated comparison report with an absolute home path.
+- Retained anonymized aggregate benchmark metrics and a concise parameter-tuning summary in documentation.
+- Updated benchmark documentation and removed links to deleted feature branches.
+- Added ignore rules for per-video benchmark folders and generated model-output files.
+
 ## 0.2.2 — Local benchmark safety and final repository tidy (2026-11-02)
 
 - Removed the retired unattended-benchmark dependency on a deleted feature branch; input video is now required explicitly and all reports stay local.
