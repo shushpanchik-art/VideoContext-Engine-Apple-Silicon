@@ -165,7 +165,7 @@ class TestUrlBatchIngestion(unittest.TestCase):
         self.assertIn("form.append('video_url', entry.url)", updated)
         self.assertIn("if (!entry.localToken && !entry.url)", updated)
         self.assertIn("entry.file ? entry.file.name : entry.displayName", updated)
-        self.assertIn("entry.url ? entry.url", updated) if "entry.url ? entry.url" in updated else self.assertIn(": entry.url", updated)
+        self.assertIn(": entry.url", updated)
         self.assertIn("form.append('local_video_token', entry.localToken)", updated)
         self.assertIn("else if (entry.url) form.append('video_url', entry.url)", updated)
         self.assertEqual(patch.patch_ui(updated), updated)
