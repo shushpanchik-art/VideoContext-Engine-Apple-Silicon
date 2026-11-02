@@ -44,6 +44,8 @@ async def analyze_video(
                 )
             except ValueError:
                 raise
+    except Exception:
+        raise
     return {"ok": True}
 '''
 
