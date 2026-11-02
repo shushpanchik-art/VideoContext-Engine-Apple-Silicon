@@ -78,6 +78,9 @@ UI_FIXTURE = r'''<!doctype html>
   function setAlert(x) { alertEl.textContent = x; }
   function setState(entry, state, msg) { entry.state = state; }
   // Per-request settings make saved values effective immediately in this Web UI
+  // const cfg = readSettings();
+  // for (const [key, value] of Object.entries(cfg)) form.append(key, String(value));
+  // id="cfg-vlm-resolution" id="cfg-apple-ocr" id="cfg-analysis-mode"
   function addFiles(fileList) {}
   choose.addEventListener('click', () => picker.click());
   add.addEventListener('click', () => picker.click());
