@@ -217,8 +217,8 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
         "await asyncio.to_thread(",
         "download_max_dimension",
         '"noplaylist": True',
-        '"width<=',
-        '"height<=',
+        "width<=",
+        "height<=",
     ):
         if item not in source:
             raise ValueError("Engine validation failed: missing " + item)
