@@ -81,6 +81,8 @@ def patch_engine(source):
             "def _vce_download_format_selector(",
             "await asyncio.to_thread(",
             "download_max_dimension",
+            "progress_hook",
+            "VCE_CANCELLED_BY_USER",
         )
         missing = [item for item in required if item not in source]
         if missing:
@@ -157,7 +159,7 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
     source = _replace_once(
         source,
         "def download_video_from_url(url: str, output_template: str) -> str:",
-        "def download_video_from_url(url: str, output_template: str, max_dimension: int | None = None) -> str:",
+        "def download_video_from_url(url: str, output_template: str, max_dimension: int | None = None, progress_hook=None) -> str:",
         "download helper signature",
     )
     source = _replace_once(
@@ -175,6 +177,7 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
         + '        "fragment_retries": 10,\n'
         + '        "socket_timeout": 30,\n'
         + '        "merge_output_format": "mp4",\n'
+        + '        "progress_hooks": [progress_hook] if progress_hook is not None else [],\n'
     )
     if '"noplaylist": True' not in source:
         source = _replace_once(source, quiet_anchor, extra_options, "yt-dlp retry/no-playlist options")
@@ -201,12 +204,35 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
         f'{indent}print("[VCE URL] yt-dlp source raster cap: " + str(download_max_dimension) + "px; "\n'
         f'{indent}      + "mode=" + str(analysis_mode) + ", VLM=" + str(vlm_resolution)\n'
         f'{indent}      + ", Apple OCR=" + str(enable_apple_ocr) + ", FFmpeg OCR=" + str(enable_ffmpeg_ocr))\n'
-        f"{indent}temp_path = await asyncio.to_thread(\n"
-        f"{arg_indent}download_video_from_url,\n"
-        f"{arg_indent}video_url,\n"
-        f'{arg_indent}f"temp_{{int(time.time())}}_{{clean_title}}.%(ext)s",\n'
-        f"{arg_indent}download_max_dimension,\n"
-        f"{indent})"
+        f"{indent}def _vce_url_download_progress(download_status):\n"
+        f"{arg_indent}if cancel_event.is_set():\n"
+        f'{arg_indent}    raise yt_dlp.utils.DownloadError("VCE_CANCELLED_BY_USER")\n'
+        f"{arg_indent}if not isinstance(download_status, dict):\n"
+        f"{arg_indent}    return\n"
+        f'{arg_indent}if download_status.get("status") == "downloading":\n'
+        f'{arg_indent}    downloaded = max(0, int(download_status.get("downloaded_bytes") or 0))\n'
+        f'{arg_indent}    total = download_status.get("total_bytes") or download_status.get("total_bytes_estimate")\n'
+        f'{arg_indent}    if total:\n'
+        f'{arg_indent}        fraction = max(0.0, min(1.0, downloaded / max(1, int(total))))\n'
+        f'{arg_indent}        set_job_progress(job_id, "download_video", 1.5 + fraction * 1.2,\n'
+        f'{arg_indent}            f"yt-dlp: скачивание видео · {{fraction * 100:.0f}}%",\n'
+        f'{arg_indent}            downloaded_bytes=downloaded, total_bytes=int(total))\n'
+        f'{arg_indent}    else:\n'
+        f'{arg_indent}        set_job_progress(job_id, "download_video", None, "yt-dlp: скачивание видео…", indeterminate=True)\n'
+        f'{arg_indent}elif download_status.get("status") == "finished":\n'
+        f'{arg_indent}    set_job_progress(job_id, "download_video", 2.7, "Загрузка завершена; проверяем видеопоток")\n'
+        f"{indent}try:\n"
+        f"{arg_indent}temp_path = await asyncio.to_thread(\n"
+        f"{arg_indent}    download_video_from_url,\n"
+        f"{arg_indent}    video_url,\n"
+        f'{arg_indent}    f"temp_{{int(time.time())}}_{{clean_title}}.%(ext)s",\n'
+        f"{arg_indent}    download_max_dimension,\n"
+        f"{arg_indent}    _vce_url_download_progress,\n"
+        f"{arg_indent})\n"
+        f"{indent}except yt_dlp.utils.DownloadError as download_error:\n"
+        f"{arg_indent}if cancel_event.is_set() or 'VCE_CANCELLED_BY_USER' in str(download_error):\n"
+        f'{arg_indent}    raise HTTPException(409, detail="Распознавание остановлено пользователем")\n'
+        f'{arg_indent}raise HTTPException(400, detail="Не удалось скачать видео: " + str(download_error)[:700])'
     )
     source = source[:match.start()] + new_call + source[match.end():]
 
@@ -216,6 +242,9 @@ def _vce_download_format_selector(max_dimension: int | None) -> str:
         "_vce_download_format_selector(max_dimension)",
         "await asyncio.to_thread(",
         "download_max_dimension",
+        "progress_hooks",
+        "VCE_CANCELLED_BY_USER",
+        "download_video",
         '"noplaylist": True',
         "width<=",
         "height<=",
