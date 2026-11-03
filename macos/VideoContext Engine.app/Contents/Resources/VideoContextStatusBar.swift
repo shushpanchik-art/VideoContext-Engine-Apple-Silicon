@@ -120,7 +120,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
             .appendingPathComponent("VideoContextEngine_v3.19.py").standardizedFileURL.path
         let ps = Process()
         ps.executableURL = URL(fileURLWithPath: "/bin/ps")
-        ps.arguments = ["-axo", "pid=,command="]
+        ps.arguments = ["-ww", "-axo", "pid=,command="]
         let pipe = Pipe()
         ps.standardOutput = pipe
         ps.standardError = FileHandle.nullDevice
@@ -136,7 +136,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
 
             let output = String(data: data, encoding: .utf8) ?? ""
             var matches: [pid_t] = []
-            for line in output.split(whereSeparator: \.isNewline) {
+            for line in output.split(whereSeparator: { $0.isNewline }) {
                 let fields = line.split(
                     maxSplits: 1,
                     omittingEmptySubsequences: true,
