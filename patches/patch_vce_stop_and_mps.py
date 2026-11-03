@@ -71,6 +71,23 @@ def patch_whisper_timing() -> tuple[Path, str | None]:
 
 
 def patch_engine(source: str) -> str:
+    # The current public runtime already contains the complete cooperative-stop
+    # implementation and performs scene detection, Whisper, OCR and VLM work in
+    # worker threads. It uses a newer fast-scene branch and the memory-guard VLM
+    # wrapper, so applying the legacy text substitutions below would be unsafe.
+    current_stop_runtime_markers = (
+        "CANCEL_EVENTS: Dict[str, threading.Event]",
+        '@app.post("/api/v1/cancel/{job_id}"',
+        'job_id: str = Form("',
+        "cancel_event = CANCEL_EVENTS.setdefault(",
+        "scenes_raw = await asyncio.to_thread(",
+        "audio_res = await asyncio.to_thread(",
+        "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
+        "_vce_describe_scene_with_memory_fallback",
+    )
+    if all(marker in source for marker in current_stop_runtime_markers):
+        return source
+
     if "CANCEL_EVENTS: Dict[str, threading.Event]" not in source:
         if "import threading\n" not in source:
             if "import re\n" not in source:
@@ -233,6 +250,16 @@ def patch_engine(source: str) -> str:
 
 
 def patch_ui(ui: str) -> str:
+    current_stop_ui_markers = (
+        'id="stop"',
+        "const stop = document.getElementById('stop');",
+        "stop.addEventListener('click'",
+        "form.append('job_id', jobId);",
+        "entry.jobId = jobId;",
+    )
+    if all(marker in ui for marker in current_stop_ui_markers):
+        return ui
+
     if 'id="stop"' not in ui:
         anchor = '      <button id="start" disabled>Запустить обработку</button>\n'
         if ui.count(anchor) != 1:
