@@ -1,0 +1,62 @@
+name: Cleanup merged topic branches
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  cleanup:
+    name: Delete merged PR head branches
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete branches belonging only to merged PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { data: repository } = await github.rest.repos.get({ owner, repo });
+            const defaultBranch = repository.default_branch;
+
+            const [closedPulls, openPulls] = await Promise.all([
+              github.paginate(github.rest.pulls.list, {
+                owner, repo, state: "closed", per_page: 100
+              }),
+              github.paginate(github.rest.pulls.list, {
+                owner, repo, state: "open", per_page: 100
+              })
+            ]);
+
+            const openHeads = new Set(openPulls.map(pr => pr.head.ref));
+            const mergedHeads = new Set();
+
+            for (const pr of closedPulls) {
+              if (!pr.merged_at) continue;
+              if (pr.head.repo?.full_name !== `${owner}/${repo}`) continue;
+              if (!pr.head.ref || pr.head.ref === defaultBranch) continue;
+              if (openHeads.has(pr.head.ref)) continue;
+              mergedHeads.add(pr.head.ref);
+            }
+
+            for (const ref of [...mergedHeads].sort()) {
+              try {
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${ref}`
+                });
+                core.info(`Deleted merged topic branch: ${ref}`);
+              } catch (error) {
+                if (error.status === 404 || error.status === 422) {
+                  core.info(`Branch already absent or not deletable: ${ref}`);
+                  continue;
+                }
+                throw error;
+              }
+            }
+
+            core.info(`Checked ${mergedHeads.size} merged topic branch(es).`);
