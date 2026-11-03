@@ -39,6 +39,14 @@ class FullDistributionInstallerTests(unittest.TestCase):
         self.assertIn("Старый каталог останется без изменений.", script)
         self.assertLess(script.index("select_safe_project_dir\n"), script.index('echo "[1/7] Системные зависимости"'))
 
+    def test_installer_refreshes_managed_app_patcher_even_when_git_pull_is_skipped(self):
+        script = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('PATCHER_URL="https://raw.githubusercontent.com/', script)
+        self.assertIn('patch_vce_stop_and_mps.py', script)
+        self.assertIn('cp -p "$PATCHER_PATH" "$PATCHER_BACKUP"', script)
+        self.assertIn('Служебный macOS-патчер обновлён из main.', script)
+        self.assertLess(script.index('PATCHER_URL="https://raw.githubusercontent.com/'), script.index('echo "[3/7] Python 3.11 и зависимости"'))
+
     def test_native_app_build_does_not_modify_git_checkout(self):
         script = APP_INSTALLER.read_text(encoding="utf-8")
         self.assertIn("APP_STAGING_ROOT=", script)
