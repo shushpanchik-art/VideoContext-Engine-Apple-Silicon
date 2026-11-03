@@ -57,6 +57,6 @@ The scripts require an explicit video path and keep reports under the local outp
 
 ## Command-buffer timeout recovery
 
-The runtime recognizes both `kIOGPUCommandBufferCallbackErrorTimeout` and `kIOGPUCommandBufferCallbackErrorSubmissionsIgnored`. The latter commonly appears after a prior command-buffer failure. On this error chain VCE unloads the VLM and skips further VLM requests for the current video, while preserving Whisper transcription, Apple Vision OCR, optional FFmpeg/Tesseract OCR, and TXT/JSON report generation. This is a recovery path, not a guarantee that a timed-out Metal device can be reset in-process.
+The runtime recognizes both `kIOGPUCommandBufferCallbackErrorTimeout` and `kIOGPUCommandBufferCallbackErrorSubmissionsIgnored`. The MLX engine's image-resize retry is reserved for allocation OOM errors; command-buffer timeouts are raised immediately to the outer VLM guard and are never retried with smaller frames. The latter commonly appears after a prior command-buffer failure. On this error chain VCE unloads the VLM and skips further VLM requests for the current video, while preserving Whisper transcription, Apple Vision OCR, optional FFmpeg/Tesseract OCR, and TXT/JSON report generation. This is a recovery path, not a guarantee that a timed-out Metal device can be reset in-process.
 
 New Apple Silicon installations default to a 768 px VLM input cap and one keyframe per scene. OCR continues to inspect its original-resolution frame independently of the VLM resize.
