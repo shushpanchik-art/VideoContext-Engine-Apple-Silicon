@@ -75,15 +75,17 @@ def patch_engine(source: str) -> str:
     # implementation and performs scene detection, Whisper, OCR and VLM work in
     # worker threads. It uses a newer fast-scene branch and the memory-guard VLM
     # wrapper, so applying the legacy text substitutions below would be unsafe.
+    # Detect the cooperative-stop implementation by its durable API/state
+    # contract rather than implementation details such as which scene detector
+    # or executor wrapper is currently used. Otherwise a partially older runtime
+    # can fall through and fail on the obsolete synchronous detect_scenes call.
     current_stop_runtime_markers = (
         "CANCEL_EVENTS: Dict[str, threading.Event]",
         '@app.post("/api/v1/cancel/{job_id}"',
         'job_id: str = Form("',
         "cancel_event = CANCEL_EVENTS.setdefault(",
-        "scenes_raw = await asyncio.to_thread(",
-        "audio_res = await asyncio.to_thread(",
-        "await _vce_mlx_run(vlm_engine.load_model, target_vlm)",
-        "_vce_describe_scene_with_memory_fallback",
+        "CANCEL_EVENTS.pop(job_id, None)",
+        "if cancel_event.is_set():",
     )
     if all(marker in source for marker in current_stop_runtime_markers):
         return source
