@@ -191,6 +191,35 @@ fi
 echo "Путь FFmpeg: Homebrew (/opt/homebrew/bin или /usr/local/bin)"
 
 
+# The language patch can intentionally skip git pull. Refresh the managed native
+# app source independently so rebuilding the .app still receives lifecycle fixes.
+echo "Проверка актуальности нативного менеджера процессов"
+STATUS_SOURCE_PATH="$PROJECT_DIR/macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift"
+STATUS_SOURCE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/macos/VideoContext%20Engine.app/Contents/Resources/VideoContextStatusBar.swift"
+STATUS_SOURCE_TMP="$(mktemp "/tmp/vce-statusbar-source.XXXXXX")"
+[[ -d "$(dirname "$STATUS_SOURCE_PATH")" ]] || fail "Не найдена папка исходника нативного приложения."
+if ! curl --fail --location --silent --show-error --retry 3 "$STATUS_SOURCE_URL" --output "$STATUS_SOURCE_TMP"; then
+  rm -f "$STATUS_SOURCE_TMP"
+  fail "Не удалось получить актуальный исходник нативного приложения."
+fi
+if ! grep -q "VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1" "$STATUS_SOURCE_TMP"; then
+  rm -f "$STATUS_SOURCE_TMP"
+  fail "Исходник приложения не прошёл проверку lifecycle marker."
+fi
+if ! cmp -s "$STATUS_SOURCE_TMP" "$STATUS_SOURCE_PATH"; then
+  STATUS_SOURCE_BACKUP="$STATUS_SOURCE_PATH.before_refresh.$STAMP.bak"
+  cp -p "$STATUS_SOURCE_PATH" "$STATUS_SOURCE_BACKUP" || {
+    rm -f "$STATUS_SOURCE_TMP"
+    fail "Не удалось создать резервную копию Swift-исходника."
+  }
+  chmod 644 "$STATUS_SOURCE_TMP"
+  mv "$STATUS_SOURCE_TMP" "$STATUS_SOURCE_PATH"
+  echo "Исходник нативного приложения обновлён. Резервная копия: $STATUS_SOURCE_BACKUP"
+else
+  rm -f "$STATUS_SOURCE_TMP"
+  echo "Исходник нативного приложения уже актуален."
+fi
+
 echo "[3/7] Python 3.11 и зависимости"
 PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
 [[ -x "$PYTHON_BIN" ]] || fail "Python 3.11 не найден: $PYTHON_BIN"
