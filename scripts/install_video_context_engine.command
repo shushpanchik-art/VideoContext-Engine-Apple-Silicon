@@ -1,7 +1,7 @@
 #!/bin/bash
 set -Eeuo pipefail
 REPOSITORY="https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon.git"
-PROJECT_DIR="\${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
+PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 OLD_SETTINGS=""
 fail() { echo "ОШИБКА: $*" >&2; echo "Существующие пользовательские данные не удалялись." >&2; exit 1; }
@@ -57,7 +57,7 @@ if [[ -e "$PROJECT_DIR" ]]; then
       fail "Есть изменённые отслеживаемые файлы Git. Обновление отменено для защиты ваших изменений."
     fi
   else
-    BACKUP_DIR="\${PROJECT_DIR}.backup.$STAMP"
+    BACKUP_DIR="${PROJECT_DIR}.backup.${STAMP}"
     echo "Сохраняю существующую папку целиком: $BACKUP_DIR"
     [[ ! -f "$PROJECT_DIR/videocontext_settings.json" ]] || OLD_SETTINGS="$BACKUP_DIR/videocontext_settings.json"
     mv "$PROJECT_DIR" "$BACKUP_DIR"

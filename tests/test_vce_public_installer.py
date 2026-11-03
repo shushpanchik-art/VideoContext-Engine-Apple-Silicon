@@ -21,7 +21,7 @@ class FullDistributionInstallerTests(unittest.TestCase):
             "install_vce_recognition_languages_patch.command",
             "test_vce_recognition_languages_patch.py",
             "install_video_context_mac.command",
-            "VideoContext-Engine.backup.",
+            ".backup.${STAMP}",
             "videocontext_settings.json",
             "git pull --ff-only origin main",
         ):
@@ -38,7 +38,8 @@ class FullDistributionInstallerTests(unittest.TestCase):
         self.assertIn('ditto "$APP_STAGED" "$APP_TARGET"', script)
         self.assertNotIn('swiftc -O "$STATUS_SOURCE" -framework AppKit -framework WebKit -o "$APP_SOURCE', script)
         self.assertIn("VCE_PROJECT_DIR", script)
-        self.assertIn("Application Support/VideoContext Engine/project_path", script)
+        self.assertIn('APP_SUPPORT_DIR="$HOME/Library/Application Support/VideoContext Engine"', script)
+        self.assertIn('echo "$PROJECT_DIR" > "$APP_SUPPORT_DIR/project_path"', script)
         self.assertIn('patches/patch_vce_stop_and_mps.py', script)
 
     def test_native_launcher_uses_saved_project_path(self):
