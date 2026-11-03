@@ -156,6 +156,41 @@ else
 fi
 echo "Патчер: $(shasum -a 256 "$PATCHER_PATH" | awk '{print $1}')"
 
+# Refresh the native server launcher independently of git pull as well. User
+# language patches intentionally leave the checkout dirty; without this copy,
+# a previously installed app can keep launching Python with LaunchServices' minimal PATH.
+echo "Проверка PATH для GUI-запуска FFmpeg"
+START_SERVER_PATH="$PROJECT_DIR/macos/VideoContext Engine.app/Contents/Resources/start_server.command"
+START_SERVER_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/macos/VideoContext%20Engine.app/Contents/Resources/start_server.command"
+START_SERVER_TMP="$(mktemp "${TMPDIR:-/tmp}/vce-start-server.XXXXXX")"
+[[ -d "$(dirname "$START_SERVER_PATH")" ]] || fail "Не найдена папка ресурсов нативного приложения."
+if ! curl --fail --location --silent --show-error --retry 3 "$START_SERVER_URL" --output "$START_SERVER_TMP"; then
+  rm -f "$START_SERVER_TMP"
+  fail "Не удалось получить актуальный скрипт запуска macOS-приложения из GitHub."
+fi
+if ! bash -n "$START_SERVER_TMP" || ! grep -q "VCE_HOMEBREW_GUI_PATH_V1" "$START_SERVER_TMP"; then
+  rm -f "$START_SERVER_TMP"
+  fail "Скрипт запуска macOS-приложения не прошёл проверку."
+fi
+if ! cmp -s "$START_SERVER_TMP" "$START_SERVER_PATH"; then
+  if [[ -f "$START_SERVER_PATH" ]]; then
+    START_SERVER_BACKUP="$START_SERVER_PATH.before_refresh.$STAMP.bak"
+    cp -p "$START_SERVER_PATH" "$START_SERVER_BACKUP" || {
+      rm -f "$START_SERVER_TMP"
+      fail "Не удалось создать резервную копию старого скрипта запуска."
+    }
+    echo "Старая версия скрипта запуска сохранена: $START_SERVER_BACKUP"
+  fi
+  chmod 755 "$START_SERVER_TMP"
+  mv "$START_SERVER_TMP" "$START_SERVER_PATH"
+  echo "Скрипт GUI-запуска обновлён из main."
+else
+  rm -f "$START_SERVER_TMP"
+  echo "Скрипт GUI-запуска уже актуален."
+fi
+echo "Путь FFmpeg: Homebrew (/opt/homebrew/bin или /usr/local/bin)"
+
+
 echo "[3/7] Python 3.11 и зависимости"
 PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
 [[ -x "$PYTHON_BIN" ]] || fail "Python 3.11 не найден: $PYTHON_BIN"
