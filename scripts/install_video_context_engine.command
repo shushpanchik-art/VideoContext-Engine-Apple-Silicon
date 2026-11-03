@@ -40,12 +40,12 @@ select_safe_project_dir() {
 }
 
 echo "VideoContext Engine — установщик macOS / Apple Silicon"
-echo "Проект: $PROJECT_DIR"
 [[ "$(uname -s)" == "Darwin" ]] || fail "Установщик предназначен для macOS."
 [[ "$(uname -m)" == "arm64" ]] || fail "Нужен Mac с Apple Silicon (M1 или новее)."
 command -v brew >/dev/null 2>&1 || fail "Homebrew не найден. Установите его с https://brew.sh/ и повторите команду."
 command -v git >/dev/null 2>&1 || fail "Не найден git."
 select_safe_project_dir
+echo "Проект: $PROJECT_DIR"
 if ! xcode-select -p >/dev/null 2>&1 || ! command -v xcrun >/dev/null 2>&1; then
   echo "Для сборки .app нужны Xcode Command Line Tools."
   xcode-select --install || true
