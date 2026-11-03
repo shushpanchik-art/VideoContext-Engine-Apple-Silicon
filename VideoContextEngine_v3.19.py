@@ -1434,6 +1434,10 @@ def is_gpu_memory_error(exc: BaseException) -> bool:
         "outofmemory",
         "out of memory",
         "kIOGPUCommandBufferCallbackErrorOutOfMemory".lower(),
+        "kIOGPUCommandBufferCallbackErrorTimeout".lower(),
+        "kiogpucommandbuffercallbackerrorsubmissionsignored",
+        "submissionsignored",
+        "gpu timeout",
         "metal command buffer",
     ))
 
@@ -4205,8 +4209,42 @@ class _VCEVlmMemoryFallback(Exception):
     """Internal marker for an exhausted VLM retry policy (normally not raised)."""
 
 
+def _vce_exception_chain_text(exc):
+    """Collect the wrapped MLX/Metal exception chain without losing the native cause."""
+    messages = []
+    seen = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        try:
+            messages.append(str(current))
+        except Exception:
+            pass
+        current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
+    return " | ".join(messages)
+
+
+def _vce_is_metal_command_timeout(exc):
+    """True when Metal timed out or stopped accepting command-buffer submissions."""
+    text = _vce_exception_chain_text(exc).casefold()
+    markers = (
+        "kiogpucommandbuffercallbackerrortimeout",
+        "gpu timeout",
+        "gpu timed out",
+        "command buffer execution failed",
+        "kiogpucommandbuffercallbackerrorsubmissionsignored",
+        "submissionsignored",
+        "submissions ignored",
+    )
+    return any(marker in text for marker in markers) and (
+        "metal" in text or "kiogpu" in text or "mlx" in text or "gpu" in text
+    )
+
+
 def _vce_is_metal_memory_error(exc):
-    text = str(exc).casefold()
+    text = _vce_exception_chain_text(exc).casefold()
+    if _vce_is_metal_command_timeout(exc):
+        return True
     oom_markers = (
         "out of memory", "oom", "memoryerror", "failed to allocate",
         "allocation failed", "insufficient memory", "not enough memory",
@@ -4282,8 +4320,28 @@ def _vce_describe_scene_with_memory_fallback(vlm_engine, images, prompt, max_tok
     except Exception as exc:
         if not _vce_is_metal_memory_error(exc):
             raise
+        last_error_message = _vce_exception_chain_text(exc)[:500]
+        if _vce_is_metal_command_timeout(exc):
+            # A timed-out Metal command buffer can leave the queue rejecting all
+            # later submissions. Do not issue another series of VLM kernels into
+            # a failed queue: release the model and preserve ASR/OCR/report output.
+            print("⚠️ [VLM memory guard] Metal command-buffer timeout/submissions ignored; disabling VLM for the rest of this video.")
+            try:
+                vlm_engine.unload_model()
+            except Exception:
+                pass
+            _vce_clear_metal_memory_caches()
+            message = (
+                "Визуальный анализ отключён до конца этого видео: Metal прервал GPU-команду "
+                "по таймауту или перестал принимать команды. Whisper, OCR и сохранение отчёта продолжаются. "
+                "Последняя ошибка: " + last_error_message
+            )
+            return json.dumps({
+                "description": message,
+                "tags": {},
+                "_vce_memory_fallback": True,
+            }, ensure_ascii=False)
         print("⚠️ [VLM memory guard] Metal OOM; clearing unused caches and retrying at lower image resolution.")
-        last_error_message = str(exc)[:350]
 
     _vce_clear_metal_memory_caches()
     if not original_images:
