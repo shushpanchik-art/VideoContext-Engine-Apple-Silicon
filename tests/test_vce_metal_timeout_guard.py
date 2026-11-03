@@ -56,7 +56,7 @@ class MetalTimeoutGuardTests(unittest.TestCase):
             "[METAL] Command buffer execution failed: Caused GPU Timeout Error "
             "(00000002:kIOGPUCommandBufferCallbackErrorTimeout)"
         )
-        self.assertTrue(self.helpers["is_gpu_memory_error"](error))
+        self.assertFalse(self.helpers["is_gpu_memory_error"](error))
         self.assertTrue(self.helpers["_vce_is_metal_command_timeout"](error))
         self.assertTrue(self.helpers["_vce_is_metal_memory_error"](error))
 
@@ -65,7 +65,7 @@ class MetalTimeoutGuardTests(unittest.TestCase):
             "[METAL] Command buffer execution failed: Ignored for prior/excessive GPU errors "
             "(00000004:kIOGPUCommandBufferCallbackErrorSubmissionsIgnored)"
         )
-        self.assertTrue(self.helpers["is_gpu_memory_error"](error))
+        self.assertFalse(self.helpers["is_gpu_memory_error"](error))
         self.assertTrue(self.helpers["_vce_is_metal_command_timeout"](error))
         self.assertTrue(self.helpers["_vce_is_metal_memory_error"](error))
 
@@ -98,8 +98,19 @@ class MetalTimeoutGuardTests(unittest.TestCase):
 
     def test_ordinary_allocation_oom_keeps_bounded_resize_recovery(self):
         error = RuntimeError("Metal out of memory: insufficient memory")
+        self.assertTrue(self.helpers["is_gpu_memory_error"](error))
         self.assertTrue(self.helpers["_vce_is_metal_memory_error"](error))
         self.assertFalse(self.helpers["_vce_is_metal_command_timeout"](error))
+
+    def test_gpu_timeout_is_not_classified_as_retryable_allocation_oom(self):
+        for message in (
+            "GPU Timeout Error (kIOGPUCommandBufferCallbackErrorTimeout)",
+            "kIOGPUCommandBufferCallbackErrorSubmissionsIgnored",
+        ):
+            with self.subTest(message=message):
+                error = RuntimeError("[METAL] Command buffer execution failed: " + message)
+                self.assertFalse(self.helpers["is_gpu_memory_error"](error))
+                self.assertTrue(self.helpers["_vce_is_metal_command_timeout"](error))
 
 
 if __name__ == "__main__":
