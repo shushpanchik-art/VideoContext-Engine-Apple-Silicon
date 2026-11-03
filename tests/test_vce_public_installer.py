@@ -76,6 +76,7 @@ class FullDistributionInstallerTests(unittest.TestCase):
     def test_example_config_includes_recognition_languages(self):
         config = json.loads((ROOT / "config" / "videocontext_settings.apple_silicon.example.json").read_text(encoding="utf-8"))
         self.assertEqual(config["recognition_languages"], ["ru", "en"])
+        self.assertEqual(config["vlm_resolution"], 768)
 
     def test_apple_silicon_requirements_include_mlx_whisper(self):
         requirements = (ROOT / "requirements-apple-silicon.txt").read_text(encoding="utf-8")

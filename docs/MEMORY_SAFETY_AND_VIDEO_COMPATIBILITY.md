@@ -1,6 +1,6 @@
 # Memory safety and video decode recovery
 
-The VCE runtime may hit a Metal allocation failure while running MLX inference. On macOS this can also be aggravated by cached PyTorch MPS allocations left after Whisper inference. Large file size alone does not prove the cause; frame resolution, model allocations, other GPU clients, and unified-memory pressure matter.
+The VCE runtime may hit a Metal allocation failure or GPU command-buffer timeout while running MLX inference. A timeout followed by `kIOGPUCommandBufferCallbackErrorSubmissionsIgnored` indicates that Metal is no longer accepting work after the prior GPU error; repeatedly submitting the same VLM workload is not a useful recovery strategy. On macOS this can also be aggravated by cached PyTorch MPS allocations left after Whisper inference. Large file size alone does not prove the cause; frame resolution, model allocations, other GPU clients, and unified-memory pressure matter.
 
 For an already patched project, use the dedicated migration patcher rather than rerunning the full installer:
 
@@ -15,6 +15,7 @@ If the dry run lists the expected memory-safety changes, run the same command wi
 
 - Adds explicit cleanup of unused PyTorch MPS and MLX allocator caches between model stages.
 - If an MLX-VLM call raises a recognized GPU out-of-memory exception, retries the same model/output request with smaller copies of the scene frames (768 px, then 512 px). Original frames used by OCR are not mutated.
+- If Metal reports a GPU command-buffer timeout or `SubmissionsIgnored`, unloads the VLM and skips further visual inference for the rest of that video. Whisper, Apple Vision OCR, optional FFmpeg/Tesseract OCR, and report saving continue; affected visual descriptions are explicitly marked as unavailable.
 - Changes the saved VLM input cap to 768 px, while preserving up to two keyframes per scene. Apple Vision OCR and optional FFmpeg/Tesseract OCR remain independently configured.
 - If OpenCV cannot decode a selected file's first frame, checks the streams with ffprobe and attempts a temporary H.264/MP4 proxy through FFmpeg. The proxy is stored in the system temporary directory and deleted after the request; the original video is never overwritten or removed.
 - Preserves model selection, audio processing, prompts, JSON setting, and the current `generate_txt` setting.
