@@ -1428,17 +1428,21 @@ def release_accelerator_memory(stage: str = "") -> None:
 
 
 def is_gpu_memory_error(exc: BaseException) -> bool:
+    """Return True only for allocation failures that may recover after smaller inputs.
+
+    A command-buffer timeout or SubmissionsIgnored is not an allocation OOM:
+    Metal may already have stopped accepting commands, so retrying VLM kernels
+    at smaller image sizes only delays the outer fail-safe.
+    """
     message = str(exc).lower()
     return any(token in message for token in (
         "insufficient memory",
         "outofmemory",
         "out of memory",
         "kIOGPUCommandBufferCallbackErrorOutOfMemory".lower(),
-        "kIOGPUCommandBufferCallbackErrorTimeout".lower(),
-        "kiogpucommandbuffercallbackerrorsubmissionsignored",
-        "submissionsignored",
-        "gpu timeout",
-        "metal command buffer",
+        "failed to allocate",
+        "allocation failed",
+        "bad_alloc",
     ))
 
 
