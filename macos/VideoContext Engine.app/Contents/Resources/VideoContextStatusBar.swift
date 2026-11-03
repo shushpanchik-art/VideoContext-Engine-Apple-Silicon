@@ -168,7 +168,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
 
         NSLog("[VCE lifecycle] Sending SIGTERM to %d project engine process(es) (%@): %@",
-              initial.count, reason, initial.map(String.init).joined(separator: ", "))
+              initial.count, reason, initial.map { String($0) }.joined(separator: ", "))
         for pid in initial {
             if matchingProjectEnginePIDs(projectDirectory: projectDirectory).contains(pid) {
                 _ = Darwin.kill(pid, SIGTERM)
@@ -189,7 +189,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         let survivors = matchingProjectEnginePIDs(projectDirectory: projectDirectory)
         if !survivors.isEmpty {
             NSLog("[VCE lifecycle] SIGKILL for %d unresponsive engine process(es): %@",
-                  survivors.count, survivors.map(String.init).joined(separator: ", "))
+                  survivors.count, survivors.map { String($0) }.joined(separator: ", "))
             for pid in survivors {
                 if matchingProjectEnginePIDs(projectDirectory: projectDirectory).contains(pid) {
                     _ = Darwin.kill(pid, SIGKILL)
@@ -205,7 +205,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         let remaining = matchingProjectEnginePIDs(projectDirectory: projectDirectory)
         if !remaining.isEmpty {
             NSLog("[VCE lifecycle] WARNING: engine process(es) still visible after SIGKILL: %@",
-                  remaining.map(String.init).joined(separator: ", "))
+                  remaining.map { String($0) }.joined(separator: ", "))
         } else {
             NSLog("[VCE lifecycle] Project engine process cleanup complete.")
         }
