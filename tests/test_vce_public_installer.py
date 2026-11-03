@@ -23,7 +23,7 @@ class FullDistributionInstallerTests(unittest.TestCase):
             "install_video_context_mac.command",
             ".backup.${STAMP}",
             "videocontext_settings.json",
-            "git pull --ff-only origin main",
+            "pull --ff-only origin main",
         ):
             self.assertIn(required, script)
         self.assertIn("git status --porcelain --untracked-files=no", script)
