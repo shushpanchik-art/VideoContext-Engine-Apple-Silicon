@@ -1,69 +1,72 @@
 # Чистая установка VideoContext Engine на macOS (Apple Silicon)
 
-Репозиторий содержит полный изменённый runtime VideoContext Engine v3.19, соответствующий веб-интерфейс, патчеры, тесты и исходники нативной оболочки macOS.
+## Рекомендуемый способ: один установщик
 
-## 1. Системные инструменты
+Нужны macOS на Apple Silicon, Homebrew и доступ в интернет. Выполните:
 
-Установите Homebrew, если он ещё не установлен. Затем:
+```bash
+curl -fsSL https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/scripts/install_video_context_engine.command -o /tmp/install_video_context_engine.command && bash /tmp/install_video_context_engine.command
+```
 
-    brew install python@3.11 ffmpeg
+Установщик:
+1. Проверяет архитектуру Mac, Homebrew, Git, свободный порт 7555 и Xcode Command Line Tools.
+2. Устанавливает Homebrew Python 3.11 и FFmpeg.
+3. Предлагает поставить Tesseract и дополнительные языковые данные.
+4. Клонирует репозиторий в `~/VideoContext-Engine`. Если там уже лежит не-Git папка, перемещает её в датированную резервную копию; старый пользовательский `videocontext_settings.json` переносится.
+5. Создаёт `.venv` и устанавливает `requirements.txt` вместе с `requirements-apple-silicon.txt`, включая MLX Whisper.
+6. Создаёт настройки из Apple Silicon example, если пользовательские настройки отсутствуют.
+7. Запускает языковой установщик: показывает dry-run и diff, затем применяет идемпотентный патч к runtime/UI/settings с резервными копиями.
+8. Проверяет Python-синтаксис и языковые regression tests.
+9. Собирает и устанавливает AppKit/WebKit-приложение в `/Applications/VideoContext Engine.app`.
 
-Для сборки нативной оболочки дополнительно нужны Xcode Command Line Tools (см. шаг 6).
+Если Xcode Command Line Tools отсутствуют, macOS откроет системный установщик. Завершите его и запустите команду выше повторно.
 
-## 2. Клонирование и окружение Python
+Во время последнего шага введите `STOP`, чтобы подтвердить, что старый сервер остановлен. Затем нажмите Enter после установки.
 
-    git clone https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon.git ~/VideoContext-Engine
-    cd ~/VideoContext-Engine
-    python3.11 -m venv .venv
-    source .venv/bin/activate
-    python -m pip install --upgrade pip
-    python -m pip install -r requirements.txt
-    python -m pip install -r requirements-apple-silicon.txt
+## Безопасность существующей установки
 
-Виртуальное окружение создаётся локально и не входит в Git.
+Если `~/VideoContext-Engine` существует и не является Git-клоном этого репозитория, установщик не удаляет его, а переименовывает в датированную резервную копию. Если это Git-клон репозитория с чистыми отслеживаемыми файлами, он обновляется fast-forward до `main`. При изменённых tracked-файлах установщик останавливается и не перезаписывает их.
 
-## 3. Локальная конфигурация
+Если нужно установить в отдельную папку:
 
-    cp config/videocontext_settings.apple_silicon.example.json videocontext_settings.json
+```bash
+VCE_PROJECT_DIR="$HOME/VideoContext-Engine-Public" bash /tmp/install_video_context_engine.command
+```
 
-Этот стартовый профиль рассчитан на Apple Silicon Mac с 32 ГБ unified memory и использует Qwen3-VL 8B и Whisper large. На менее мощном Mac уменьшите модель и/или разрешение до первого запуска.
+Путь сохраняется для нативного приложения в `~/Library/Application Support/VideoContext Engine/project_path`.
 
-Файл config/videocontext_settings.local-example.json — дополнительный обезличенный пример индивидуальных настроек сопровождающего проекта. Это справочная копия; он не содержит рабочих ключей, паролей или абсолютных путей. Не копируйте его поверх своей конфигурации без просмотра.
+## Ручная установка
 
-Рабочий videocontext_settings.json хранится только локально и исключён из Git.
+```bash
+brew install python@3.11 ffmpeg
+# Tesseract необязателен:
+brew install tesseract
 
-## 4. Запуск
+git clone https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon.git ~/VideoContext-Engine
+cd ~/VideoContext-Engine
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt -r requirements-apple-silicon.txt
+cp config/videocontext_settings.apple_silicon.example.json videocontext_settings.json
+bash scripts/install_vce_recognition_languages_patch.command
+bash macos/install_video_context_mac.command
+```
 
-    source .venv/bin/activate
-    python VideoContextEngine_v3.19.py
+Подтвердите остановку сервера словом `STOP`. Нативная оболочка компилируется локально на этом Mac.
 
-Веб-интерфейс: http://127.0.0.1:7555/ui
+## После установки
 
-Swagger / API: http://127.0.0.1:7555/docs
+Откройте `/Applications/VideoContext Engine.app`. Локальная панель: http://127.0.0.1:7555/ui. Swagger: http://127.0.0.1:7555/docs. Лог: `~/Library/Logs/VideoContext Engine/server.log`.
 
-При первом использовании Whisper и VLM загрузят ML-модели в локальный пользовательский кэш. Модели не распространяются в этом репозитории и могут занимать несколько гигабайт.
+При первом анализе Whisper и VLM загружают модели в локальный кэш Hugging Face/MLX. Модели не входят в исходный ZIP и могут занимать несколько гигабайт.
 
-## 5. Очередь локальных видео и URL
+## Языки и OCR
 
-В веб-интерфейсе доступны локальные видеофайлы и URL-источники, добавляемые в последовательную очередь. Для URL-источников используются доступные экстракторы yt-dlp (включая VK Video, YouTube и RuTube). Качество загрузки ограничивается настройками активного VLM/OCR профиля; недоступный подходящий поток приводит к ошибке, а не к неограниченной загрузке максимального разрешения.
+Tesseract показывает только реально установленные traineddata. Установщик предлагает поставить Tesseract; дополнительные языки могут требовать отдельной установки данных. Apple Vision поддерживает только языки, доступные текущей версии macOS. Whisper использует языковой набор модели; VLM/LLM получают разрешённый список как инструкцию, а не как гарантию семантической точности.
 
-## 6. Дополнительно: нативное приложение macOS
+## Что публикуется и что остаётся локально
 
-После чистой установки зависимостей и создания videocontext_settings.json можно локально собрать AppKit/WebKit оболочку и установить её в /Applications:
+Публичный репозиторий содержит исходники, runtime, Web UI, установщики, патчеры, тесты и документацию. Он не содержит виртуальное окружение, скачанные ML-модели, пользовательские настройки, исходные видео/аудио и созданные отчёты. Полные ответы API и транскрипты не отправляются в GitHub.
 
-    xcode-select --install
-    cp patches/patch_vce_stop_and_mps.py ./patch_vce_stop_and_mps.py
-    chmod +x macos/install_video_context_mac.command
-    bash macos/install_video_context_mac.command
-
-Установщик проверит окружение, попросит остановить сервер и подтвердить действие словом STOP. Не запускайте установщик во время анализа видео. Он создаёт/обновляет приложение и может запросить пароль администратора для /Applications.
-
-В репозитории находятся исходники оболочки и installer, а не заранее собранный подписанный .app.
-
-## Исключённые данные
-
-В публичном Git нет Python virtualenv, ML-моделей и кэшей, исходных локальных видео и аудио, созданных отчётов, журналов, резервных копий, токенов или рабочего локального settings-файла. Эти данные остаются на компьютере владельца.
-
-## Платформа и лицензии
-
-Инструкция предназначена для macOS на Apple Silicon. Windows/Linux и Intel Mac требуют отдельной проверки зависимостей и backend. Attribution и сведения о лицензиях: UPSTREAM.md, NOTICE.md, THIRD_PARTY_LICENSES.md и LICENSE.
+Сборка приложения подписывается локальной ad-hoc подписью. Это не нотарифицированный Developer ID релиз. Для установки доступны исходники и автоматический локальный build; заранее собранный бинарный .app в ZIP не вкладывается.

@@ -2,19 +2,25 @@
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-if [[ -f "$HOME/Downloads/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
-  PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
+if [[ -n "${VCE_PROJECT_DIR:-}" ]]; then
+  PROJECT_DIR="$(cd "$VCE_PROJECT_DIR" && pwd)"
 elif [[ -f "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
   PROJECT_DIR="$HOME/VideoContext-Engine"
-else
+elif [[ -f "$HOME/Downloads/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
   PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
+else
+  PROJECT_DIR="$HOME/VideoContext-Engine"
 fi
 APP_SOURCE="$REPO_ROOT/macos/VideoContext Engine.app"
 APP_TARGET="/Applications/VideoContext Engine.app"
 DESKTOP_ALIAS="$HOME/Desktop/VideoContext Engine"
 DESKTOP_LINK="$HOME/Desktop/VideoContext Engine.app"
-STATUS_SOURCE="$APP_SOURCE/Contents/Resources/VideoContextStatusBar.swift"
-APP_ICON="$APP_SOURCE/Contents/Resources/VideoContextEngine.icns"
+APP_STAGING_ROOT="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/vce-app-build.XXXXXX")"
+APP_STAGED="$APP_STAGING_ROOT/VideoContext Engine.app"
+/usr/bin/ditto "$APP_SOURCE" "$APP_STAGED"
+trap '/bin/rm -rf "$APP_STAGING_ROOT"' EXIT
+STATUS_SOURCE="$APP_STAGED/Contents/Resources/VideoContextStatusBar.swift"
+APP_ICON="$APP_STAGED/Contents/Resources/VideoContextEngine.icns"
 ICON_SOURCE="$HOME/Downloads/VideoContext_UI_Weighted_Progress_v4/favicon.png"
 
 fail() { echo "ОШИБКА: $*"; echo "Проверьте сообщение выше. Нажмите Enter для закрытия."; read -r || true; exit 1; }
@@ -23,7 +29,7 @@ fail() { echo "ОШИБКА: $*"; echo "Проверьте сообщение в
 [[ -x "$PROJECT_DIR/.venv/bin/python" ]] || fail "Не найден .venv/bin/python. Сначала восстановите виртуальное окружение проекта."
 [[ -f "$PROJECT_DIR/VideoContextEngine_v3.19.py" ]] || fail "Не найден VideoContextEngine_v3.19.py в папке проекта."
 [[ -f "$PROJECT_DIR/videocontext_web_ui.html" ]] || fail "Не найден videocontext_web_ui.html. Сначала установите пакет пакетного интерфейса."
-[[ -f "$PROJECT_DIR/patch_vce_stop_and_mps.py" ]] || fail "Не найден patch_vce_stop_and_mps.py. Распакуйте полный ZIP в папку проекта."
+[[ -f "$PROJECT_DIR/patches/patch_vce_stop_and_mps.py" ]] || fail "Не найден patcher: patches/patch_vce_stop_and_mps.py."
 [[ -d "$APP_SOURCE/Contents" ]] || fail "Не найден комплект VideoContext Engine.app внутри папки проекта."
 [[ -f "$STATUS_SOURCE" ]] || fail "Не найден исходник значка меню macOS: $STATUS_SOURCE. Обнови пакет патчей."
 command -v xcrun >/dev/null 2>&1 || fail "Не найден xcrun/swiftc. Установи Xcode Command Line Tools: xcode-select --install."
@@ -40,7 +46,7 @@ if /usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN >/dev/null 2>&1; then
 fi
 
 printf '\n[1/4] Исправление Whisper/MPS и добавление кнопки остановки…\n'
-"$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/patch_vce_stop_and_mps.py" || fail "Патч не прошёл проверку. Приложение не устанавливалось."
+"$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/patches/patch_vce_stop_and_mps.py" || fail "Патч не прошёл проверку. Приложение не устанавливалось."
 
 printf '\n[2/4] Сохранение фирменной иконки и сборка значка меню…\n'
 # Keep the user's installed custom icon when replacing the app bundle.
@@ -68,12 +74,13 @@ if [[ ! -f "$APP_ICON" && -f "$ICON_SOURCE" ]]; then
 fi
 
 # Build a real, persistent NSStatusItem app. The old shell launcher exits after opening the browser.
-STATUS_BINARY="$APP_SOURCE/Contents/MacOS/VideoContextStatusBar"
-/usr/bin/xcrun swiftc -O "$STATUS_SOURCE" -framework AppKit -framework WebKit -o "$STATUS_BINARY" || fail "Не удалось собрать значок меню. Проверь Xcode Command Line Tools."
-/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable VideoContextStatusBar" "$APP_SOURCE/Contents/Info.plist"
-/usr/libexec/PlistBuddy -c "Set :LSUIElement false" "$APP_SOURCE/Contents/Info.plist"
+STATUS_BINARY="$APP_STAGED/Contents/MacOS/VideoContextStatusBar"
+/bin/rm -f "$APP_STAGED/Contents/MacOS/VideoContextLauncher"
+/usr/bin/xcrun swiftc -O "$STATUS_SOURCE" -framework AppKit -framework WebKit -o "$STATUS_BINARY" || fail "Не удалось собрать нативное приложение. Проверь Xcode Command Line Tools."
+/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable VideoContextStatusBar" "$APP_STAGED/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :LSUIElement false" "$APP_STAGED/Contents/Info.plist"
 if [[ -f "$APP_ICON" ]]; then
-  /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile VideoContextEngine" "$APP_SOURCE/Contents/Info.plist"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile VideoContextEngine" "$APP_STAGED/Contents/Info.plist"
 fi
 
 printf '\n[3/4] Установка приложения в /Applications…\n'
@@ -83,8 +90,12 @@ if [[ -e "$APP_TARGET" ]]; then
   sudo /bin/mv "$APP_TARGET" "$APP_TARGET.backup.$STAMP" || fail "Не удалось сохранить старую копию приложения."
 fi
 sudo /bin/mkdir -p /Applications || fail "Нет разрешения создать /Applications."
-sudo /usr/bin/ditto "$APP_SOURCE" "$APP_TARGET" || fail "Не удалось скопировать приложение в /Applications."
+sudo /usr/bin/ditto "$APP_STAGED" "$APP_TARGET" || fail "Не удалось скопировать приложение в /Applications."
 sudo /bin/chmod 755 "$APP_TARGET/Contents/MacOS/VideoContextStatusBar" "$APP_TARGET/Contents/Resources/start_server.command" || fail "Не удалось выставить права запуска."
+APP_SUPPORT_DIR="$HOME/Library/Application Support/VideoContext Engine"
+mkdir -p "$APP_SUPPORT_DIR"
+echo "$PROJECT_DIR" > "$APP_SUPPORT_DIR/project_path"
+chmod 600 "$APP_SUPPORT_DIR/project_path"
 sudo /usr/bin/codesign --force --deep --sign - "$APP_TARGET" || fail "Не удалось подписать установленное приложение."
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 /usr/bin/env "$LSREGISTER" -f "$APP_TARGET" >/dev/null 2>&1 || true

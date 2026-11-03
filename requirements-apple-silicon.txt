@@ -2,3 +2,4 @@ mlx-vlm
 torchvision
 ocrmac
 certifi
+mlx-whisper

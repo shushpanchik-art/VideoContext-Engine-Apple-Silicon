@@ -1,0 +1,47 @@
+name: Full distribution installer validation
+
+on:
+  pull_request:
+    paths:
+      - "scripts/install_video_context_engine.command"
+      - "macos/install_video_context_mac.command"
+      - "macos/VideoContext Engine.app/Contents/Resources/start_server.command"
+      - "requirements-apple-silicon.txt"
+      - "config/videocontext_settings.apple_silicon.example.json"
+      - "README.md"
+      - "docs/INSTALL_FROM_PUBLIC_REPO.md"
+      - "tests/test_vce_public_installer.py"
+      - ".github/workflows/full-distribution-installer.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/install_video_context_engine.command"
+      - "macos/install_video_context_mac.command"
+      - "macos/VideoContext Engine.app/Contents/Resources/start_server.command"
+      - "requirements-apple-silicon.txt"
+      - "config/videocontext_settings.apple_silicon.example.json"
+      - "README.md"
+      - "docs/INSTALL_FROM_PUBLIC_REPO.md"
+      - "tests/test_vce_public_installer.py"
+      - ".github/workflows/full-distribution-installer.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  distribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Validate shell scripts
+        run: |
+          bash -n scripts/install_video_context_engine.command
+          bash -n macos/install_video_context_mac.command
+          bash -n "macos/VideoContext Engine.app/Contents/Resources/start_server.command"
+      - name: Validate example JSON
+        run: python -m json.tool config/videocontext_settings.apple_silicon.example.json >/dev/null
+      - name: Run installer contract tests
+        run: python -m unittest discover -s tests -p "test_vce_public_installer.py" -v

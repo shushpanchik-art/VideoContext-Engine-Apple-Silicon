@@ -1,93 +1,72 @@
 # VideoContext Engine — Apple Silicon
 
-Полная независимая сборка VideoContext Engine v3.19 с доработками для macOS на Apple Silicon. В репозитории находятся рабочий Python runtime, согласованный веб-интерфейс, патчеры, URL-очередь, тесты и исходники нативного macOS-приложения.
+Полная публичная сборка VideoContext Engine v3.19 для macOS на Apple Silicon: Python runtime, Web UI, очередь локальных файлов и URL, языковые чекбоксы распознавания, патчеры, тесты и исходники нативного macOS-приложения.
 
-> Это не официальный релиз upstream и не официальный форк автора. Проект основан на VideoContext Engine от dolphin-creator; сведения об исходной версии, атрибуции и лицензиях: [UPSTREAM.md](UPSTREAM.md), [NOTICE.md](NOTICE.md), [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+> Это независимая пользовательская сборка, не официальный релиз upstream. Атрибуция и условия сторонних компонентов: [UPSTREAM.md](UPSTREAM.md), [NOTICE.md](NOTICE.md), [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md), [LICENSE](LICENSE).
 
-## Быстрая установка: macOS / Apple Silicon
+## Установка одной командой
 
-Полная инструкция: [docs/INSTALL_FROM_PUBLIC_REPO.md](docs/INSTALL_FROM_PUBLIC_REPO.md).
-
-Нужны Homebrew, Python 3.11 и FFmpeg:
+Нужен Mac с Apple Silicon и Homebrew. Откройте Terminal и выполните:
 
 ```bash
-brew install python@3.11 ffmpeg
-git clone https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon.git ~/VideoContext-Engine
-cd ~/VideoContext-Engine
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-python -m pip install -r requirements-apple-silicon.txt
-cp config/videocontext_settings.apple_silicon.example.json videocontext_settings.json
-python VideoContextEngine_v3.19.py
+curl -fsSL https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/scripts/install_video_context_engine.command -o /tmp/install_video_context_engine.command && bash /tmp/install_video_context_engine.command
 ```
 
-Откройте http://127.0.0.1:7555/ui. Документация API: http://127.0.0.1:7555/docs.
+Установщик сам скачает полный проект в `~/VideoContext-Engine`, установит Python 3.11, FFmpeg и Python-зависимости, создаст виртуальное окружение, сохранит старую локальную папку в резервную копию при необходимости, перенесёт пользовательский `videocontext_settings.json`, применит языковой патч через dry-run, выполнит smoke tests и соберёт `VideoContext Engine.app` в `/Applications`.
 
-При первом запуске Whisper и VLM загрузят модели в локальный пользовательский кэш. Модели могут занимать несколько гигабайт и не входят в Git.
+Для сборки .app требуются Xcode Command Line Tools. При их отсутствии установщик запустит системный запрос на установку и попросит повторить команду после её завершения. Во время установки введите `STOP`, когда установщик приложения попросит подтвердить, что сервер остановлен.
 
-## Что входит в сборку
+[Подробная инструкция и ручная установка](docs/INSTALL_FROM_PUBLIC_REPO.md).
 
-- Полный изменённый движок `VideoContextEngine_v3.19.py` и соответствующий `videocontext_web_ui.html`.
-- Очередь локальных видеофайлов и URL (VK Video, YouTube, RuTube через yt-dlp), последовательная обработка, прогресс и отмена.
-- TXT/JSON-отчёты, временные метки слов, Whisper/MPS, MLX VLM, Apple Vision OCR и необязательный FFmpeg OCR.
-- Настройки Apple Silicon, профили анализа, средства контроля качества и безопасности памяти.
-- Нативная macOS-оболочка AppKit/WebKit с окном приложения и пунктом меню; исходники и локальный installer.
-- Патчеры, регрессионные тесты, GitHub Actions workflows, benchmark-инструменты и документация.
+## Скачать исходники ZIP
 
-## Настройки
+[Скачать весь актуальный исходный проект в ZIP](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/archive/refs/heads/main.zip).
 
-`config/videocontext_settings.apple_silicon.example.json` — профиль для старта, ориентированный на MacBook Pro M1 Max с 32 ГБ памяти, Qwen3-VL 8B и Whisper large. На менее мощных Mac следует уменьшить модель и/или разрешение.
+ZIP содержит исходный код и установщики, но не виртуальное окружение, не ML-модели и не готовый подписанный .app. Нативное приложение собирается локально на Mac во время установки.
 
-`config/videocontext_settings.local-example.json` — дополнительный обезличенный пример индивидуальных настроек сопровождающего проекта. Он не заменяет персональную конфигурацию автоматически.
+## Что входит в проект
 
-Рабочий `videocontext_settings.json` создаётся локально и не публикуется. Не помещайте в Git токены, пароли, персональные пути, исходные видео или приватные отчёты.
+- Полный runtime `VideoContextEngine_v3.19.py` и соответствующий Web UI `videocontext_web_ui.html`.
+- Множественная очередь локальных видео и URL (VK Video, YouTube, RuTube и другие сайты, поддерживаемые yt-dlp).
+- Автоматический выбор качества загрузки по настройкам активного VLM/OCR профиля.
+- Whisper/MLX Whisper с временными метками слов, MLX VLM, Apple Vision OCR и необязательный FFmpeg/Tesseract OCR.
+- Единые языковые чекбоксы распознавания; установщик применяет патчер к runtime и UI, а языковая доступность определяется локально.
+- JSON/TXT-отчёты, настройки, профили анализа, контроль качества и безопасности памяти.
+- Исходники AppKit/WebKit-приложения macOS, сборка, установка и восстановление приложения.
+- Патчеры, тесты, GitHub Actions и документация.
 
-## Нативное приложение macOS
+## Первый запуск и модели
 
-После установки Python-зависимостей можно собрать оболочку локально:
+При первом анализе Whisper и VLM загружают выбранные модели в пользовательский кэш Hugging Face/MLX. Модели занимают несколько гигабайт и намеренно не включены в исходный ZIP. Размер и время загрузки зависят от выбранных моделей и скорости сети.
+
+Настройки находятся в `~/VideoContext-Engine/videocontext_settings.json`. Пример профиля: [config/videocontext_settings.apple_silicon.example.json](config/videocontext_settings.apple_silicon.example.json). Исходные видео и готовые отчёты остаются на компьютере пользователя.
+
+## Языки OCR
+
+Установщик предлагает опционально установить Tesseract и дополнительные языковые данные `tesseract-lang`. Без них Tesseract-языки будут отображаться как недоступные; Apple Vision использует системную поддержку macOS, Whisper — встроенные языки установленной модели. Для установки дополнительных языков Tesseract позже используйте:
 
 ```bash
-xcode-select --install
-cp patches/patch_vce_stop_and_mps.py ./patch_vce_stop_and_mps.py
-bash macos/install_video_context_mac.command
+brew install tesseract
 ```
 
-Установщику нужны Xcode Command Line Tools и подтверждение остановки сервера. Не запускайте установщик во время анализа. В репозитории есть исходники и installer, но нет заранее собранного и подписанного `.app`.
+Если формула дополнительных языков доступна в Homebrew, установщик предложит её установить автоматически; иначе используйте документацию Tesseract для добавления нужных traineddata.
 
-## Benchmark анализа VCE
+## Запуск и обновление
 
-`python scripts/vce_unattended_benchmark.py --video "$HOME/path/to/video.mp4" --dry-run` проверяет локальный план one-factor-at-a-time. Уберите `--dry-run`, чтобы выполнить прогоны. Полные JSON-ответы и транскрипты сохраняются локально в `~/Downloads/VCE_benchmark_runs`; отправки в GitHub больше нет. Подробнее: [docs/VCE_UNATTENDED_BENCHMARK.md](docs/VCE_UNATTENDED_BENCHMARK.md).
+После установки откройте `/Applications/VideoContext Engine.app`. Интерфейс также доступен по адресу http://127.0.0.1:7555/ui, Swagger — http://127.0.0.1:7555/docs. Журнал сервера: `~/Library/Logs/VideoContext Engine/server.log`.
 
-## Проверка качества Text LLM
-
-- `tools/quality_check_text_llm_variants.py` — универсальная структурная проверка JSON, scene IDs, полноты `scene_enrichment` и текстовой целостности.
-- `tools/evaluate_text_llm_grounding.py` — лексические указатели на source evidence по сценам и модальностям. Это подсказки для ручной проверки, а не семантическое доказательство.
-- `tools/bench_text_llm_summary.py` — локальный A/B-бенчмарк Text LLM с отдельным учётом сырого ответа модели и финализированного VCE payload.
-
-Подробности и ограничения: [docs/TEXT_LLM_QUALITY_AUDIT.md](docs/TEXT_LLM_QUALITY_AUDIT.md).
-
-Бенчмарк требует явного `--video PATH` или `--input-json PATH`. Он не публикует данные в GitHub по умолчанию. Для публикации метрик нужен явный `--upload`; для отправки сгенерированных текстов дополнительно нужен `--upload-outputs`. Модельные ответы могут содержать пользовательскую информацию — проверяйте их перед отправкой.
-
-## Диагностика MLX / Metal
-
-Для локальной проверки конфигурации MLX, потоков VLM и ресурсов анализа доступны observer/watchdog-скрипты. Они сохраняют полный ответ, транскрипт и системные сэмплы только локально. Используйте [инструкцию диагностики](docs/MLX_METAL_DIAGNOSTICS.md); полученные отчёты не коммитьте.
-
-Metal smoke test или поле configured GPU не являются доказательством того, что каждый оператор VLM исполнялся на GPU. Документация отдельно описывает интерпретацию device/stream телеметрии.
+Обновляйте только после завершения текущих анализов. Установщик проверяет Git-состояние и не перезаписывает неизвестные локальные изменения. Если обнаружены пользовательские изменения, сначала сохраните их или укажите отдельный `VCE_PROJECT_DIR`.
 
 ## Приватность и границы поставки
 
-В Git не включаются Python virtualenv, скачанные ML-модели, пользовательские настройки, оригинальные видео/аудио, полные ответы VCE по отдельным видео, сырые ответы Text LLM, локальные TXT/JSON-отчёты, резервные копии и watchdog-дампы. В репозитории остаются только агрегированные обезличенные benchmark-метрики. Бенчмарки работают локально; публикация метрик Text LLM возможна только по явному флагу, а полные ответы модели не публикуются.
+В Git не включены Python virtualenv, ML-модели/кэши, пользовательские настройки, исходные видео/аудио, персональные результаты, логи, резервные копии и сырые benchmark outputs. Транскрипты и JSON-отчёты не публикуются автоматически.
 
-Полная установка документирована для macOS на Apple Silicon. Windows, Linux и Intel Mac требуют отдельной проверки зависимостей и вычислительного backend.
+Поддерживаемая платформа этой поставки — macOS на Apple Silicon. Windows, Linux и Intel Mac требуют отдельной проверки backend и установочных процедур. Приложение собирается локально и подписывается ad-hoc; это не нотарифицированный Developer ID релиз.
 
-## Разработка и проверки
-
-Запуск unit tests локально:
+## Разработка и тестирование
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-CI включает проверки URL ingestion, OCR workers, audio resilience, quality benchmark, optimization checkboxes и macOS lifecycle.
+Документы об upstream и сторонних лицензиях обязательны к сохранению в производных копиях.
