@@ -64,6 +64,23 @@ class FullDistributionInstallerTests(unittest.TestCase):
         self.assertIn('PATCHER_DIR.parent if PATCHER_DIR.name == "patches" else PATCHER_DIR', source)
         self.assertIn('ENGINE = PROJECT / "VideoContextEngine_v3.19.py"', source)
 
+    def test_installer_refreshes_gui_launcher_even_when_git_pull_is_skipped(self):
+        script = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("Проверка PATH для GUI-запуска FFmpeg", script)
+        self.assertIn("VideoContext%20Engine.app/Contents/Resources/start_server.command", script)
+        self.assertIn("VCE_HOMEBREW_GUI_PATH_V1", script)
+        self.assertIn('bash -n "$START_SERVER_TMP"', script)
+        self.assertIn('cp -p "$START_SERVER_PATH" "$START_SERVER_BACKUP"', script)
+        self.assertLess(script.index("Проверка PATH для GUI-запуска FFmpeg"), script.index('echo "[3/7] Python 3.11 и зависимости"'))
+
+    def test_native_launcher_exposes_homebrew_ffmpeg_to_gui_started_python(self):
+        script = START_SERVER.read_text(encoding="utf-8")
+        self.assertIn("VCE_HOMEBREW_GUI_PATH_V1", script)
+        self.assertIn('/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:', script)
+        self.assertIn('command -v ffmpeg', script)
+        self.assertIn('command -v ffprobe', script)
+        self.assertLess(script.index("VCE_HOMEBREW_GUI_PATH_V1"), script.index('"$PYTHON" "$ENGINE"'))
+
     def test_native_launcher_uses_saved_project_path(self):
         script = START_SERVER.read_text(encoding="utf-8")
         self.assertIn("Application Support/VideoContext Engine/project_path", script)
