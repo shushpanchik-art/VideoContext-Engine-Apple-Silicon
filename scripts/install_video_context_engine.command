@@ -107,6 +107,55 @@ if [[ -n "$OLD_SETTINGS" && ! -f "$PROJECT_DIR/videocontext_settings.json" ]]; t
   echo "Старые пользовательские настройки перенесены."
 fi
 
+# The language patch intentionally makes tracked files dirty, so the full
+# git pull above may be skipped to protect those local edits. Always refresh
+# this repository-managed app patcher independently; otherwise a stale copy
+# can still reject the newer async runtime during step 7/7.
+echo "Проверка актуальности служебного macOS-патчера"
+PATCHER_PATH="$PROJECT_DIR/patches/patch_vce_stop_and_mps.py"
+PATCHER_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/patches/patch_vce_stop_and_mps.py"
+[[ -d "$(dirname "$PATCHER_PATH")" ]] || fail "Не найдена папка patches в проекте."
+PATCHER_TMP="$(mktemp "${TMPDIR:-/tmp}/vce-stop-patcher.XXXXXX")"
+if ! curl --fail --location --silent --show-error --retry 3 "$PATCHER_URL" --output "$PATCHER_TMP"; then
+  rm -f "$PATCHER_TMP"
+  fail "Не удалось получить актуальный macOS-патчер из GitHub. Проверьте интернет и повторите установку."
+fi
+if ! python3 - "$PATCHER_TMP" <<'PY'
+import ast
+import pathlib
+import sys
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+ast.parse(source, filename="patch_vce_stop_and_mps.py")
+required = (
+    "current_stop_runtime_markers",
+    "def patch_engine(source: str)",
+    "def patch_ui(ui: str)",
+)
+if not all(marker in source for marker in required):
+    raise SystemExit("Downloaded app patcher is not the expected current version.")
+PY
+then
+  rm -f "$PATCHER_TMP"
+  fail "Загруженный macOS-патчер не прошёл проверку целостности."
+fi
+if ! cmp -s "$PATCHER_TMP" "$PATCHER_PATH"; then
+  if [[ -f "$PATCHER_PATH" ]]; then
+    PATCHER_BACKUP="$PATCHER_PATH.before_refresh.$STAMP.bak"
+    cp -p "$PATCHER_PATH" "$PATCHER_BACKUP" || {
+      rm -f "$PATCHER_TMP"
+      fail "Не удалось создать резервную копию старого патчера."
+    }
+    echo "Старая версия патчера сохранена: $PATCHER_BACKUP"
+  fi
+  chmod 644 "$PATCHER_TMP"
+  mv "$PATCHER_TMP" "$PATCHER_PATH"
+  echo "Служебный macOS-патчер обновлён из main."
+else
+  rm -f "$PATCHER_TMP"
+  echo "Служебный macOS-патчер уже актуален."
+fi
+echo "Патчер: $(shasum -a 256 "$PATCHER_PATH" | awk '{print $1}')"
+
 echo "[3/7] Python 3.11 и зависимости"
 PYTHON_BIN="$(brew --prefix python@3.11)/bin/python3.11"
 [[ -x "$PYTHON_BIN" ]] || fail "Python 3.11 не найден: $PYTHON_BIN"
