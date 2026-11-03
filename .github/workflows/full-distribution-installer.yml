@@ -30,6 +30,12 @@ on:
       - "README.md"
       - "docs/INSTALL_FROM_PUBLIC_REPO.md"
       - "tests/test_vce_public_installer.py"
+      - "tests/test_vce_stop_mps_patch.py"
+      - "tests/test_vce_metal_timeout_guard.py"
+      - "patches/patch_vce_stop_and_mps.py"
+      - "VideoContextEngine_v3.19.py"
+      - "docs/MEMORY_SAFETY_AND_VIDEO_COMPATIBILITY.md"
+      - "docs/MLX_METAL_DIAGNOSTICS.md"
       - ".github/workflows/full-distribution-installer.yml"
 
 permissions:
