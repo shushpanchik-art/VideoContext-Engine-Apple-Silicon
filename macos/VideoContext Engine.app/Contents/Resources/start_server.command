@@ -35,6 +35,23 @@ fi
 
 cd "$PROJECT_DIR" || exit 1
 source .venv/bin/activate
+
+# VCE_HOMEBREW_GUI_PATH_V1
+# LaunchServices does not load interactive shell profiles, so GUI-launched apps
+# otherwise miss Homebrew's binaries (notably ffmpeg used by Whisper).
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
+hash -r 2>/dev/null || true
+
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  show_error "Не найден ffmpeg в PATH приложения. Проверь /opt/homebrew/bin/ffmpeg или выполни в Terminal: brew install ffmpeg."
+  exit 1
+fi
+if ! command -v ffprobe >/dev/null 2>&1; then
+  show_error "Не найден ffprobe в PATH приложения. Переустанови FFmpeg командой: brew install ffmpeg."
+  exit 1
+fi
+echo "FFmpeg: $(command -v ffmpeg)"
+echo "FFprobe: $(command -v ffprobe)"
 export PYTORCH_ENABLE_MPS_FALLBACK=1
 export SSL_CERT_FILE="$(python -m certifi 2>/dev/null || true)"
 if [[ -n "$SSL_CERT_FILE" && -f "$SSL_CERT_FILE" ]]; then export REQUESTS_CA_BUNDLE="$SSL_CERT_FILE"; else unset SSL_CERT_FILE REQUESTS_CA_BUNDLE; fi
