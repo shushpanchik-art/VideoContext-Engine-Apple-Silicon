@@ -31,6 +31,14 @@ class FullDistributionInstallerTests(unittest.TestCase):
         self.assertNotIn("/Users/", script)
         self.assertNotIn("NSR Specification", script)
 
+    def test_foreign_default_clone_uses_safe_side_by_side_install_path_before_brew(self):
+        script = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn('REQUESTED_PROJECT_DIR="${VCE_PROJECT_DIR:-}"', script)
+        self.assertIn("select_safe_project_dir", script)
+        self.assertIn('PROJECT_DIR="$HOME/VideoContext-Engine-Apple-Silicon"', script)
+        self.assertIn("Старый каталог останется без изменений.", script)
+        self.assertLess(script.index("select_safe_project_dir\n"), script.index('echo "[1/7] Системные зависимости"'))
+
     def test_native_app_build_does_not_modify_git_checkout(self):
         script = APP_INSTALLER.read_text(encoding="utf-8")
         self.assertIn("APP_STAGING_ROOT=", script)

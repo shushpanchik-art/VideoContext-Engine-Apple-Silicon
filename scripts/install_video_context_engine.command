@@ -4,14 +4,48 @@ REPOSITORY="https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silico
 PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
 STAMP="$(date +%Y%m%d_%H%M%S)"
 OLD_SETTINGS=""
+REQUESTED_PROJECT_DIR="${VCE_PROJECT_DIR:-}"
 fail() { echo "ОШИБКА: $*" >&2; echo "Существующие пользовательские данные не удалялись." >&2; exit 1; }
 
+# Detect a pre-existing clone before installing system packages. Never reuse
+# an unrelated checkout as the destination for this distribution.
+select_safe_project_dir() {
+  [[ -e "$PROJECT_DIR" ]] || return 0
+  git -C "$PROJECT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+  local existing_origin
+  existing_origin="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
+  case "$existing_origin" in
+    *shushpanchik-art/VideoContext-Engine-Apple-Silicon.git|*shushpanchik-art/VideoContext-Engine-Apple-Silicon)
+      return 0
+      ;;
+    *)
+      if [[ -n "$REQUESTED_PROJECT_DIR" ]]; then
+        fail "В указанной папке другой Git origin ($existing_origin). Задайте VCE_PROJECT_DIR для отдельной папки или уберите этот параметр, чтобы использовать безопасный путь по умолчанию."
+      fi
+      local original_dir="$PROJECT_DIR"
+      PROJECT_DIR="$HOME/VideoContext-Engine-Apple-Silicon"
+      if [[ -e "$PROJECT_DIR" ]]; then
+        local alternate_origin
+        alternate_origin="$(git -C "$PROJECT_DIR" remote get-url origin 2>/dev/null || true)"
+        case "$alternate_origin" in
+          *shushpanchik-art/VideoContext-Engine-Apple-Silicon.git|*shushpanchik-art/VideoContext-Engine-Apple-Silicon) ;;
+          *) PROJECT_DIR="$HOME/VideoContext-Engine-Apple-Silicon-$STAMP" ;;
+        esac
+      fi
+      echo "Найден другой Git-клон: $original_dir"
+      echo "Старый каталог останется без изменений."
+      echo "Новая программа будет установлена отдельно: $PROJECT_DIR"
+      ;;
+  esac
+}
+
 echo "VideoContext Engine — установщик macOS / Apple Silicon"
-echo "Проект: $PROJECT_DIR"
 [[ "$(uname -s)" == "Darwin" ]] || fail "Установщик предназначен для macOS."
 [[ "$(uname -m)" == "arm64" ]] || fail "Нужен Mac с Apple Silicon (M1 или новее)."
 command -v brew >/dev/null 2>&1 || fail "Homebrew не найден. Установите его с https://brew.sh/ и повторите команду."
 command -v git >/dev/null 2>&1 || fail "Не найден git."
+select_safe_project_dir
+echo "Проект: $PROJECT_DIR"
 if ! xcode-select -p >/dev/null 2>&1 || ! command -v xcrun >/dev/null 2>&1; then
   echo "Для сборки .app нужны Xcode Command Line Tools."
   xcode-select --install || true
