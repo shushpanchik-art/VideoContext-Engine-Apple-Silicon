@@ -26,7 +26,7 @@ class FullDistributionInstallerTests(unittest.TestCase):
             "pull --ff-only origin main",
         ):
             self.assertIn(required, script)
-        self.assertIn("git status --porcelain --untracked-files=no", script)
+        self.assertIn("status --porcelain --untracked-files=no", script)
         self.assertNotIn("/Users/", script)
         self.assertNotIn("NSR Specification", script)
 
