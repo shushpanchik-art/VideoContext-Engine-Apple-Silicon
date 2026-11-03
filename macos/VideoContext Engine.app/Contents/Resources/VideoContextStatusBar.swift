@@ -1,6 +1,9 @@
 import AppKit
+import Darwin
 import Foundation
 import WebKit
+
+// VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1
 
 /// Standalone VideoContext Engine window plus a persistent menu-bar companion.
 /// The Python/FastAPI server runs without Terminal, with stdout/stderr appended to a log file.
@@ -30,6 +33,11 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // A previous app instance may have been force-quit or crashed, leaving
+        // its Python engine orphaned. Purge only this project's runtime before
+        // checking port 7555, so the new app never attaches to an old server.
+        _ = terminateProjectEngineProcesses(reason: "application launch")
+
         // This must be a regular app so it has a real window and Dock presence.
         NSApp.setActivationPolicy(.regular)
         createMainWindow()
@@ -50,7 +58,16 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         refreshTimer?.invalidate()
         startupTimer?.invalidate()
-        // Do not terminate the separately running Python server.
+
+        // The launcher uses exec, so its Process PID becomes the Python server
+        // PID. Signal the managed process, then scan the project path as a
+        // second line of defense for older/orphaned VCE processes.
+        if let process = serverProcess, process.isRunning {
+            process.terminate()
+        }
+        _ = terminateProjectEngineProcesses(reason: "application termination")
+        try? serverLogHandle?.close()
+        serverLogHandle = nil
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -60,6 +77,139 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
             startServerAndOpenUI()
         }
         return true
+    }
+
+    // Closing the main window means closing the app and its local engine.
+    // Reopening the app performs a fresh stale-process sweep before startup.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+
+    private func configuredProjectDirectory() -> String? {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let pathFile = home
+            .appendingPathComponent("Library/Application Support/VideoContext Engine/project_path")
+        if let saved = try? String(contentsOf: pathFile, encoding: .utf8) {
+            let candidate = saved.trimmingCharacters(in: .whitespacesAndNewlines)
+            let engine = URL(fileURLWithPath: candidate)
+                .appendingPathComponent("VideoContextEngine_v3.19.py").path
+            if !candidate.isEmpty && FileManager.default.fileExists(atPath: engine) {
+                return URL(fileURLWithPath: candidate).standardizedFileURL.path
+            }
+        }
+
+        // Compatibility fallback for installations created before project_path
+        // was persisted by the native installer.
+        let candidates = [
+            home.appendingPathComponent("VideoContext-Engine-Apple-Silicon"),
+            home.appendingPathComponent("VideoContext-Engine"),
+            home.appendingPathComponent("Downloads/VideoContext-Engine")
+        ]
+        for candidate in candidates {
+            let engine = candidate.appendingPathComponent("VideoContextEngine_v3.19.py")
+            if FileManager.default.fileExists(atPath: engine.path) {
+                return candidate.standardizedFileURL.path
+            }
+        }
+        NSLog("[VCE lifecycle] Project path not found; no Python process was signalled.")
+        return nil
+    }
+
+    private func matchingProjectEnginePIDs(projectDirectory: String) -> [pid_t] {
+        let enginePath = URL(fileURLWithPath: projectDirectory)
+            .appendingPathComponent("VideoContextEngine_v3.19.py").standardizedFileURL.path
+        let ps = Process()
+        ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+        ps.arguments = ["-ww", "-axo", "pid=,command="]
+        let pipe = Pipe()
+        ps.standardOutput = pipe
+        ps.standardError = FileHandle.nullDevice
+
+        do {
+            try ps.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            ps.waitUntilExit()
+            guard ps.terminationStatus == 0 else {
+                NSLog("[VCE lifecycle] Could not enumerate processes with ps.")
+                return []
+            }
+
+            let output = String(data: data, encoding: .utf8) ?? ""
+            var matches: [pid_t] = []
+            for line in output.split(whereSeparator: { $0.isNewline }) {
+                let fields = line.split(
+                    maxSplits: 1,
+                    omittingEmptySubsequences: true,
+                    whereSeparator: { $0.isWhitespace }
+                )
+                guard fields.count == 2,
+                      let pid = Int32(String(fields[0])),
+                      pid != getpid() else { continue }
+                // Match the exact engine script path. Other Python applications
+                // and other VideoContext clones are deliberately left untouched.
+                if String(fields[1]).contains(enginePath) {
+                    matches.append(pid)
+                }
+            }
+            return Array(Set(matches)).sorted()
+        } catch {
+            NSLog("[VCE lifecycle] Process scan failed: %@", error.localizedDescription)
+            return []
+        }
+    }
+
+    @discardableResult
+    private func terminateProjectEngineProcesses(reason: String) -> Int {
+        guard let projectDirectory = configuredProjectDirectory() else { return 0 }
+        let initial = matchingProjectEnginePIDs(projectDirectory: projectDirectory)
+        guard !initial.isEmpty else {
+            NSLog("[VCE lifecycle] No previous engine processes found (%@).", reason)
+            return 0
+        }
+
+        NSLog("[VCE lifecycle] Sending SIGTERM to %d project engine process(es) (%@): %@",
+              initial.count, reason, initial.map { String($0) }.joined(separator: ", "))
+        for pid in initial {
+            if matchingProjectEnginePIDs(projectDirectory: projectDirectory).contains(pid) {
+                _ = Darwin.kill(pid, SIGTERM)
+            }
+        }
+
+        // Give FastAPI/Python a brief graceful-shutdown window. A model call
+        // blocked in Metal may not return, so enforce a hard timeout below.
+        let gracefulDeadline = Date().addingTimeInterval(2.5)
+        while Date() < gracefulDeadline {
+            if matchingProjectEnginePIDs(projectDirectory: projectDirectory).isEmpty {
+                NSLog("[VCE lifecycle] All project engine processes stopped gracefully.")
+                return initial.count
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        let survivors = matchingProjectEnginePIDs(projectDirectory: projectDirectory)
+        if !survivors.isEmpty {
+            NSLog("[VCE lifecycle] SIGKILL for %d unresponsive engine process(es): %@",
+                  survivors.count, survivors.map { String($0) }.joined(separator: ", "))
+            for pid in survivors {
+                if matchingProjectEnginePIDs(projectDirectory: projectDirectory).contains(pid) {
+                    _ = Darwin.kill(pid, SIGKILL)
+                }
+            }
+        }
+
+        let finalDeadline = Date().addingTimeInterval(1.0)
+        while Date() < finalDeadline &&
+              !matchingProjectEnginePIDs(projectDirectory: projectDirectory).isEmpty {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+        let remaining = matchingProjectEnginePIDs(projectDirectory: projectDirectory)
+        if !remaining.isEmpty {
+            NSLog("[VCE lifecycle] WARNING: engine process(es) still visible after SIGKILL: %@",
+                  remaining.map { String($0) }.joined(separator: ", "))
+        } else {
+            NSLog("[VCE lifecycle] Project engine process cleanup complete.")
+        }
+        return initial.count - remaining.count
     }
 
     private func createMainWindow() {
@@ -147,7 +297,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         menu.addItem(docs)
 
         menu.addItem(NSMenuItem.separator())
-        let quitIcon = NSMenuItem(title: "Закрыть приложение (сервер продолжит работать)", action: #selector(quitStatusBar(_:)), keyEquivalent: "")
+        let quitIcon = NSMenuItem(title: "Закрыть приложение и остановить сервер", action: #selector(quitStatusBar(_:)), keyEquivalent: "")
         quitIcon.target = self
         menu.addItem(quitIcon)
 
@@ -255,8 +405,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     }
 
     /// Launch the local engine directly from the app, without opening Terminal.
-    /// The server is deliberately independent of the WebKit window and may keep running
-    /// when the user closes/quits this UI app; reopening the app reconnects to port 7555.
+    /// start_server.command execs Python so this Process owns the actual server PID.
     private func launchServerInBackground(scriptPath: String) throws {
         let logDirectory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/VideoContext Engine", isDirectory: true)

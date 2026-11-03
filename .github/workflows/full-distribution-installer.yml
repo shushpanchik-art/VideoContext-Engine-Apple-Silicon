@@ -6,6 +6,8 @@ on:
       - "scripts/install_video_context_engine.command"
       - "macos/install_video_context_mac.command"
       - "macos/VideoContext Engine.app/Contents/Resources/start_server.command"
+      - "macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift"
+      - "macos/repair_installed_native_app.command"
       - "requirements-apple-silicon.txt"
       - "config/videocontext_settings.apple_silicon.example.json"
       - "README.md"
@@ -25,6 +27,8 @@ on:
       - "scripts/install_video_context_engine.command"
       - "macos/install_video_context_mac.command"
       - "macos/VideoContext Engine.app/Contents/Resources/start_server.command"
+      - "macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift"
+      - "macos/repair_installed_native_app.command"
       - "requirements-apple-silicon.txt"
       - "config/videocontext_settings.apple_silicon.example.json"
       - "README.md"
@@ -42,6 +46,16 @@ permissions:
   contents: read
 
 jobs:
+  native-swift-compile:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile AppKit/WebKit status-bar app
+        run: |
+          xcrun swiftc -O "macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift" \
+            -framework AppKit -framework WebKit \
+            -o "$RUNNER_TEMP/VideoContextStatusBar"
+
   distribution:
     runs-on: ubuntu-latest
     steps:

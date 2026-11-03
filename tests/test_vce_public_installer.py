@@ -7,6 +7,8 @@ INSTALLER = ROOT / "scripts" / "install_video_context_engine.command"
 APP_INSTALLER = ROOT / "macos" / "install_video_context_mac.command"
 START_SERVER = ROOT / "macos" / "VideoContext Engine.app" / "Contents" / "Resources" / "start_server.command"
 STOP_PATCHER = ROOT / "patches" / "patch_vce_stop_and_mps.py"
+APP_REPAIR = ROOT / "macos" / "repair_installed_native_app.command"
+APP_SWIFT = ROOT / "macos" / "VideoContext Engine.app" / "Contents" / "Resources" / "VideoContextStatusBar.swift"
 README = ROOT / "README.md"
 INSTALL_DOC = ROOT / "docs" / "INSTALL_FROM_PUBLIC_REPO.md"
 
@@ -79,7 +81,47 @@ class FullDistributionInstallerTests(unittest.TestCase):
         self.assertIn('/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:', script)
         self.assertIn('command -v ffmpeg', script)
         self.assertIn('command -v ffprobe', script)
-        self.assertLess(script.index("VCE_HOMEBREW_GUI_PATH_V1"), script.index('"$PYTHON" "$ENGINE"'))
+        self.assertLess(script.index("VCE_HOMEBREW_GUI_PATH_V1"), script.index('exec "$PYTHON" "$ENGINE"'))
+        self.assertIn("VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1", script)
+
+    def test_native_app_cleans_stale_engine_processes_on_open_and_close(self):
+        source = APP_SWIFT.read_text(encoding="utf-8")
+        for required in (
+            "VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1",
+            'terminateProjectEngineProcesses(reason: "application launch")',
+            'terminateProjectEngineProcesses(reason: "application termination")',
+            "applicationShouldTerminateAfterLastWindowClosed",
+            "matchingProjectEnginePIDs",
+            "SIGTERM",
+            "SIGKILL",
+            "VideoContextEngine_v3.19.py",
+            "project_path",
+        ):
+            self.assertIn(required, source)
+        self.assertIn("Закрыть приложение и остановить сервер", source)
+        self.assertNotIn("сервер продолжит работать", source)
+
+    def test_native_app_repair_refreshes_swift_and_exec_launcher(self):
+        script = APP_REPAIR.read_text(encoding="utf-8")
+        for required in (
+            "VideoContextStatusBar.swift",
+            "start_server.command",
+            "START_SERVER_URL",
+            'exec "$PYTHON" "$ENGINE"',
+            "start_server.command.old",
+            "swiftc",
+            "codesign",
+        ):
+            self.assertIn(required, script)
+        self.assertIn("VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1", script)
+
+    def test_installer_refreshes_managed_app_swift_without_git_pull(self):
+        script = INSTALLER.read_text(encoding="utf-8")
+        self.assertIn("Проверка актуальности нативного менеджера процессов", script)
+        self.assertIn("STATUS_SOURCE_URL=", script)
+        self.assertIn("VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1", script)
+        self.assertIn("before_refresh.$STAMP.bak", script)
+        self.assertLess(script.index("STATUS_SOURCE_URL="), script.index('echo "[3/7] Python 3.11 и зависимости"'))
 
     def test_native_launcher_uses_saved_project_path(self):
         script = START_SERVER.read_text(encoding="utf-8")
