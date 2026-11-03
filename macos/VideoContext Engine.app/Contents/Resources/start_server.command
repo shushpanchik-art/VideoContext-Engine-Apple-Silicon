@@ -63,7 +63,8 @@ echo " Web UI: http://127.0.0.1:7555/ui"
 echo " Swagger: http://127.0.0.1:7555/docs"
 echo " Остановка сервера: Ctrl+C"
 echo "============================================"
-"$PYTHON" "$ENGINE"
+# VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1
+exec "$PYTHON" "$ENGINE"
 RESULT=$?
 echo
 echo "Сервер завершился с кодом: $RESULT"
