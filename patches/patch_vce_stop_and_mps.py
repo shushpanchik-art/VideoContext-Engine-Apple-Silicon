@@ -15,7 +15,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-PROJECT = Path(__file__).resolve().parent
+PATCHER_DIR = Path(__file__).resolve().parent
+PROJECT = PATCHER_DIR.parent if PATCHER_DIR.name == "patches" else PATCHER_DIR
 ENGINE = PROJECT / "VideoContextEngine_v3.19.py"
 UI_FILE = PROJECT / "videocontext_web_ui.html"
 

@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install_video_context_engine.command"
 APP_INSTALLER = ROOT / "macos" / "install_video_context_mac.command"
 START_SERVER = ROOT / "macos" / "VideoContext Engine.app" / "Contents" / "Resources" / "start_server.command"
+STOP_PATCHER = ROOT / "patches" / "patch_vce_stop_and_mps.py"
 README = ROOT / "README.md"
 INSTALL_DOC = ROOT / "docs" / "INSTALL_FROM_PUBLIC_REPO.md"
 
@@ -41,6 +42,11 @@ class FullDistributionInstallerTests(unittest.TestCase):
         self.assertIn('APP_SUPPORT_DIR="$HOME/Library/Application Support/VideoContext Engine"', script)
         self.assertIn('echo "$PROJECT_DIR" > "$APP_SUPPORT_DIR/project_path"', script)
         self.assertIn('patches/patch_vce_stop_and_mps.py', script)
+
+    def test_stop_patcher_resolves_project_root_from_patches_directory(self):
+        source = STOP_PATCHER.read_text(encoding="utf-8")
+        self.assertIn('PATCHER_DIR.parent if PATCHER_DIR.name == "patches" else PATCHER_DIR', source)
+        self.assertIn('ENGINE = PROJECT / "VideoContextEngine_v3.19.py"', source)
 
     def test_native_launcher_uses_saved_project_path(self):
         script = START_SERVER.read_text(encoding="utf-8")
