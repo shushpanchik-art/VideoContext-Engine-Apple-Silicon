@@ -5,7 +5,7 @@
   "publication_status": "merged_and_cleaned",
   "merge_pull_request": 15,
   "merge_commit": "549186bbf9c4653955cb8d8f4d1e967055e80b55",
-  "last_verified_main_checkpoint": "2f23a6b8cdc349f5a6dcb1c6e2c52c8ba82a0f42",
+  "last_verified_main_checkpoint": "pending",
   "repository_state": {
     "remaining_branches": [
       "main"
@@ -66,7 +66,7 @@
     "temporary_workflow_deleted": true,
     "pr15_merged": true,
     "pr13_pr14_closed_as_superseded": true,
-    "latest_ci": "All five relevant workflows passed on code commit eec9fbaf44fcd6156630c55b302f2cf803776a28. All three applicable workflows also passed on privacy-cleanup commit 1f742ea72951bb171d198cbd9f90f3da6151557d and the current documentation/manifest checkpoint 2f23a6b8cdc349f5a6dcb1c6e2c52c8ba82a0f42.",
+    "latest_ci": "Pending after full distribution installer PR.",
     "no_dead_branch_urls": true,
     "unattended_benchmark_local_only": true,
     "root_duplicate_helpers_removed": true,
@@ -77,10 +77,23 @@
     "branch_links_in_docs_removed": true,
     "private_video_identity_in_aggregate_metrics_redacted": true,
     "per_video_payloads_removed": true,
-    "anonymized_aggregate_benchmarks_retained": true
+    "anonymized_aggregate_benchmarks_retained": true,
+    "one_command_installer_added": true,
+    "native_app_staging_outside_git_checkout": true,
+    "mlx_whisper_dependency_declared": true,
+    "recognition_language_patch_applied_by_clean_installer": true
   },
   "notice": "The repository contains reusable source and tests; per-video artifacts and raw local telemetry are intentionally kept out of the public distribution. MLX telemetry caveat is documented; no unsupported claim of per-operator GPU acceptance is made.",
   "retained_benchmark_data": "Anonymized aggregate timing/quality metrics and an anonymized VCE parameter-tuning summary only.",
   "code_validation_commit": "eec9fbaf44fcd6156630c55b302f2cf803776a28",
-  "privacy_cleanup_commit": "1f742ea72951bb171d198cbd9f90f3da6151557d"
+  "privacy_cleanup_commit": "1f742ea72951bb171d198cbd9f90f3da6151557d",
+  "distribution": {
+    "supported_platform": "macOS Apple Silicon",
+    "source_archive": "https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/archive/refs/heads/main.zip",
+    "one_command_installer": "scripts/install_video_context_engine.command",
+    "native_app": "Built locally with Xcode Command Line Tools and installed to /Applications",
+    "model_weights_included": false,
+    "model_weights_download": "Downloaded to user cache at first analysis",
+    "automatic_recognition_language_patch": true
+  }
 }

@@ -1,3 +1,11 @@
+## 0.2.5 — Full macOS installer and clean source distribution (2026-11-03)
+
+- Added a one-command Apple Silicon installer: Homebrew prerequisites, Python 3.11 environment, runtime dependencies, settings migration, recognition-language patch, smoke tests and local native-app build.
+- Added `mlx-whisper` to the Apple Silicon dependency set and `recognition_languages` to the example settings.
+- Made native-app installation stage the `.app` outside the Git checkout, so compiling the menu-bar executable no longer dirties the source bundle.
+- Persisted the selected project path for the installed macOS app and made the native installer respect `VCE_PROJECT_DIR`.
+- Documented GitHub ZIP download, model-cache exclusions, Tesseract language data and installation safety/backup behavior.
+
 # Changelog
 
 ## 0.2.3 — Remove per-video outputs from public tree (2026-11-02)

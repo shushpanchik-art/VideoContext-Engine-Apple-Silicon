@@ -1,6 +1,11 @@
 #!/bin/bash
 set -u
-if [[ -f "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
+PROJECT_PATH_FILE="$HOME/Library/Application Support/VideoContext Engine/project_path"
+if [[ -n "${VCE_PROJECT_DIR:-}" ]]; then
+  PROJECT_DIR="$VCE_PROJECT_DIR"
+elif [[ -f "$PROJECT_PATH_FILE" ]]; then
+  IFS= read -r PROJECT_DIR < "$PROJECT_PATH_FILE"
+elif [[ -f "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
   PROJECT_DIR="$HOME/VideoContext-Engine"
 elif [[ -f "$HOME/Downloads/VideoContext-Engine/VideoContextEngine_v3.19.py" ]]; then
   PROJECT_DIR="$HOME/Downloads/VideoContext-Engine"
