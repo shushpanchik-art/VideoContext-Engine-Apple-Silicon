@@ -3,8 +3,8 @@
   "runtime": "VideoContext Engine v3.19",
   "distribution_branch": "main",
   "publication_status": "merged_installable_distribution",
-  "merge_commit": "97add1fba716d380b9606886944ebeaba82252b0",
-  "last_verified_main_checkpoint": "97add1fba716d380b9606886944ebeaba82252b0",
+  "merge_commit": "c4f661867f65296327b547889a1db11e2a32b471",
+  "last_verified_main_checkpoint": "c4f661867f65296327b547889a1db11e2a32b471",
   "repository_state": {
     "remaining_branches": [
       "main"
@@ -65,7 +65,7 @@
     "superseded_branches_deleted": true,
     "pr15_merged": true,
     "pr13_pr14_closed_as_superseded": true,
-    "latest_ci": "Passed on 2026-11-03: six PR #20 validation workflows succeeded; post-merge installer, quality, speed, OCR, audio and branch-cleanup checks succeeded.",
+    "latest_ci": "Passed on 2026-11-03: all seven PR #22 validation workflows succeeded, including installer, stop-patcher compatibility and Metal timeout guard tests; post-merge installer, quality, speed, OCR, audio and branch-cleanup checks are running.",
     "no_dead_branch_urls": true,
     "unattended_benchmark_local_only": true,
     "root_duplicate_helpers_removed": true,
@@ -85,7 +85,9 @@
     "pr17_full_distribution_installer_merged": true,
     "pr18_merged_branch_cleanup_workflow_merged": true,
     "merged_branch_cleanup_action_passed": true,
-    "foreign_git_clone_safe_install_fallback": true
+    "foreign_git_clone_safe_install_fallback": true,
+    "metal_timeout_and_submissions_ignored_recovery": true,
+    "current_async_runtime_stop_patcher_compatibility": true
   },
   "notice": "The repository contains reusable source and tests; per-video artifacts and raw local telemetry are intentionally kept out of the public distribution. MLX telemetry caveat is documented; no unsupported claim of per-operator GPU acceptance is made.",
   "retained_benchmark_data": "Anonymized aggregate timing/quality metrics and an anonymized VCE parameter-tuning summary only.",
@@ -98,7 +100,8 @@
     "native_app": "Built locally with Xcode Command Line Tools and installed to /Applications",
     "model_weights_included": false,
     "model_weights_download": "Downloaded to user cache at first analysis",
-    "automatic_recognition_language_patch": true
+    "automatic_recognition_language_patch": true,
+    "default_vlm_resolution": 768
   },
   "merge_pull_requests": [
     15,
@@ -106,6 +109,8 @@
     17,
     18,
     19,
-    20
+    20,
+    21,
+    22
   ]
 }
