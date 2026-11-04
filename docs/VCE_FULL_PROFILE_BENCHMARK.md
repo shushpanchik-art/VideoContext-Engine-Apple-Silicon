@@ -114,8 +114,8 @@ The pinned runner's original status rule treated HTTP 200 plus a non-empty `meta
 
 The patched runner records `http_status` / `api_status` separately from `status` and emits a local `stage_status.json` for API, Metal, VLM, Text LLM and Whisper:
 
-- `completed`: every stage requested by the profile has positive completion evidence; Text LLM additionally requires the runtime's explicit `success` status and returned enhanced analysis.
-- `degraded`: HTTP completed, but a requested optional/fallback-capable stage failed or lacks completion evidence. A Text LLM fallback is not a successful full profile.
+- `completed`: every stage requested by the profile has positive completion evidence and the runner reports `error_count=0`; Text LLM additionally requires the runtime's explicit `success` status and returned enhanced analysis.
+- `degraded`: HTTP completed, but a requested optional/fallback-capable stage failed or lacks completion evidence, or the runner reports any non-zero `error_count`. A Text LLM fallback is not a successful full profile; runtime errors must be reviewed from the local `errors.csv` before acceptance.
 - `failed`: HTTP/transport failure, a Metal command-buffer submission error, a VLM memory-guard shutdown, or an explicitly skipped/failed requested VLM stage.
 
 A profile is not comparable unless `status=completed`. A baseline that is failed or degraded stops the sequential matrix. The HTTP 200 value remains visible but cannot promote a profile to success.
