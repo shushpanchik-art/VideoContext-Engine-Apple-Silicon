@@ -222,6 +222,24 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertEqual(result["stage_status"]["whisper"]["status"], "skipped")
         self.assertEqual(result["stage_status"]["text_llm"]["status"], "skipped")
 
+    def test_whisper_only_without_audio_track_is_degraded_not_completed(self):
+        namespace = self._load()
+        fields = {
+            "analysis_mode": "whisper_ocr", "skip_audio": False, "skip_visual": True,
+            "text_llm_enabled": False,
+        }
+        payload = {
+            "meta": {
+                "params": {"audio_track_available": False, "audio_auto_skipped": True},
+                "timings": {"whisper": {"inference_time": 0.0}},
+            },
+            "text_llm": {"enabled": False, "status": "disabled", "inference_time": 0.0},
+        }
+        result = self._classify(namespace, fields=fields, payload=payload)
+        self.assertEqual(result["status"], "degraded")
+        self.assertTrue(result["stage_status"]["whisper"]["requested"])
+        self.assertEqual(result["stage_status"]["whisper"]["status"], "degraded")
+
     def test_vlm_requested_but_explicitly_skipped_by_runtime_is_failed(self):
         namespace = self._load()
         payload = {
