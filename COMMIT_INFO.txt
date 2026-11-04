@@ -2,50 +2,20 @@ Repository: VideoContext-Engine-Apple-Silicon
 Product: customized VideoContext Engine v3.19 for macOS / Apple Silicon
 Default branch: main
 
-LATEST VERIFIED AUDIT CHECKPOINT
-Main commit: ee132eeea4661b61980bfffe5cf232ac999b1a7d
-Audit date: 2026-11-04
-Boundary: after PR #30 merge and successful merged-topic cleanup workflow run 41868806204.
+SOURCE PROVENANCE (HISTORICAL)
+Upstream repository: dolphin-creator/VideoContext-Engine
+Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
 
-Pull requests:
-- Open: 0
-- Closed: 30
-- Merged: 23
-- Closed without merge: 7 (#3, #4, #6, #7, #12, #13, #14)
-- Latest merged PR: #30
-- Latest runtime/application PR: #27
+Initial full runtime distribution:
+- PR #15
+- Merge commit: 549186bbf9c4653955cb8d8f4d1e967055e80b55
 
-Branches and issues:
-- Remaining branches: main only
-- Open issues: 0
-- Open PRs: 0
-- Orphan chore/reconcile-audit-metadata-20261104 deleted by cleanup workflow
-- PR #30 head branch deleted by cleanup workflow after merge
+One-command installer and public Apple Silicon distribution:
+- PR #17
+- Merge commit: 9f96ea116aae0500a66ac280577a5b3d9086da5d
 
-Merge checkpoints:
-- PR #30 repository hygiene merge: ee132eeea4661b61980bfffe5cf232ac999b1a7d
-- PR #29 prior audit metadata merge: d7f0a83793340bde7010112e2f2ac16feeea7046
-- PR #27 runtime/application merge: 2276b939ce6f697f6f642453a4ba9ed698cba01e
-- Initial full runtime distribution PR #15: squash merge 549186bbf9c4653955cb8d8f4d1e967055e80b55
-- Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
+Native application process lifecycle:
+- PR #27
+- Merge commit: 2276b939ce6f697f6f642453a4ba9ed698cba01e
 
-Repository hygiene:
-- 131 tracked files; 1,799,161 bytes
-- No empty tracked files
-- No targeted backup/log/tmp/cache/venv/user-settings/raw per-video artifact matches
-
-CI at checkpoint:
-- Full distribution run 41868805849: distribution job success; native Swift compile queued at audit time.
-- Audio resilience V6 run 41868805610: success.
-- FFmpeg OCR worker run 41868805636: success.
-- VCE quality benchmark run 41868805402: success.
-- Merged-topic cleanup run 41868806204: success; live branch inventory then contained only main.
-- Last successful native Swift compile: run 41716538619 on checkpoint 2276b939ce6f697f6f642453a4ba9ed698cba01e.
-
-Governance:
-- Cleanup removes merged PR heads only when the current tip still equals the exact merged PR head SHA.
-- Orphan topic refs are removed only when ahead_by=0, with no open PR and not protected/default.
-- Default branch, protected branches, open-PR heads, non-topic refs and branches with unique commits are preserved.
-- Branch protection for main is disabled; CI is not a required merge gate.
-
-The public distribution excludes ML model weights, Python virtual environments, personal settings, source video/audio, raw telemetry, per-video JSON payloads, credentials, logs and backups. Anonymized aggregate benchmark data is retained.
+This file records stable source provenance only. Current branch inventory, open/closed PRs, issues, and CI results are intentionally not copied here; consult the live GitHub repository and Actions pages for those values.

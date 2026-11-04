@@ -1,64 +1,24 @@
 {
+  "schema_version": 2,
   "project": "VideoContext Engine — Apple Silicon",
   "runtime": "VideoContext Engine v3.19",
   "distribution_branch": "main",
   "publication_status": "merged_installable_distribution",
-  "merge_commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-  "initial_distribution_merge_commit": "c4f661867f65296327b547889a1db11e2a32b471",
-  "last_verified_main_checkpoint": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-  "repository_state": {
-    "remaining_branches": [
-      "main"
-    ],
-    "open_pull_requests": 0,
-    "closed_pull_requests": 30,
-    "merged_pull_requests": 23,
-    "closed_without_merge_pull_requests": [
-      3,
-      4,
-      6,
-      7,
-      12,
-      13,
-      14
-    ],
-    "historical_superseded_branches_deleted": 14,
-    "cleanup_workflow": ".github/workflows/cleanup-merged-topic-branches.yml",
-    "merged_topic_branch_cleanup": "Verified success: run 41868806204 on main ee132eeea4661b61980bfffe5cf232ac999b1a7d; the workflow removed the merged PR #30 topic ref and the orphan chore/reconcile-audit-metadata-20261104 ref. Live branch inventory after cleanup contains only main.",
-    "main_branch_protection": "disabled; CI workflows run on push and are not required status checks",
-    "latest_merged_pull_request": 30,
-    "audit_snapshot_boundary": "Post-merge inventory verified on 2026-11-04 at main ee132eeea4661b61980bfffe5cf232ac999b1a7d, after PR #30 and successful merged-topic cleanup run 41868806204. Counts refer to this exact checkpoint.",
-    "closed_without_merge_disposition": [
-      {
-        "pr": 3,
-        "disposition": "Early standalone-window prototype; superseded by the current managed AppKit/WebKit application and PR #27 lifecycle work."
-      },
-      {
-        "pr": 4,
-        "disposition": "Alternative early native-window implementation; superseded by the current managed AppKit/WebKit application and PR #27 lifecycle work."
-      },
-      {
-        "pr": 6,
-        "disposition": "Legacy timing-only summary reconstructed from terminal output; not selected as a canonical benchmark artifact. Current main retains the anonymized aggregate benchmark documentation and metrics."
-      },
-      {
-        "pr": 7,
-        "disposition": "Raw per-run benchmark reports/settings and full local outputs; intentionally excluded from the public repository. Anonymized aggregate metrics are retained instead."
-      },
-      {
-        "pr": 12,
-        "disposition": "Explicitly superseded by PR #13 because the initial patcher targeted an older source layout and failed preflight."
-      },
-      {
-        "pr": 13,
-        "disposition": "Closed after selective migration of reusable observed-run/watchdog code and tests; raw installed-app snapshots and process/Metal telemetry were excluded. Current main contains scripts/vce_observed_run.py, scripts/vce_runtime_watchdog.py and their tests/docs."
-      },
-      {
-        "pr": 14,
-        "disposition": "Closed after selective migration of the generic structural audit and source-aware lexical-grounding tools, tests and docs. Raw per-video Text LLM outputs and review bundles were excluded."
-      }
-    ],
-    "latest_runtime_change_pull_request": 27
+  "source_provenance": {
+    "upstream_repository": "dolphin-creator/VideoContext-Engine",
+    "upstream_reference_commit": "4a42b4a309d9d7d8f7f944c2e210a027940208f3",
+    "initial_full_runtime_distribution": {
+      "pull_request": 15,
+      "merge_commit": "549186bbf9c4653955cb8d8f4d1e967055e80b55"
+    },
+    "one_command_installer_distribution": {
+      "pull_request": 17,
+      "merge_commit": "9f96ea116aae0500a66ac280577a5b3d9086da5d"
+    },
+    "native_app_process_lifecycle": {
+      "pull_request": 27,
+      "merge_commit": "2276b939ce6f697f6f642453a4ba9ed698cba01e"
+    }
   },
   "public_contents": [
     "Complete customized Python runtime and matching web interface",
@@ -98,98 +58,6 @@
     "Logs, backup copies and temporary files",
     "Credentials and local secrets"
   ],
-  "checks": {
-    "runtime_and_ui_present": true,
-    "settings_examples_valid_json": true,
-    "no_developer_absolute_video_paths_in_benchmark_or_watchdog": true,
-    "benchmark_upload_opt_in": true,
-    "benchmark_inputs_explicit": true,
-    "no_empty_tracked_files": true,
-    "no_open_pull_requests": true,
-    "only_main_branch_remains": true,
-    "superseded_branches_deleted": true,
-    "pr15_merged": true,
-    "pr13_pr14_closed_as_superseded": true,
-    "latest_ci": "Post-PR-#30 main checkpoint ee132ee: distribution validation, audio resilience V6, FFmpeg OCR-worker tests, VCE quality benchmark tests and merged-topic cleanup all succeeded. The native Swift compile job remained queued at the time of this audit; the latest successful native Swift compile remains run 41716538619 on code checkpoint 2276b939.",
-    "latest_ci_runs": [
-      {
-        "workflow": "Full distribution installer validation",
-        "run_id": 41868805849,
-        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-        "distribution_job": "success",
-        "native_swift_compile": "queued_at_audit"
-      },
-      {
-        "workflow": "Audio resilience V6 patch tests",
-        "run_id": 41868805610,
-        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-        "conclusion": "success"
-      },
-      {
-        "workflow": "FFmpeg OCR worker setting tests",
-        "run_id": 41868805636,
-        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-        "conclusion": "success"
-      },
-      {
-        "workflow": "VCE quality benchmark tests",
-        "run_id": 41868805402,
-        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-        "conclusion": "success"
-      },
-      {
-        "workflow": "Cleanup merged and fully integrated topic branches",
-        "run_id": 41868806204,
-        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-        "conclusion": "success"
-      }
-    ],
-    "no_dead_branch_urls": true,
-    "unattended_benchmark_local_only": true,
-    "root_duplicate_helpers_removed": true,
-    "legacy_overlay_publisher_removed": true,
-    "full_per_video_vce_json_removed": true,
-    "raw_text_llm_outputs_removed": true,
-    "local_absolute_path_comparison_report_removed": true,
-    "branch_links_in_docs_removed": true,
-    "private_video_identity_in_aggregate_metrics_redacted": true,
-    "per_video_payloads_removed": true,
-    "anonymized_aggregate_benchmarks_retained": true,
-    "one_command_installer_added": true,
-    "native_app_staging_outside_git_checkout": true,
-    "mlx_whisper_dependency_declared": true,
-    "recognition_language_patch_applied_by_clean_installer": true,
-    "pr16_recognition_languages_merged": true,
-    "pr17_full_distribution_installer_merged": true,
-    "pr18_merged_branch_cleanup_workflow_merged": true,
-    "merged_branch_cleanup_action_passed": true,
-    "foreign_git_clone_safe_install_fallback": true,
-    "metal_timeout_and_submissions_ignored_recovery": true,
-    "current_async_runtime_stop_patcher_compatibility": true,
-    "native_app_engine_process_lifecycle_merged": true,
-    "last_successful_native_swift_compile": {
-      "workflow": "Full distribution installer validation",
-      "run_id": 41716538619,
-      "commit": "2276b939ce6f697f6f642453a4ba9ed698cba01e",
-      "conclusion": "success"
-    },
-    "pr28_merged": true,
-    "targeted_artifact_hygiene_scan_clean": true,
-    "closed_pr_dispositions_documented": true,
-    "historical_superseded_branches_deleted": true,
-    "orphan_topic_branch_has_no_unique_commits": true,
-    "orphan_topic_branch_has_no_open_pr": true,
-    "cleanup_workflow_preserves_divergent_and_open_branches": true,
-    "tree_file_count": 131,
-    "tree_total_bytes": 1799161,
-    "no_open_issues": true,
-    "cleanup_workflow_post_merge_success": true,
-    "cleanup_workflow_run": 41868806204
-  },
-  "notice": "This audit snapshot is post-PR-#30 and records only main after the merged-topic cleanup workflow succeeded. Per-video artifacts and raw local telemetry are intentionally excluded from the public distribution; MLX telemetry caveats are documented.",
-  "retained_benchmark_data": "Two anonymized aggregate timing/quality metrics files and an anonymized VCE parameter-tuning summary only. The retained metric manifests use video_identity=redacted_local_sample, video_sha256=null and raw_video_and_vce_scene_payload_uploaded=false.",
-  "code_validation_commit": "eec9fbaf44fcd6156630c55b302f2cf803776a28",
-  "privacy_cleanup_commit": "1f742ea72951bb171d198cbd9f90f3da6151557d",
   "distribution": {
     "supported_platform": "macOS Apple Silicon",
     "source_archive": "https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/archive/refs/heads/main.zip",
@@ -200,28 +68,17 @@
     "automatic_recognition_language_patch": true,
     "default_vlm_resolution": 768
   },
-  "merge_pull_requests": [
-    15,
-    16,
-    17,
-    18,
-    19,
-    20,
-    21,
-    22,
-    23,
-    24,
-    25,
-    26,
-    27,
-    28,
-    29,
-    30
-  ],
-  "latest_repository_audit_commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
-  "latest_repository_maintenance_pr": 30,
-  "latest_runtime_merge_commit": "2276b939ce6f697f6f642453a4ba9ed698cba01e",
-  "latest_runtime_merge_pr": 27,
-  "latest_repository_audit_pr": 30,
-  "latest_repository_maintenance_merge_commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d"
+  "retained_benchmark_data": "Two anonymized aggregate timing/quality metrics files and an anonymized VCE parameter-tuning summary only. The retained metric manifests use video_identity=redacted_local_sample, video_sha256=null and raw_video_and_vce_scene_payload_uploaded=false.",
+  "publication_contract": {
+    "complete_customized_runtime_and_matching_web_ui_included": true,
+    "sanitized_settings_examples_included": true,
+    "local_user_settings_and_model_weights_excluded": true,
+    "benchmark_input_requires_explicit_selection": true,
+    "github_upload_disabled_by_default": true,
+    "generated_model_output_upload_requires_explicit_opt_in": true,
+    "unattended_benchmark_upload_disabled": true,
+    "per_video_outputs_and_raw_local_telemetry_excluded": true,
+    "retained_benchmark_metrics_anonymized": true
+  },
+  "notice": "This manifest describes the intended public distribution, provenance, and privacy boundaries. Live branch, pull-request, issue, and CI state belongs to GitHub and is intentionally not duplicated here."
 }
