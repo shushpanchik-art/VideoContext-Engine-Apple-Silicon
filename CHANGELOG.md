@@ -8,7 +8,7 @@
 - Persisted the selected project path for the installed macOS app and made the native installer respect `VCE_PROJECT_DIR`.
 - Documented GitHub ZIP download, model-cache exclusions, Tesseract language data and installation safety/backup behavior.
 
-## Post-0.2.5 maintenance (2026-11-03)
+## Post-0.2.5 maintenance (2026-11-03—2026-11-04)
 
 - PR #18 added the persistent merged-topic cleanup workflow. On pushes to `main`, it removes only merged PR branches from this repository, while preserving the default branch and branches used by open PRs. This is the active replacement for the earlier one-time cleanup process described in the 0.2.1 history below.
 - PR #22 and PR #26 hardened Metal recovery: command-buffer timeouts are not treated as retryable allocation/OOM failures, and VLM generation stops after a timed-out Metal queue while other report stages can continue.
@@ -16,6 +16,7 @@
 - PR #24 made the managed macOS app patcher refresh independently when local runtime edits cause the installer to skip `git pull`.
 - PR #25 fixed Homebrew PATH handling for GUI-launched servers and added explicit `ffmpeg`/`ffprobe` checks.
 - PR #27 made the native app own the Python engine process lifecycle, with project-scoped stale-process cleanup on launch and shutdown.
+- PR #28 reconciled repository publication metadata and added publication-manifest JSON validation to the full distribution CI workflow.
 
 ## 0.2.3 — Remove per-video outputs from public tree (2026-11-02)
 

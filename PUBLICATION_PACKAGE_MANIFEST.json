@@ -3,16 +3,16 @@
   "runtime": "VideoContext Engine v3.19",
   "distribution_branch": "main",
   "publication_status": "merged_installable_distribution",
-  "merge_commit": "2276b939ce6f697f6f642453a4ba9ed698cba01e",
+  "merge_commit": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
   "initial_distribution_merge_commit": "c4f661867f65296327b547889a1db11e2a32b471",
-  "last_verified_main_checkpoint": "2276b939ce6f697f6f642453a4ba9ed698cba01e",
+  "last_verified_main_checkpoint": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
   "repository_state": {
     "remaining_branches": [
       "main"
     ],
     "open_pull_requests": 0,
-    "closed_pull_requests": 27,
-    "merged_pull_requests": 20,
+    "closed_pull_requests": 28,
+    "merged_pull_requests": 21,
     "closed_without_merge_pull_requests": [
       3,
       4,
@@ -24,8 +24,41 @@
     ],
     "historical_superseded_branches_deleted": 14,
     "cleanup_workflow": ".github/workflows/cleanup-merged-topic-branches.yml",
-    "merged_topic_branch_cleanup": "active_and_verified; latest run 41716538573 succeeded on main HEAD 2276b939ce6f697f6f642453a4ba9ed698cba01e",
-    "main_branch_protection": "disabled; CI workflows run on push and are not required status checks"
+    "merged_topic_branch_cleanup": "active_and_verified; run 41860685874 succeeded on main HEAD f71c7efb0b6d466eda315c1182061bab18dd7f3d",
+    "main_branch_protection": "disabled; CI workflows run on push and are not required status checks",
+    "latest_merged_pull_request": 28,
+    "audit_snapshot_boundary": "Snapshot taken on main at f71c7ef before final metadata PR #29; counts describe the repository immediately before that PR, not live post-merge counts.",
+    "closed_without_merge_disposition": [
+      {
+        "pr": 3,
+        "disposition": "Early standalone-window prototype; superseded by the current managed AppKit/WebKit application and PR #27 lifecycle work."
+      },
+      {
+        "pr": 4,
+        "disposition": "Alternative early native-window implementation; superseded by the current managed AppKit/WebKit application and PR #27 lifecycle work."
+      },
+      {
+        "pr": 6,
+        "disposition": "Legacy timing-only summary reconstructed from terminal output; not selected as a canonical benchmark artifact. Current main retains the anonymized aggregate benchmark documentation and metrics."
+      },
+      {
+        "pr": 7,
+        "disposition": "Raw per-run benchmark reports/settings and full local outputs; intentionally excluded from the public repository. Anonymized aggregate metrics are retained instead."
+      },
+      {
+        "pr": 12,
+        "disposition": "Explicitly superseded by PR #13 because the initial patcher targeted an older source layout and failed preflight."
+      },
+      {
+        "pr": 13,
+        "disposition": "Closed after selective migration of reusable observed-run/watchdog code and tests; raw installed-app snapshots and process/Metal telemetry were excluded. Current main contains scripts/vce_observed_run.py, scripts/vce_runtime_watchdog.py and their tests/docs."
+      },
+      {
+        "pr": 14,
+        "disposition": "Closed after selective migration of the generic structural audit and source-aware lexical-grounding tools, tests and docs. Raw per-video Text LLM outputs and review bundles were excluded."
+      }
+    ],
+    "latest_runtime_change_pull_request": 27
   },
   "public_contents": [
     "Complete customized Python runtime and matching web interface",
@@ -77,36 +110,37 @@
     "superseded_branches_deleted": true,
     "pr15_merged": true,
     "pr13_pr14_closed_as_superseded": true,
-    "latest_ci": "Passed on 2026-11-03 on main HEAD 2276b939ce6f697f6f642453a4ba9ed698cba01e: all six post-merge push workflows succeeded. Full distribution validation included native Swift compilation, shell syntax, JSON and installer contract tests; the merged-topic cleanup workflow also passed.",
+    "latest_ci": "On main HEAD f71c7efb0b6d466eda315c1182061bab18dd7f3d: distribution job of Full distribution installer validation passed (shell syntax, example JSON, publication manifest JSON and installer contract tests); native-swift-compile was queued at audit time. Audio resilience V6, FFmpeg OCR worker, VCE quality benchmark and merged-topic cleanup workflows passed. The preceding code-change checkpoint 2276b939ce6f697f6f642453a4ba9ed698cba01e had a successful full distribution run including native Swift compilation.",
     "latest_ci_runs": [
       {
         "workflow": "Full distribution installer validation",
-        "run_id": 41716538619,
-        "conclusion": "success"
+        "run_id": 41860686648,
+        "commit": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
+        "distribution_job": "success",
+        "native_swift_compile": "queued_at_audit"
       },
       {
         "workflow": "Audio resilience V6 patch tests",
-        "run_id": 41716538540,
+        "run_id": 41860685802,
+        "commit": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
         "conclusion": "success"
       },
       {
         "workflow": "FFmpeg OCR worker setting tests",
-        "run_id": 41716538534,
-        "conclusion": "success"
-      },
-      {
-        "workflow": "VCE speed profile and macOS menu bar tests",
-        "run_id": 41716538552,
+        "run_id": 41860685871,
+        "commit": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
         "conclusion": "success"
       },
       {
         "workflow": "VCE quality benchmark tests",
-        "run_id": 41716538538,
+        "run_id": 41860685856,
+        "commit": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
         "conclusion": "success"
       },
       {
         "workflow": "Cleanup merged topic branches",
-        "run_id": 41716538573,
+        "run_id": 41860685874,
+        "commit": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
         "conclusion": "success"
       }
     ],
@@ -132,7 +166,16 @@
     "foreign_git_clone_safe_install_fallback": true,
     "metal_timeout_and_submissions_ignored_recovery": true,
     "current_async_runtime_stop_patcher_compatibility": true,
-    "native_app_engine_process_lifecycle_merged": true
+    "native_app_engine_process_lifecycle_merged": true,
+    "last_successful_native_swift_compile": {
+      "workflow": "Full distribution installer validation",
+      "run_id": 41716538619,
+      "commit": "2276b939ce6f697f6f642453a4ba9ed698cba01e",
+      "conclusion": "success"
+    },
+    "pr28_merged": true,
+    "targeted_artifact_hygiene_scan_clean": true,
+    "closed_pr_dispositions_documented": true
   },
   "notice": "The repository contains reusable source and tests; per-video artifacts and raw local telemetry are intentionally kept out of the public distribution. MLX telemetry caveat is documented; no unsupported claim of per-operator GPU acceptance is made.",
   "retained_benchmark_data": "Two anonymized aggregate timing/quality metrics files and an anonymized VCE parameter-tuning summary only. The retained metric manifests use video_identity=redacted_local_sample, video_sha256=null and raw_video_and_vce_scene_payload_uploaded=false.",
@@ -161,6 +204,11 @@
     24,
     25,
     26,
-    27
-  ]
+    27,
+    28
+  ],
+  "latest_repository_audit_commit": "f71c7efb0b6d466eda315c1182061bab18dd7f3d",
+  "latest_repository_maintenance_pr": 28,
+  "latest_runtime_merge_commit": "2276b939ce6f697f6f642453a4ba9ed698cba01e",
+  "latest_runtime_merge_pr": 27
 }
