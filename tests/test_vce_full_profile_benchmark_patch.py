@@ -19,7 +19,7 @@ SPEC.loader.exec_module(PATCHER)
 STUB_RUNNER = """import json
 def jsonl_append(path, payload):
     with path.open('a', encoding='utf-8') as handle:
-        handle.write(json.dumps(payload) + "\\n")
+        handle.write(json.dumps(payload) + "\\\\n")
 
 def build_plan():
     return [
@@ -42,24 +42,36 @@ def build_base_fields():
     }
     missing = []
     return fields, missing
+
+def run_one(run_root, key="baseline", index=1):
+    progress_path = "/api/v1/progress/job123"
+    jsonl_append(progress_path, {"p": 1})
 """
 
 
 class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
-    def _load(self, source: str):
+    def _load(self):
         namespace = {}
-        exec(compile(PATCHER.patch_source(source), "<test-runner>", "exec"), namespace)
+        exec(compile(PATCHER.patch_source(STUB_RUNNER), "<test-runner>", "exec"), namespace)
         return namespace
 
     def test_string_path_is_normalized_before_path_open(self):
-        namespace = self._load(STUB_RUNNER)
+        namespace = self._load()
         with tempfile.TemporaryDirectory() as temp:
             target = Path(temp) / "progress.jsonl"
             namespace["jsonl_append"](str(target), {"status": "ok"})
             self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"status": "ok"})
 
+    def test_api_progress_endpoint_is_redirected_to_local_trace(self):
+        namespace = self._load()
+        with tempfile.TemporaryDirectory() as temp:
+            namespace["run_one"](temp)
+            target = Path(temp) / "01_baseline" / "progress_trace.jsonl"
+            self.assertTrue(target.exists())
+            self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"p": 1})
+
     def test_baseline_flag_limits_plan_without_changing_default(self):
-        namespace = self._load(STUB_RUNNER)
+        namespace = self._load()
         self.assertEqual(len(namespace["build_plan"]()), 3)
         with patch.dict(os.environ, {"VCE_BENCH_ONLY_BASELINE": "1"}):
             plan = namespace["build_plan"]()
@@ -67,7 +79,7 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertEqual(plan[0][0], "baseline")
 
     def test_whisper_only_mode_keeps_speech_and_disables_other_models(self):
-        namespace = self._load(STUB_RUNNER)
+        namespace = self._load()
         with patch.dict(os.environ, {"VCE_BENCH_WHISPER_ONLY": "1"}):
             fields, missing = namespace["build_base_fields"]()
         self.assertEqual(missing, [])
@@ -83,8 +95,7 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
 
     def test_patch_is_idempotent(self):
         once = PATCHER.patch_source(STUB_RUNNER)
-        twice = PATCHER.patch_source(once)
-        self.assertEqual(once, twice)
+        self.assertEqual(PATCHER.patch_source(once), once)
 
 
 if __name__ == "__main__":

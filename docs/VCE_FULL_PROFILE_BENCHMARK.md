@@ -83,3 +83,10 @@ Use `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1` for a single baseline r
 ### Immutable source pin
 
 The one-command launcher pins the runner and patch-helper downloads to commit `9579f659d7543dadcb795dd82187d4ab5573608c` rather than the mutable `main` branch. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing an old helper with a new launcher. It also prints the pinned source revision and helper URL before applying the patch.
+
+
+### Progress-trace routing fix (2026-11-04)
+
+The second diagnostic run proved that Whisper completed successfully: four MLX Whisper chunks were transcribed, the detected language was Russian, total Whisper inference was 185.99 seconds, and the VCE analyze endpoint returned HTTP 200. The benchmark runner then failed when it passed the API endpoint string `/api/v1/progress/<job_id>` into the local JSONL writer.
+
+Patch v2 now detects that API-route value at the JSONL writer boundary and writes the snapshot to the per-profile local file `<run_root>/<index>_<profile>/progress_trace.jsonl`. It uses the active `run_root`, profile key, and index from the caller frame. This does not modify the endpoint used for network polling. Regression tests cover the API-route collision, ordinary string paths, baseline-only mode, Whisper-preserving mode, and patch idempotence.

@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Patch the downloaded benchmark runner in its temporary directory.
+"""Patch a downloaded VCE benchmark runner in its temporary directory.
 
-This adapter:
-- converts the JSONL writer path from str to pathlib.Path;
-- optionally limits execution to the baseline profile;
-- optionally makes a speech-only diagnostic request that PRESERVES Whisper and
-  disables Qwen3-VL, OCR and Qwen3.5 post-processing for clean fault isolation.
+The adapter fixes two observed runner defects:
+- converts local JSONL paths to pathlib.Path;
+- redirects an API progress endpoint accidentally passed to jsonl_append()
+  into the run's local progress_trace.jsonl file.
 
+It also provides opt-in baseline-only and Whisper-only diagnostic modes.
 It never edits the installed VCE source or persisted settings.
 """
 from __future__ import annotations
@@ -22,9 +22,7 @@ def _top_level_function(tree: ast.Module, name: str) -> ast.FunctionDef | ast.As
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name
     ]
     if len(matches) != 1:
-        raise RuntimeError(
-            f"Expected exactly one top-level {name}() definition; found {len(matches)}"
-        )
+        raise RuntimeError(f"Expected exactly one top-level {name}() definition; found {len(matches)}")
     return matches[0]
 
 
@@ -34,11 +32,9 @@ def _insert_after_function(source: str, function_name: str, wrapper: str, marker
     tree = ast.parse(source)
     target = _top_level_function(tree, function_name)
     lines = source.splitlines(keepends=True)
-    insertion = target.end_lineno
-    if insertion is None:
+    if target.end_lineno is None:
         raise RuntimeError(f"Cannot determine end of {function_name}()")
-    block = wrapper.rstrip() + "\n"
-    lines.insert(insertion, block)
+    lines.insert(target.end_lineno, wrapper.rstrip() + "\n")
     patched = "".join(lines)
     compile(patched, "<patched-vce-benchmark-runner>", "exec")
     return patched
@@ -50,18 +46,50 @@ def patch_source(source: str) -> str:
     source = _insert_after_function(
         source,
         "jsonl_append",
-        """# VCE_BENCH_JSONL_PATH_COMPAT
+        r'''# VCE_BENCH_JSONL_PATH_COMPAT_V2
 _vce_original_jsonl_append = jsonl_append
 def jsonl_append(path, *args, **kwargs):
     from pathlib import Path as _VCEPath
-    return _vce_original_jsonl_append(_VCEPath(path), *args, **kwargs)""",
-        "# VCE_BENCH_JSONL_PATH_COMPAT",
+    _raw_path = str(path)
+    if _raw_path.startswith("/api/v1/progress/") or "/api/v1/progress/" in _raw_path:
+        import inspect as _vce_inspect
+        _caller = _vce_inspect.currentframe().f_back
+        _locals = _caller.f_locals if _caller is not None else {}
+        _run_root = _locals.get("run_root")
+        if _run_root is None:
+            raise RuntimeError("VCE progress endpoint was passed to jsonl_append(), but run_root is unavailable")
+        _run_root = _VCEPath(_run_root)
+        _profile_key = str(_locals.get("key", "baseline"))
+        try:
+            _profile_index = int(_locals.get("index", 1))
+        except (TypeError, ValueError):
+            _profile_index = 1
+        _profile_dir = None
+        for _name in ("profile_dir", "case_dir", "run_dir", "output_dir"):
+            _candidate = _locals.get(_name)
+            if isinstance(_candidate, (str, _VCEPath)):
+                _candidate = _VCEPath(_candidate)
+                try:
+                    _candidate.relative_to(_run_root)
+                except ValueError:
+                    continue
+                if _candidate.exists() and _candidate.is_dir():
+                    _profile_dir = _candidate
+                    break
+        if _profile_dir is None:
+            _profile_dir = _run_root / f"{_profile_index:02d}_{_profile_key}"
+        _profile_dir.mkdir(parents=True, exist_ok=True)
+        path = _profile_dir / "progress_trace.jsonl"
+    else:
+        path = _VCEPath(path)
+    return _vce_original_jsonl_append(path, *args, **kwargs)''',
+        "# VCE_BENCH_JSONL_PATH_COMPAT_V2",
     )
 
     source = _insert_after_function(
         source,
         "build_plan",
-        """# VCE_BENCH_DIAGNOSTIC_BASELINE_WRAPPER
+        r'''# VCE_BENCH_DIAGNOSTIC_BASELINE_WRAPPER_V2
 _vce_original_build_plan = build_plan
 def build_plan(*args, **kwargs):
     _vce_plan = _vce_original_build_plan(*args, **kwargs)
@@ -69,14 +97,14 @@ def build_plan(*args, **kwargs):
         if not isinstance(_vce_plan, (list, tuple)) or not _vce_plan:
             raise RuntimeError("build_plan() returned an unexpected value; cannot select baseline")
         return _vce_plan[:1]
-    return _vce_plan""",
-        "# VCE_BENCH_DIAGNOSTIC_BASELINE_WRAPPER",
+    return _vce_plan''',
+        "# VCE_BENCH_DIAGNOSTIC_BASELINE_WRAPPER_V2",
     )
 
     source = _insert_after_function(
         source,
         "build_base_fields",
-        """# VCE_BENCH_DIAGNOSTIC_WHISPER_ONLY_WRAPPER
+        r'''# VCE_BENCH_DIAGNOSTIC_WHISPER_ONLY_WRAPPER_V2
 _vce_original_build_base_fields = build_base_fields
 def build_base_fields(*args, **kwargs):
     _vce_result = _vce_original_build_base_fields(*args, **kwargs)
@@ -99,8 +127,8 @@ def build_base_fields(*args, **kwargs):
     _vce_fields['enable_ffmpeg_ocr'] = False
     _vce_fields['text_llm_enabled'] = False
     _vce_fields['generate_summary'] = False
-    return _vce_fields, _vce_missing""",
-        "# VCE_BENCH_DIAGNOSTIC_WHISPER_ONLY_WRAPPER",
+    return _vce_fields, _vce_missing''',
+        "# VCE_BENCH_DIAGNOSTIC_WHISPER_ONLY_WRAPPER_V2",
     )
 
     compile(source, "<patched-vce-benchmark-runner>", "exec")
@@ -112,13 +140,9 @@ def main() -> int:
         print("Usage: patch_vce_full_profile_benchmark.py <runner.py>", file=sys.stderr)
         return 2
     runner = Path(sys.argv[1])
-    source = runner.read_text(encoding="utf-8")
-    patched = patch_source(source)
-    if patched != source:
-        runner.write_text(patched, encoding="utf-8")
-        print("Applied benchmark compatibility and opt-in Whisper-only diagnostic guards.")
-    else:
-        print("Benchmark compatibility and diagnostic guards already present.")
+    patched = patch_source(runner.read_text(encoding="utf-8"))
+    runner.write_text(patched, encoding="utf-8")
+    print("Applied VCE benchmark patch v2: JSONL path routing, baseline limit and Whisper-only diagnostic mode.")
     return 0
 
 
