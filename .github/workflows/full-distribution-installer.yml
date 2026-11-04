@@ -18,12 +18,13 @@ on:
       - "docs/INSTALL_FROM_PUBLIC_REPO.md"
       - "tests/test_vce_public_installer.py"
       - "tests/test_vce_stop_mps_patch.py"
+      - "tests/test_vce_repository_hygiene.py"
       - "tests/test_vce_metal_timeout_guard.py"
       - "patches/patch_vce_stop_and_mps.py"
       - "VideoContextEngine_v3.19.py"
-      - "config/videocontext_settings.apple_silicon.example.json"
       - "docs/MEMORY_SAFETY_AND_VIDEO_COMPATIBILITY.md"
       - "docs/MLX_METAL_DIAGNOSTICS.md"
+      - ".github/workflows/cleanup-merged-topic-branches.yml"
       - ".github/workflows/full-distribution-installer.yml"
   push:
     branches: [main]
@@ -85,3 +86,4 @@ jobs:
           python -m unittest discover -s tests -p "test_vce_public_installer.py" -v
           python -m unittest discover -s tests -p "test_vce_stop_mps_patch.py" -v
           python -m unittest discover -s tests -p "test_vce_metal_timeout_guard.py" -v
+          python -m unittest discover -s tests -p "test_vce_repository_hygiene.py" -v
