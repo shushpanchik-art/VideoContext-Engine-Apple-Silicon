@@ -104,7 +104,7 @@ done
 } > "$DEST/launcher_status.txt"
 
 git -C "$PUBLISH_DIR" add "benchmark-results/$STAMP"
-if git -C "$PUBLISH_DIR" -c user.name="$(gh api user --jq .login)" -c user.email="$(gh api user --jq '.id' | /usr/bin/sed 's/.*/\0+\0@users.noreply.github.com/')" commit -m "Add local Apple Silicon benchmark results $STAMP"; then
+if git -C "$PUBLISH_DIR" -c user.name="$(gh api user --jq .login)" -c user.email="$(gh api user --jq .id)+$(gh api user --jq .login)@users.noreply.github.com" commit -m "Add local Apple Silicon benchmark results $STAMP"; then
   git -C "$PUBLISH_DIR" push origin "$PUBLISH_BRANCH" || {
     echo "ERROR: commit создан локально, но push не выполнен. Результаты: $RUN_DIR"
     exit 5
