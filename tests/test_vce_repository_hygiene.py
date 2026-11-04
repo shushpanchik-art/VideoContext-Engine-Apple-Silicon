@@ -86,7 +86,7 @@ class TestRepositoryHygiene(unittest.TestCase):
             "549186bbf9c4653955cb8d8f4d1e967055e80b55",
         )
         self.assertFalse(manifest["privacy_defaults"]["github_upload_enabled_by_default"])
-        self.assertFalse(manifest["publication_contract"]["local_user_settings_and_model_weights_excluded"] is False)
+        self.assertTrue(manifest["publication_contract"]["local_user_settings_and_model_weights_excluded"])
         # Volatile repository state belongs to GitHub, not to the distribution manifest.
         for key in (
             "repository_state",
