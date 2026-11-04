@@ -63,3 +63,13 @@ VLM resolution выбирается по объёму unified memory: 1280 px п
 The one-command launcher now downloads a small patch helper alongside the compressed runner. It normalizes the argument passed to `jsonl_append()` with `pathlib.Path` before the JSONL writer calls `.open()`. This addresses the observed runner-side `AttributeError: 'str' object has no attribute 'open'` and restores progress/error telemetry collection. The patch is applied only to the temporary unpacked runner; it does not edit the installed VCE runtime or user settings.
 
 This is deliberately separate from engine-native crashes. A Python `SIGSEGV` in Apple `libBNNS.dylib` is outside Python exception handling and cannot be repaired by the benchmark launcher. Treat a runner error and a VCE process crash as distinct events; use the macOS crash report and server log to isolate the native backend.
+
+
+### Isolated crash-diagnostic switches
+
+The launcher supports two opt-in environment variables for a controlled one-profile diagnostic:
+
+- `VCE_BENCH_ONLY_BASELINE=1` limits the plan to the baseline profile.
+- `VCE_BENCH_SKIP_AUDIO=1` sets `skip_audio=true`, disables audio features, and disables word timestamps for that request. This bypasses Whisper inference while leaving the visual/VLM/OCR path enabled.
+
+These switches are applied only to the in-memory request fields. They do not persist settings or rewrite local configuration. This diagnostic is not a performance or accuracy benchmark. Comparing the result with a normal run can help isolate whether a native crash is associated with the audio/Whisper path; a successful run alone does not prove causation.
