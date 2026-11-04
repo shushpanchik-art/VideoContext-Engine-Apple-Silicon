@@ -2,13 +2,13 @@
 
 ## Запуск одной командой
 
-После установки проекта в `~/VideoContext-Engine` и первого открытия приложения укажите путь к видео через `VCE_VIDEO_PATH` и скопируйте команду в Terminal. Launcher загружает с GitHub сжатый Python runner, распаковывает его во временный файл и удаляет после выполнения:
+После установки проекта в `~/VideoContext-Engine` и авторизации GitHub CLI (`gh auth login`) скопируйте команду в Terminal. Путь к указанному тестовому видео уже задан в launcher; при необходимости его можно переопределить через `VCE_VIDEO_PATH`. Launcher загружает с GitHub сжатый Python runner, распаковывает его во временный файл и удаляет после выполнения:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/scripts/run_vce_full_profile_benchmark.command | VCE_VIDEO_PATH="$HOME/Downloads/video.mp4" /bin/bash
+curl -fsSL https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command | /bin/bash
 ```
 
-Путь к исходному файлу можно изменить, не редактируя скрипт. Если `VCE_VIDEO_PATH` не задан, используется `~/Downloads/video.mp4`.
+Путь по умолчанию: `/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4`. Переопределить его можно через `VCE_VIDEO_PATH`. Каталог проекта задаётся через `VCE_PROJECT_DIR` (по умолчанию `~/VideoContext-Engine`). Для автоматической публикации нужен установленный и авторизованный GitHub CLI: `brew install gh && gh auth login` (один раз).
 
 Скрипт сам пытается открыть `/Applications/VideoContext Engine.app`, если API `127.0.0.1:7555` ещё не запущен. При нестандартном каталоге установки можно задать `VCE_PROJECT_DIR`; дополнительные аргументы передаются runner, например `--dry-run` или `--no-combined`.
 
@@ -53,7 +53,7 @@ VLM resolution выбирается по объёму unified memory: 1280 px п
 - `errors.csv` и per-run `errors.log`;
 - per-run `response.json`, `stage_timings.json/csv`, `progress_trace.jsonl`, `process_samples.jsonl`, `powermetrics_gpu_power.jsonl`, `server_log_delta.log`.
 
-Полные ответы могут содержать исходный транскрипт, OCR и содержимое видео. Скрипт не меняет `videocontext_settings.json`, не перезаписывает пользовательские TXT/JSON и не загружает видео, ответы, логи или результаты в GitHub. Не добавляйте папку результатов в Git.
+Полные ответы могут содержать исходный транскрипт, OCR и содержимое видео. Скрипт не меняет `videocontext_settings.json` и не перезаписывает пользовательские TXT/JSON. После завершения он автоматически создаёт commit в ветке `feat/experimental-benchmark-launcher` и отправляет только агрегированные `summary.md`, `stage_comparison.csv`, `run_summary.csv`, `errors.csv`, отфильтрованные error excerpts и статус запуска в `benchmark-results/<UTC timestamp>/`. Видео, транскрипт, OCR-текст, полный API response, модельные ответы и сырые process/server logs остаются локально. Локальная полная диагностика хранится в `$HOME/Downloads/VCE_Full_Profile_Benchmark/<run_id>/`.
 
 Без размеченного эталонного транскрипта нельзя вычислить WER/CER. Количество распознанных слов и сцен показываются только как coverage proxies, а не оценка точности.
 
@@ -82,7 +82,7 @@ Use `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1` for a single baseline r
 
 ### Immutable source pin
 
-The one-command launcher pins the runner and patch-helper downloads to commit `9579f659d7543dadcb795dd82187d4ab5573608c` rather than the mutable `main` branch. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing an old helper with a new launcher. It also prints the pinned source revision and helper URL before applying the patch.
+The one-command launcher pins the runner and patch-helper downloads to commit `650f3a1437ee0cdcab1c3ea41005a599a373d578` rather than the mutable `main` branch. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing an old helper with a new launcher. It also prints the pinned source revision and helper URL before applying the patch.
 
 
 ### Progress-trace routing fix (2026-11-04)
@@ -90,3 +90,8 @@ The one-command launcher pins the runner and patch-helper downloads to commit `9
 The second diagnostic run proved that Whisper completed successfully: four MLX Whisper chunks were transcribed, the detected language was Russian, total Whisper inference was 185.99 seconds, and the VCE analyze endpoint returned HTTP 200. The benchmark runner then failed when it passed the API endpoint string `/api/v1/progress/<job_id>` into the local JSONL writer.
 
 Patch v2 now detects that API-route value at the JSONL writer boundary and writes the snapshot to the per-profile local file `<run_root>/<index>_<profile>/progress_trace.jsonl`. It uses the active `run_root`, profile key, and index from the caller frame. This does not modify the endpoint used for network polling. Regression tests cover the API-route collision, ordinary string paths, baseline-only mode, Whisper-preserving mode, and patch idempotence.
+
+
+### Automatic report publication
+
+The launcher writes the full diagnostic bundle locally and, after the run (including a failed run), publishes only the aggregate comparison tables and sanitized error excerpts to the benchmark feature branch. It requires an authenticated GitHub CLI session with push access to the repository. A non-zero runner exit code is preserved after publication so failures remain visible to the terminal caller. If GitHub publication is unavailable, the local report is retained and the launcher explains the missing prerequisite.
