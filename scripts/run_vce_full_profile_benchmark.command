@@ -16,7 +16,8 @@ TMP_PATCH="${TMP_DIR}/patch_runner.py"
 cleanup() { /bin/rm -rf "$TMP_DIR"; }
 trap cleanup EXIT INT TERM
 
-/usr/bin/curl --fail --location --silent --show-error --retry 3 "$SCRIPT_URL" --output "$TMP_GZIP"
+/usr/bin/curl --fail --location --silent --show-error --retry 3 -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$SCRIPT_URL" --output "$TMP_GZIP"
+/usr/bin/gzip -t "$TMP_GZIP"
 /usr/bin/gzip -dc "$TMP_GZIP" > "$TMP_SCRIPT"
 
 PYTHON="${PROJECT_DIR}/.venv/bin/python"
@@ -30,8 +31,6 @@ fi
 
 echo "VCE benchmark pinned source: ${SOURCE_REF}"
 echo "Patcher URL: ${PATCH_URL}"
-/usr/bin/curl --fail --location --silent --show-error --retry 3 -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$SCRIPT_URL" --output "$TMP_GZIP"
-/usr/bin/gzip -t "$TMP_GZIP"
 /usr/bin/curl --fail --location --silent --show-error --retry 3 -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$PATCH_URL" --output "$TMP_PATCH"
 "$PYTHON" "$TMP_PATCH" "$TMP_SCRIPT"
 
