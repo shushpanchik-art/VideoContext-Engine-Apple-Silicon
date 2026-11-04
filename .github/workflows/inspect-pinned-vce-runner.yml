@@ -1,4 +1,4 @@
-name: Temporary pinned VCE runner inspection
+name: Temporary pinned VCE runner detail inspection
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Inspect pinned runner structure (source only; no user data)
+      - name: Inspect exact classifier inputs in pinned runner
         run: |
           python - <<'PY'
           import ast, gzip
@@ -23,14 +23,9 @@ jobs:
           source = gzip.decompress(Path("scripts/vce_full_profile_benchmark.py.gz").read_bytes()).decode("utf-8")
           tree = ast.parse(source)
           lines = source.splitlines()
-          print("=== TOP LEVEL DEFINITIONS ===")
+          wanted = {"stage_metrics", "build_base_fields", "build_plan", "make_markdown", "write_csv"}
           for node in tree.body:
-              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                  print(f"{node.__class__.__name__} {node.name} lines={node.lineno}-{node.end_lineno}")
-          print("=== RUN / PROFILE / SUMMARY / REPORT FUNCTIONS ===")
-          wanted = ("run", "profile", "summary", "report", "result", "status", "error", "main")
-          for node in tree.body:
-              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(k in node.name.lower() for k in wanted):
-                  print(f"\\n===== {node.name} ({node.lineno}-{node.end_lineno}) =====")
+              if isinstance(node, ast.FunctionDef) and node.name in wanted:
+                  print(f"===== {node.name} ({node.lineno}-{node.end_lineno}) =====")
                   print("\\n".join(lines[node.lineno-1:node.end_lineno]))
           PY
