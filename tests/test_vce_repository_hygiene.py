@@ -1,4 +1,7 @@
 from pathlib import Path
+import shutil
+import subprocess
+import tempfile
 import unittest
 
 
@@ -35,6 +38,36 @@ class TestRepositoryHygiene(unittest.TestCase):
             "perf/", "refactor/", "hotfix/", "benchmark/"
         ):
             self.assertIn(f'"{prefix}"', workflow)
+
+    def test_cleanup_workflow_javascript_is_syntactically_valid(self):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("Node.js is not installed in this environment")
+
+        lines = CLEANUP_WORKFLOW.read_text(encoding="utf-8").splitlines()
+        marker = next(i for i, line in enumerate(lines) if line.strip() == "script: |")
+        marker_indent = len(lines[marker]) - len(lines[marker].lstrip())
+        script_lines = []
+        for line in lines[marker + 1:]:
+            if line.strip():
+                indent = len(line) - len(line.lstrip())
+                if indent <= marker_indent:
+                    break
+                script_lines.append(line[marker_indent + 2:])
+            else:
+                script_lines.append("")
+
+        script = "\\n".join(script_lines).strip() + "\\n"
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".js", encoding="utf-8") as handle:
+            handle.write(script)
+            handle.flush()
+            result = subprocess.run(
+                [node, "--check", handle.name],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_manifest_is_valid_json_and_records_audit_boundary(self):
         import json
