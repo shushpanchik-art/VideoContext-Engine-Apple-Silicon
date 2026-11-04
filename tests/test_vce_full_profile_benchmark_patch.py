@@ -55,9 +55,9 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         exec(compile(PATCHER.patch_source(STUB_RUNNER), "<test-runner>", "exec"), namespace)
         return namespace
 
-    def _classify(self, namespace, *, fields=None, payload=None, log="", http_status=200):
+    def _classify(self, namespace, *, fields=None, payload=None, log="", http_status=200, record=None):
         return namespace["_vce_classify_profile_result"](
-            {"http_status": http_status},
+            record if record is not None else {"http_status": http_status},
             fields or {
                 "analysis_mode": "full", "skip_audio": False, "skip_visual": False,
                 "text_llm_enabled": True,
@@ -177,6 +177,21 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         result = self._classify(namespace, fields=fields, payload=payload)
         self.assertEqual(result["status"], "degraded")
         self.assertEqual(result["stage_status"]["vlm"]["status"], "degraded")
+
+    def test_complete_stages_with_unreviewed_runtime_error_are_degraded(self):
+        namespace = self._load()
+        result = self._classify(
+            namespace,
+            record={"http_status": 200, "error_count": 1},
+        )
+        self.assertEqual(result["api_status"], "http_200")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "completed")
+        self.assertEqual(result["stage_status"]["whisper"]["status"], "completed")
+        self.assertEqual(result["stage_status"]["text_llm"]["status"], "completed")
+        self.assertEqual(result["stage_status"]["runtime_errors"]["count"], 1)
+        self.assertEqual(result["stage_status"]["runtime_errors"]["status"], "degraded")
+        self.assertEqual(result["status"], "degraded")
+        self.assertTrue(any("inspect local errors.csv" in reason for reason in result["classification_reasons"]))
 
     def test_complete_vlm_whisper_and_text_llm_profile(self):
         namespace = self._load()
