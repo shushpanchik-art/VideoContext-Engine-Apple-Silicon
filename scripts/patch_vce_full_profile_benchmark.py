@@ -215,8 +215,10 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
         _text_status, _text_reason = "degraded", "Text LLM was requested but successful completion is not evidenced"
 
     _whisper_inference = _whisper_timing.get("inference_time")
-    if not _whisper_requested or _audio_missing:
-        _whisper_status, _whisper_reason = "skipped", "audio inference was not requested or no audio track was available"
+    if not _whisper_requested:
+        _whisper_status, _whisper_reason = "skipped", "Whisper/audio inference was not requested by this profile"
+    elif _audio_missing:
+        _whisper_status, _whisper_reason = "degraded", "Whisper was requested but the input has no available audio track"
     elif _positive_number(_whisper_inference):
         _whisper_status, _whisper_reason = "completed", "positive Whisper inference timing returned"
     else:
@@ -228,7 +230,7 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
         "metal": {"status": _metal_status},
         "vlm": {"requested": _vlm_requested, "status": _vlm_status, "reason": _vlm_reason, "inference_seconds": _vlm_inference},
         "text_llm": {"requested": _text_requested, "status": _text_status, "reason": _text_reason, "inference_seconds": _text_inference},
-        "whisper": {"requested": _whisper_requested and not _audio_missing, "status": _whisper_status, "reason": _whisper_reason, "inference_seconds": _whisper_inference},
+        "whisper": {"requested": _whisper_requested, "status": _whisper_status, "reason": _whisper_reason, "inference_seconds": _whisper_inference},
     }
 
     _reasons = []
@@ -242,12 +244,12 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
         _reasons.append("required VLM stage is " + _vlm_status)
     if _text_requested and _text_status != "completed":
         _reasons.append("required Text LLM stage is " + _text_status)
-    if _whisper_requested and not _audio_missing and _whisper_status != "completed":
+    if _whisper_requested and _whisper_status != "completed":
         _reasons.append("requested Whisper stage is " + _whisper_status)
 
     if _http_status != 200 or not _meta or _metal_failure or (_vlm_requested and _vlm_status == "failed"):
         _overall = "failed"
-    elif (_vlm_requested and _vlm_status != "completed") or (_text_requested and _text_status != "completed") or (_whisper_requested and not _audio_missing and _whisper_status != "completed"):
+    elif (_vlm_requested and _vlm_status != "completed") or (_text_requested and _text_status != "completed") or (_whisper_requested and _whisper_status != "completed"):
         _overall = "degraded"
     else:
         _overall = "completed"
