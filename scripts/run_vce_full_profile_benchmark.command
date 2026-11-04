@@ -3,7 +3,7 @@ set -uo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 SOURCE_REF="650f3a1437ee0cdcab1c3ea41005a599a373d578"
-PATCHER_REF="f3d9592f704881819f416d3e1d0c18348888c16f"
+PATCHER_REF="9971dbf9d7e7fd4023c835266e14b14e6b1981d1"
 PUBLISH_BRANCH="feat/experimental-benchmark-launcher"
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${SOURCE_REF}"
 SCRIPT_URL="${RAW_BASE}/scripts/vce_full_profile_benchmark.py.gz"
