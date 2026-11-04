@@ -110,7 +110,8 @@ class TestRepositoryHygiene(unittest.TestCase):
     def test_test_status_uses_live_actions_instead_of_frozen_run_numbers(self):
         status = TEST_STATUS.read_text(encoding="utf-8")
         self.assertIn("actions?query=branch%3Amain", status)
-        self.assertIn("physical Apple Silicon Mac", status)
+        self.assertIn("Apple Silicon Mac", status)
+        self.assertIn("MLX/Metal", status)
         self.assertNotIn("41868806204", status)
         self.assertNotIn("Текущий подтверждённый checkpoint", status)
 
