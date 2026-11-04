@@ -1,20 +1,32 @@
 Repository: VideoContext-Engine-Apple-Silicon
 Product: customized VideoContext Engine v3.19 for macOS / Apple Silicon
 Default branch: main
-Repository cleanup completed: 2026-11-02
-Current code validation checkpoint: eec9fbaf44fcd6156630c55b302f2cf803776a28
-Most recent CI metadata check: all three applicable workflows passed on 2f23a6b8cdc349f5a6dcb1c6e2c52c8ba82a0f42
-Latest privacy/docs cleanup checkpoint: 2f23a6b8cdc349f5a6dcb1c6e2c52c8ba82a0f42
+Current main HEAD: 2276b939ce6f697f6f642453a4ba9ed698cba01e
+Latest merged PR: #27 (Stop orphaned engine processes when native app closes or opens)
+Latest merge commit: 2276b939ce6f697f6f642453a4ba9ed698cba01e
+Repository state checked: 2026-11-04
+Open pull requests: 0
+Closed pull requests: 27 (20 merged, 7 closed without merge: #3, #4, #6, #7, #12, #13, #14)
 Only remaining branch: main
-Open pull requests: none
-Superseded branches removed: 14
-PR #15 merge method: squash
-PR #15 merge commit: 549186bbf9c4653955cb8d8f4d1e967055e80b55
-PR #13 and #14: closed after selective migration of reusable code/tests
+Merged-topic cleanup workflow: active; latest run 41716538573 succeeded on 2276b939ce6f697f6f642453a4ba9ed698cba01e
+Main branch protection: disabled; push workflows are not configured as required merge checks
+
+Latest CI on 2276b939ce6f697f6f642453a4ba9ed698cba01e: all six post-merge workflows passed:
+- Full distribution installer validation: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538619
+- Audio resilience V6 patch tests: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538540
+- FFmpeg OCR worker setting tests: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538534
+- VCE speed profile and macOS menu bar tests: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538552
+- VCE quality benchmark tests: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538538
+- Cleanup merged topic branches: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538573
+
+Historical checkpoints:
+- Initial full runtime distribution PR #15 was squash-merged as 549186bbf9c4653955cb8d8f4d1e967055e80b55.
+- PRs #13 and #14 were closed after selective migration of reusable code/tests.
+- Initial cleanup of 14 superseded branches was completed before the persistent merged-branch cleanup workflow was introduced in PR #18.
+
 Upstream: dolphin-creator/VideoContext-Engine
 Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
 Upstream source file blob at reference: cfa22be84dfbb5f9e6f29269c9906c376e90ef17
 
 The repository contains the customized runtime, matching Web UI, patches, tests, benchmark/quality tools, local-only MLX diagnostics, macOS app sources, install instructions and license notices.
 Full per-video VCE API JSON, raw Text LLM outputs, local comparison reports, ML model weights, local virtual environments, personal settings, source videos, raw telemetry and backup copies are intentionally excluded from the current tree.
-Use `git rev-parse HEAD` for the exact current commit.
