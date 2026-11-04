@@ -2,42 +2,45 @@ Repository: VideoContext-Engine-Apple-Silicon
 Product: customized VideoContext Engine v3.19 for macOS / Apple Silicon
 Default branch: main
 
-Audit snapshot (before final metadata PR #29):
-Main HEAD: f71c7efb0b6d466eda315c1182061bab18dd7f3d
-Latest runtime/application PR: #27
-Runtime/application merge commit: 2276b939ce6f697f6f642453a4ba9ed698cba01e
-Latest repository metadata/CI PR: #28
-Metadata/CI merge commit: f71c7efb0b6d466eda315c1182061bab18dd7f3d
-Open pull requests: 0
-Closed pull requests: 28 (21 merged, 7 closed without merge: #3, #4, #6, #7, #12, #13, #14)
-Only remaining branch: main
-Historical superseded branches deleted: 14
-Merged-topic cleanup workflow: active; run 41860685874 succeeded on main HEAD f71c7efb0b6d466eda315c1182061bab18dd7f3d
+AUDIT SNAPSHOT
+Snapshot commit: d7f0a83793340bde7010112e2f2ac16feeea7046
+Snapshot date: 2026-11-04
+Snapshot boundary: immediately before PR #30; these counts are historical for this exact commit.
 
-CI at audit snapshot:
-- Full distribution installer validation (run 41860686648): distribution job success; macOS native-swift-compile queued at audit time.
-- Audio resilience V6 patch tests (run 41860685802): success.
-- FFmpeg OCR worker setting tests (run 41860685871): success.
-- VCE quality benchmark tests (run 41860685856): success.
-- Cleanup merged topic branches (run 41860685874): success.
-- Previous successful macOS native Swift compilation on code checkpoint 2276b939ce6f697f6f642453a4ba9ed698cba01e: run 41716538619.
+Pull requests:
+- Open: 0
+- Closed: 29
+- Merged: 22
+- Closed without merge: 7 (#3, #4, #6, #7, #12, #13, #14)
+- Latest merged PR: #29
+- Latest runtime/application PR: #27
 
-Tree audit at f71c7ef:
-130 tracked files; 1,786,005 bytes; no truncated tree; no empty tracked files.
-Targeted scan found no .DS_Store, backup/log/tmp/swap files, __pycache__, .venv, node_modules, .env, personal settings, raw per-video JSON, llm_outputs.json or generated comparison reports.
+Branches at snapshot:
+- main
+- chore/reconcile-audit-metadata-20261104: ahead_by=0, behind_by=1, no open PR; obsolete ref scheduled for cleanup by PR #30.
 
-Historical PRs #13 and #14 were closed after selective migration of reusable code/tests. Closed-without-merge PRs remain historical; they are not assumed to be merge candidates.
-The cleanup workflow deletes only topic branches whose PRs are merged, preserving main and open-PR branches.
+Runtime and maintenance checkpoints:
+- Latest runtime/application merge: PR #27, 2276b939ce6f697f6f642453a4ba9ed698cba01e
+- Latest repository-audit metadata merge: PR #29, d7f0a83793340bde7010112e2f2ac16feeea7046
+- Initial full runtime distribution PR #15: squash merge 549186bbf9c4653955cb8d8f4d1e967055e80b55
+- Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
 
-Main branch protection: disabled (GitHub reports protected=false); CI is not configured as a required merge gate. Use PRs and verify checks manually.
+Tree audit at snapshot:
+- 130 tracked files; 1,793,311 bytes
+- No empty tracked files
+- No targeted backup/log/tmp/cache/venv/user-settings/raw per-video artifact matches
 
-Upstream: dolphin-creator/VideoContext-Engine
-Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
-Upstream source file blob at reference: cfa22be84dfbb5f9e6f29269c9906c376e90ef17
+CI at snapshot:
+- Full distribution run 41865224044: distribution job in progress; native Swift compile queued.
+- Audio resilience run 41865224056: queued.
+- FFmpeg OCR worker run 41865223887: success.
+- VCE quality benchmark run 41865224048: success.
+- Branch cleanup run 41865223909: in progress (old rule only deletes merged PR heads).
+- Last successful native Swift compile: run 41716538619 on checkpoint 2276b939ce6f697f6f642453a4ba9ed698cba01e.
 
-The distribution intentionally excludes ML model weights, local Python virtual environments, personal settings, source video/audio, raw telemetry, per-video JSON payloads and backup copies.
+Governance:
+- Cleanup workflow removes merged PR refs and fully integrated orphan topic refs only when ahead_by=0.
+- The default branch, protected branches, open-PR heads, non-topic refs and branches with unique commits are preserved.
+- Branch protection for main is disabled; CI is not a required merge gate.
 
-Historical checkpoints:
-- Initial full runtime distribution PR #15 was squash-merged as 549186bbf9c4653955cb8d8f4d1e967055e80b55.
-- PRs #13 and #14 were closed after selective migration of reusable code/tests; their final dispositions are recorded in TEST_STATUS.md.
-- Initial cleanup of 14 superseded branches was completed before the persistent merged-branch cleanup workflow was introduced by PR #18.
+The distribution excludes ML model weights, Python virtual environments, personal settings, source video/audio, raw telemetry, per-video JSON payloads, credentials, logs and backups. It retains only anonymized aggregate benchmark data.

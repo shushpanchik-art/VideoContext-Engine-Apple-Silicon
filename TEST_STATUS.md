@@ -1,66 +1,72 @@
-# Текущий статус проверок
+# Текущий статус репозитория и проверок
 
-Обновлено: 2026-11-04. Сверено с GitHub API и полным деревом `main`.
+Обновлено: 2026-11-04. Аудитный снимок зафиксирован на `main` commit `d7f0a83793340bde7010112e2f2ac16feeea7046`, до PR #30.
 
-## Снимок состояния репозитория
-
-Снимок сделан на `main` до открытия заключительного metadata PR #29.
+## Сводка репозитория на указанном checkpoint
 
 - Репозиторий: `shushpanchik-art/VideoContext-Engine-Apple-Silicon`.
-- Основная и единственная ветка: `main`.
-- Проверенный HEAD на момент аудита: `f71c7efb0b6d466eda315c1182061bab18dd7f3d`.
+- Default branch: `main`.
+- Открытых PR: **0**.
+- Закрытых PR: **29** — **22 merged**, **7 закрыты без merge**.
+- Последний merged PR: [#29 — Finalize repository audit metadata after PR #28](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/29), merge commit `d7f0a83793340bde7010112e2f2ac16feeea7046`.
 - Последний PR с изменениями runtime / приложения: [#27](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/27), merge commit `2276b939ce6f697f6f642453a4ba9ed698cba01e`.
-- Последний слитый PR до этого аудита: [#28](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/28), metadata/CI reconciliation, merge commit `f71c7efb0b6d466eda315c1182061bab18dd7f3d`.
-- Открытых PR на момент снимка: 0.
-- Закрытых PR: 28 — 21 merged и 7 закрытых без merge (#3, #4, #6, #7, #12, #13, #14). Исторические закрытые PR не переоткрываются автоматически: #13/#14 superseded после выборочного переноса пригодных исходников и тестов; остальные не представлены как готовые изменения для main.
-- Удалённых исторических superseded веток: 14. После PR #28 на GitHub осталась только `main`.
-- Постоянная очистка merged PR branches: [workflow](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/blob/main/.github/workflows/cleanup-merged-topic-branches.yml), последний run [41860685874](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41860685874) — success на HEAD `f71c7ef`.
+- Последний PR с метаданными и CI до текущего аудита: [#29](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/29).
+- Ветка `main` — единственная ветка, содержащая актуальную разработку.
 
-> Число PR и SHA выше — зафиксированный снимок перед PR #29. После слияния самого PR #29 счётчики изменятся; актуальные live-значения следует смотреть на страницах [branches](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/branches) и [pull requests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pulls).
+### Обнаруженная устаревшая ветка
 
-## CI на проверенном HEAD f71c7ef
+На момент снимка в GitHub оставалась ветка `chore/reconcile-audit-metadata-20261104`.
 
-- [Full distribution installer validation — run 41860686648](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41860686648): distribution job завершился успешно — shell syntax, example JSON, publication manifest JSON и installer contract tests. macOS `native-swift-compile` job оставался в очереди на момент снимка.
-- [Audio resilience V6 patch tests — run 41860685802](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41860685802): success.
-- [FFmpeg OCR worker setting tests — run 41860685871](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41860685871): success.
-- [VCE quality benchmark tests — run 41860685856](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41860685856): success.
-- [Cleanup merged topic branches — run 41860685874](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41860685874): success.
-- Предыдущая полная distribution-проверка на кодовом checkpoint `2276b939ce6f697f6f642453a4ba9ed698cba01e` включала успешную компиляцию AppKit/WebKit Swift-приложения: [run 41716538619](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538619).
+Сравнение с `main`:
+- `ahead_by = 0`: у ветки нет уникальных коммитов;
+- `behind_by = 1`: ветка отстаёт на один коммит;
+- открытого PR с этой веткой нет.
 
-GitHub Actions проверяет исходники и автоматизированные тесты. Это не заменяет end-to-end запуск реального видео и MLX/Metal inference на физическом Apple Silicon Mac; нового hardware acceptance run в этом аудите нет.
+Ветка безопасна для удаления. PR #30 расширяет cleanup workflow: он удаляет такие бесхозные topic refs только при `ahead_by = 0`, без открытого PR и при отсутствии защиты ветки. Default, protected, открытые и расходящиеся ветки сохраняются. После merge PR #30 cleanup workflow должен оставить только `main`.
 
-## Гигиена дерева
+## История pull requests
 
-Полное рекурсивное дерево commit `f71c7ef` проверено через GitHub Git Trees API:
+- PR #1–#2 и #5, #8–#11, #15–#29 — полезные изменения уже вошли в `main`.
+- PR #3, #4 — ранние варианты нативного окна macOS; заменены текущим AppKit/WebKit приложением.
+- PR #6 — устаревшая сводка таймингов из вывода Terminal; не выбрана как канонический benchmark-артефакт.
+- PR #7 — сырые per-run/per-video benchmark payloads и настройки; намеренно не публикуются. В `main` оставлены обезличенные агрегаты.
+- PR #12 — superseded исходной реализацией PR #13.
+- PR #13 — закрыт после выборочного переноса пригодных observed-run/watchdog исходников, тестов и документации.
+- PR #14 — закрыт после выборочного переноса structural audit и source-aware lexical grounding, тестов и документации.
 
-- 130 файлов, общий размер 1,786,005 байт; дерево не обрезано.
-- Пустых tracked-файлов нет.
-- Целевой поиск не обнаружил `.DS_Store`, backup-файлов, логов, временных файлов, swap-файлов, `__pycache__`, `.venv`, `node_modules`, `.env`, пользовательского `videocontext_settings.json`, сырых `llm_outputs.json` или per-video comparison/raw JSON артефактов.
-- Ветка не содержит пользовательских видео/аудио, моделей, локальной виртуальной среды и локальной телеметрии; два обезличенных aggregate benchmark metrics файла оставлены намеренно.
+Эти семь закрытых без merge PR — исторические решения, не готовые ветки для повторного слияния. Содержимое PR #13 и #14 перенесено выборочно; сырые пользовательские данные и telemetry не переносились.
 
-## История уборки и текущая политика
+## CI на checkpoint `d7f0a83`
 
-- PR #18 добавил постоянный workflow очистки: удаляются только ветки merged PR из этого репозитория; default branch и ветки открытых PR сохраняются.
-- Одноразовая очистка 14 исторических superseded branches была выполнена ранее; постоянный workflow заменил временный механизм.
-- PR #22/#26 разделили Metal command-buffer timeout и allocation/OOM и прекратили повторные VLM попытки после зависшей Metal queue.
-- PR #24 обновил app patcher независимо от пропуска `git pull` из-за локальных изменений.
-- PR #25 исправил Homebrew PATH для GUI-запуска и проверки `ffmpeg`/`ffprobe`.
-- PR #27 синхронизировал жизненный цикл native app и проектного Python engine.
-- PR #28 сверил публикационный манифест, changelog и CI; заключительный аудит исправляет оставшиеся post-merge счётчики и checkpoint.
+| Проверка | Run | Состояние на момент аудита |
+|---|---:|---|
+| Full distribution installer validation | [41865224044](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41865224044) | distribution выполнялся; macOS Swift compile ожидал runner |
+| Audio resilience V6 patch tests | [41865224056](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41865224056) | в очереди |
+| FFmpeg OCR worker setting tests | [41865223887](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41865223887) | success |
+| VCE quality benchmark tests | [41865224048](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41865224048) | success |
+| Cleanup merged topic branches | [41865223909](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41865223909) | выполнялся; старое правило orphan-ветку не удаляет |
 
-Защита `main` через branch protection не включена (`protected=false`); CI workflows запускаются, но не являются обязательными merge checks. Слияния следует выполнять через PR и проверять CI вручную.
+Предыдущая успешная компиляция AppKit/WebKit Swift-приложения: [run 41716538619](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41716538619) на кодовом checkpoint `2276b939ce6f697f6f642453a4ba9ed698cba01e`.
 
-## Закрытые PR без merge: итоговое решение
+CI проверяет код, shell, JSON и контрактные тесты; он не заменяет end-to-end MLX/Metal запуск реального видео на физическом Apple Silicon Mac. После изменения workflow PR #30 добавляет contract-тесты правил удаления веток.
 
-Все семь закрытых без merge PR просмотрены по их GitHub описаниям и составу файлов. Это история принятых решений, а не очередь на слияние:
+## Проверка дерева
 
-| PR | Почему не мержим повторно |
-|---|---|
-| #3, #4 | Два ранних варианта standalone macOS window. Они уступили место текущему управляемому AppKit/WebKit приложению и lifecycle-реализации PR #27. |
-| #6 | Только timing-summary, восстановленный из вывода Terminal, без исходных benchmark/API результатов. В main оставлены проверяемые обезличенные агрегаты и профильная документация. |
-| #7 | Полный набор локальных per-run/per-video отчётов и настроек. Такие сырые материалы намеренно не публикуются; оставлены обезличенные aggregate metrics. |
-| #12 | Сам PR помечен superseded: исправленная source-compatible реализация продолжилась в PR #13. Старую ветку не восстанавливаем. |
-| #13 | Закрыт после выборочного переноса пригодных observed-run/watchdog исходников, тестов и документации. В main присутствуют `scripts/vce_observed_run.py`, `scripts/vce_runtime_watchdog.py` и соответствующие tests/docs; установочные snapshots и сырая telemetry не переносились. |
-| #14 | Закрыт после выборочного переноса универсального structural audit и source-aware lexical grounding. В main присутствуют инструменты, тесты и документация; per-video Text LLM output bundles исключены. |
+Полное рекурсивное Git Tree на checkpoint `d7f0a83793340bde7010112e2f2ac16feeea7046`:
+- 130 tracked files;
+- 1,793,311 байт содержимого файлов;
+- дерево не обрезано;
+- пустых tracked-файлов нет;
+- targeted scan не обнаружил `.DS_Store`, backup/log/tmp/swap, `__pycache__`, `.venv`, `node_modules`, `.env`, пользовательский `videocontext_settings.json`, `llm_outputs.json`, сырые per-video JSON и generated comparison reports.
 
-Следовательно, ни один из этих PR не является готовой незакрытой веткой, которую нужно повторно мержить. Удалённых refs для них нет среди текущих веток GitHub; единственная рабочая ветка — `main`.
+В публичной поставке намеренно отсутствуют локальные видео/аудио, модели, виртуальные окружения, пользовательские настройки, credentials, логи, резервные копии и сырая telemetry. Два обезличенных aggregate benchmark metrics файла и сводка tuning оставлены намеренно.
+
+## Правила работы с ветками
+
+1. Все функциональные и maintenance-изменения проходят через отдельные PR в `main`.
+2. Закрытые без merge PR остаются историей; не открывать их повторно без нового анализа полезных коммитов.
+3. После merge cleanup workflow удаляет ветку merged PR.
+4. Дополнительно он удаляет только бесхозные ветки с разрешёнными topic-префиксами, если их `ahead_by = 0`; open PR, protected, default и ветки с уникальными коммитами сохраняются.
+5. Branch protection на `main` пока отключён. CI запускается, но не является обязательным merge gate; результат необходимо проверить вручную.
+
+**Аудитный снимок выше относится ровно к commit `d7f0a83793340bde7010112e2f2ac16feeea7046`.** PR #30 меняет только политику очистки, audit-документы и тесты; после его merge live-состояние следует сверять со страницами [branches](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/branches) и [pull requests](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pulls).
