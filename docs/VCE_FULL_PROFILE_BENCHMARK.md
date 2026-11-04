@@ -107,3 +107,38 @@ The stage table distinguishes:
 - `unknown`: available telemetry cannot attribute the hardware path safely.
 
 MLX and Metal are reported where the VCE runtime exposes them. MPS is not inferred from Apple Silicon presence: it is reported only if the actual execution path exposes evidence for it. System-wide `powermetrics` is corroborating telemetry, not per-process or per-kernel attribution. Apple Vision's internal CPU/GPU/ANE choice remains unknown unless the OS/runtime exposes direct evidence.
+
+### Stage-aware profile acceptance (2026-11-04)
+
+The pinned runner's original status rule treated HTTP 200 plus a non-empty `meta` object as `completed`, even when its own error collection contained MLX/Metal failures or Text LLM fallback. The launcher now keeps the runner pinned to its immutable source revision and downloads the stage-classification patch helper from a separate immutable commit.
+
+The patched runner records `http_status` / `api_status` separately from `status` and emits a local `stage_status.json` for API, Metal, VLM, Text LLM and Whisper:
+
+- `completed`: every stage requested by the profile has positive completion evidence; Text LLM additionally requires the runtime's explicit `success` status and returned enhanced analysis.
+- `degraded`: HTTP completed, but a requested optional/fallback-capable stage failed or lacks completion evidence. A Text LLM fallback is not a successful full profile.
+- `failed`: HTTP/transport failure, a Metal command-buffer submission error, a VLM memory-guard shutdown, or an explicitly skipped/failed requested VLM stage.
+
+A profile is not comparable unless `status=completed`. A baseline that is failed or degraded stops the sequential matrix. The HTTP 200 value remains visible but cannot promote a profile to success.
+
+### Controlled single-profile isolation switches
+
+These environment variables are applied to the in-memory request only; they do not change persisted VCE settings:
+
+- VLM-only, with audio/Whisper, both OCR paths and Text LLM disabled:
+  ```bash
+  export VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_VLM_ONLY=1
+  curl -fsSL "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command" | /bin/bash
+  ```
+- Whisper-only, retaining CPU Whisper/audio features and disabling VLM, OCR and Text LLM:
+  ```bash
+  export VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1
+  curl -fsSL "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command" | /bin/bash
+  ```
+- Concurrent baseline (CPU Whisper + VLM + Text LLM):
+  ```bash
+  export VCE_BENCH_ONLY_BASELINE=1
+  curl -fsSL "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command" | /bin/bash
+  ```
+
+Run each isolation profile only after confirming the previous launcher/request has ended and restarting the VCE process cleanly. Do not run the concurrent profile until VLM-only and Whisper-only have been independently checked. These are diagnostic isolation runs, not a performance comparison.
+
