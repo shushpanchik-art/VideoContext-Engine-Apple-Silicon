@@ -55,6 +55,27 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         exec(compile(PATCHER.patch_source(STUB_RUNNER), "<test-runner>", "exec"), namespace)
         return namespace
 
+    def _classify(self, namespace, *, fields=None, payload=None, log="", http_status=200):
+        return namespace["_vce_classify_profile_result"](
+            {"http_status": http_status},
+            fields or {
+                "analysis_mode": "full", "skip_audio": False, "skip_visual": False,
+                "text_llm_enabled": True,
+            },
+            payload if payload is not None else {
+                "meta": {
+                    "params": {"run_vlm": True, "audio_track_available": True, "audio_auto_skipped": False},
+                    "timings": {
+                        "vlm": {"inference_time": 12.0},
+                        "whisper": {"inference_time": 5.0},
+                    },
+                },
+                "text_llm": {"enabled": True, "status": "success", "inference_time": 3.0},
+                "enhanced_analysis": {"executive_summary": "synthetic fixture"},
+            },
+            log,
+        )
+
     def test_string_path_is_normalized_before_path_open(self):
         namespace = self._load()
         with tempfile.TemporaryDirectory() as temp:
@@ -92,6 +113,131 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertFalse(fields["enable_ffmpeg_ocr"])
         self.assertFalse(fields["text_llm_enabled"])
         self.assertFalse(fields["generate_summary"])
+
+    def test_vlm_only_mode_disables_audio_ocr_and_text_llm(self):
+        namespace = self._load()
+        with patch.dict(os.environ, {"VCE_BENCH_VLM_ONLY": "1"}):
+            fields, missing = namespace["build_base_fields"]()
+        self.assertEqual(missing, [])
+        self.assertTrue(fields["skip_audio"])
+        self.assertFalse(fields["word_timestamps"])
+        self.assertFalse(fields["enable_audio_features"])
+        self.assertFalse(fields["skip_visual"])
+        self.assertFalse(fields["enable_apple_ocr"])
+        self.assertFalse(fields["enable_ffmpeg_ocr"])
+        self.assertFalse(fields["text_llm_enabled"])
+        self.assertFalse(fields["generate_summary"])
+
+    def test_conflicting_isolation_modes_are_rejected(self):
+        namespace = self._load()
+        with patch.dict(os.environ, {"VCE_BENCH_WHISPER_ONLY": "1", "VCE_BENCH_VLM_ONLY": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "Choose only one"):
+                namespace["build_base_fields"]()
+
+    def test_http_200_with_metal_and_vlm_guard_is_failed(self):
+        namespace = self._load()
+        result = self._classify(
+            namespace,
+            log="[VLM memory guard] Metal command-buffer timeout/submissions ignored; disabling VLM for this video.\\n"
+                "[METAL] Command buffer execution failed: kIOGPUCommandBufferCallbackErrorSubmissionsIgnored",
+        )
+        self.assertEqual(result["api_status"], "http_200")
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["stage_status"]["api"]["status"], "http_200")
+        self.assertEqual(result["stage_status"]["metal"]["status"], "failed")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "failed")
+        self.assertTrue(result["classification_reasons"])
+
+    def test_text_llm_fallback_is_degraded_even_when_http_200(self):
+        namespace = self._load()
+        payload = {
+            "meta": {
+                "params": {"run_vlm": True, "audio_track_available": True},
+                "timings": {
+                    "vlm": {"inference_time": 12.0},
+                    "whisper": {"inference_time": 5.0},
+                },
+            },
+            "text_llm": {"enabled": True, "status": "failed", "inference_time": 0.3, "error": "synthetic failure"},
+            "enhanced_analysis": None,
+        }
+        result = self._classify(namespace, payload=payload, log="[Text LLM] Post-processing failed; fallback to original report")
+        self.assertEqual(result["api_status"], "http_200")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "completed")
+        self.assertEqual(result["stage_status"]["text_llm"]["status"], "failed")
+        self.assertEqual(result["status"], "degraded")
+
+    def test_missing_vlm_completion_telemetry_cannot_be_success(self):
+        namespace = self._load()
+        payload = {
+            "meta": {"params": {"run_vlm": True}, "timings": {"vlm": {"inference_time": 0.0}}},
+            "text_llm": {"enabled": False, "status": "disabled", "inference_time": 0.0},
+        }
+        fields = {"analysis_mode": "full", "skip_audio": True, "skip_visual": False, "text_llm_enabled": False}
+        result = self._classify(namespace, fields=fields, payload=payload)
+        self.assertEqual(result["status"], "degraded")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "degraded")
+
+    def test_complete_vlm_whisper_and_text_llm_profile(self):
+        namespace = self._load()
+        result = self._classify(namespace)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["api_status"], "http_200")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "completed")
+        self.assertEqual(result["stage_status"]["whisper"]["status"], "completed")
+        self.assertEqual(result["stage_status"]["text_llm"]["status"], "completed")
+
+    def test_whisper_only_profile_does_not_require_vlm_or_text_llm(self):
+        namespace = self._load()
+        fields = {
+            "analysis_mode": "whisper_ocr", "skip_audio": False, "skip_visual": True,
+            "text_llm_enabled": False,
+        }
+        payload = {
+            "meta": {"params": {"audio_track_available": True}, "timings": {"whisper": {"inference_time": 8.5}}},
+            "text_llm": {"enabled": False, "status": "disabled", "inference_time": 0.0},
+        }
+        result = self._classify(namespace, fields=fields, payload=payload)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "skipped")
+        self.assertEqual(result["stage_status"]["text_llm"]["status"], "skipped")
+        self.assertEqual(result["stage_status"]["whisper"]["status"], "completed")
+
+    def test_vlm_only_profile_does_not_require_whisper_or_text_llm(self):
+        namespace = self._load()
+        fields = {
+            "analysis_mode": "full", "skip_audio": True, "skip_visual": False,
+            "text_llm_enabled": False,
+        }
+        payload = {
+            "meta": {
+                "params": {"run_vlm": True, "audio_track_available": True},
+                "timings": {"vlm": {"inference_time": 10.0}},
+            },
+            "text_llm": {"enabled": False, "status": "disabled", "inference_time": 0.0},
+        }
+        result = self._classify(namespace, fields=fields, payload=payload)
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "completed")
+        self.assertEqual(result["stage_status"]["whisper"]["status"], "skipped")
+        self.assertEqual(result["stage_status"]["text_llm"]["status"], "skipped")
+
+    def test_vlm_requested_but_explicitly_skipped_by_runtime_is_failed(self):
+        namespace = self._load()
+        payload = {
+            "meta": {"params": {"run_vlm": False}, "timings": {"vlm": {"inference_time": 0.0}}},
+            "text_llm": {"enabled": False, "status": "disabled", "inference_time": 0.0},
+        }
+        fields = {"analysis_mode": "full", "skip_audio": True, "skip_visual": False, "text_llm_enabled": False}
+        result = self._classify(namespace, fields=fields, payload=payload)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["stage_status"]["vlm"]["status"], "failed")
+
+    def test_non_200_is_failed_independently_of_stage_payload(self):
+        namespace = self._load()
+        result = self._classify(namespace, http_status=503)
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["api_status"], "http_error")
 
     def test_patch_is_idempotent(self):
         once = PATCHER.patch_source(STUB_RUNNER)
