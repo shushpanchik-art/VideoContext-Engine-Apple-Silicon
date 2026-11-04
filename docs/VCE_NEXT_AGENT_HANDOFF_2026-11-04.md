@@ -8,6 +8,7 @@
 - At the time of the new VLM run, PR head was `d3070b19681d6f15824c8eeb7547504fcaaf3d90`.
 - Runner source pin: `650f3a1437ee0cdcab1c3ea41005a599a373d578`.
 - Patch helper used by this run (v3): `f3d9592f704881819f416d3e1d0c18348888c16f`.
+- Current patch helper for subsequent runs (v4): `9971dbf9d7e7fd4023c835266e14b14e6b1981d1`.
 - Six GitHub Actions workflows passed on this head. Re-check CI after any new commit.
 
 ## New target-Mac result: isolated VLM-only (2026-11-04)
@@ -25,16 +26,16 @@ The supplied RTF confirms a single-profile run using:
 
 **Acceptance decision:** treat this VLM-only run as *provisionally DEGRADED / needs local error review*, not as an unqualified successful benchmark. Positive VLM inference and 14 processed scenes are real evidence that the isolated visual path executed. The single unclassified runtime error prevents clean acceptance until the owner reviews the local `errors.csv` and confirms it is unrelated/non-fatal. Do not publish that CSV or raw logs.
 
-## Important follow-up defect to fix
-Patch v3 classifies VLM/Whisper/Text LLM based on stage telemetry and Metal log patterns, but does not use the runner's `error_count`. The new run exposes this gap: a profile with `error_count=1` can still be marked `completed`.
+## Follow-up classifier hardening (implemented after the VLM run)
+Patch v3 did not use the runner's `error_count`; the new run exposed that a profile could be labelled `completed` despite `errors=1`.
 
-Implement patch v4:
-1. Parse `record["error_count"]` conservatively (invalid count => at least one error).
-2. Add `stage_status.runtime_errors` with count and a reason to inspect local diagnostics.
-3. If count > 0, overall profile must be `degraded` unless a stronger condition already makes it `failed`.
-4. Add regression coverage for HTTP 200 + all requested ML stages complete + `error_count=1` => overall `degraded`.
-5. Keep actual error text local; never add it to CI logs or the PR.
-6. Pin the new helper commit in the launcher; update patch/version labels and docs. Run all CI workflows again.
+Patch v4 is now committed on the feature branch:
+- Patch helper commit: `9971dbf9d7e7fd4023c835266e14b14e6b1981d1`.
+- Launcher `PATCHER_REF` points to that immutable helper commit.
+- The classifier adds `stage_status.runtime_errors`, parses the runner's count conservatively (invalid count is treated as at least one), and marks any non-zero count `degraded` unless a stronger failure condition applies.
+- Regression coverage verifies that HTTP 200 plus successful telemetry for all requested stages and `error_count=1` yields overall `degraded`.
+- Error text remains local; no raw errors or logs are emitted to CI/PR.
+- These v4 changes are newer than the received VLM run, which used v3. Re-check all CI workflows on current HEAD before trusting the new helper.
 
 ## Published artifacts / privacy
 The VLM run created only these three aggregate files under `benchmark-results/20261104T234747Z/`:
@@ -55,3 +56,7 @@ They contain aggregate timing/device metadata and a redacted input identifier; n
 
 ## Prior known Metal failure
 Earlier full-profile runs showed `kIOGPUCommandBufferCallbackErrorSubmissionsIgnored`, VLM guard shutdown and Text LLM Metal failure. System memory was not exhausted in the supplied snapshot. Root cause remains unproven; do not claim a fix for the underlying Metal problem from this one successful-looking isolated VLM execution.
+
+
+## Status at handoff update
+The PR branch contains the new next-agent handoff document and patch v4. The reported VLM-only run remains a historical v3 run and is conservatively classified as DEGRADED for acceptance because its `error_count=1` has not been diagnosed. A new v4 run is not required just to repeat VLM inference; first inspect the local error entry and then decide whether a repeat is necessary. The six CI workflows most recently observed passing belonged to the pre-v4 head; current-head CI must be checked after patch v4 and the handoff updates.
