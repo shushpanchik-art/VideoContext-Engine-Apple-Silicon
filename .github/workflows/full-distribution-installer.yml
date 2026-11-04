@@ -11,6 +11,10 @@ on:
       - "requirements-apple-silicon.txt"
       - "config/videocontext_settings.apple_silicon.example.json"
       - "README.md"
+      - "CHANGELOG.md"
+      - "COMMIT_INFO.txt"
+      - "PUBLICATION_PACKAGE_MANIFEST.json"
+      - "TEST_STATUS.md"
       - "docs/INSTALL_FROM_PUBLIC_REPO.md"
       - "tests/test_vce_public_installer.py"
       - "tests/test_vce_stop_mps_patch.py"
@@ -32,6 +36,10 @@ on:
       - "requirements-apple-silicon.txt"
       - "config/videocontext_settings.apple_silicon.example.json"
       - "README.md"
+      - "CHANGELOG.md"
+      - "COMMIT_INFO.txt"
+      - "PUBLICATION_PACKAGE_MANIFEST.json"
+      - "TEST_STATUS.md"
       - "docs/INSTALL_FROM_PUBLIC_REPO.md"
       - "tests/test_vce_public_installer.py"
       - "tests/test_vce_stop_mps_patch.py"
@@ -70,6 +78,8 @@ jobs:
           bash -n "macos/VideoContext Engine.app/Contents/Resources/start_server.command"
       - name: Validate example JSON
         run: python -m json.tool config/videocontext_settings.apple_silicon.example.json >/dev/null
+      - name: Validate publication package manifest
+        run: python -m json.tool PUBLICATION_PACKAGE_MANIFEST.json >/dev/null
       - name: Run installer contract tests
         run: |
           python -m unittest discover -s tests -p "test_vce_public_installer.py" -v
