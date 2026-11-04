@@ -6,6 +6,7 @@
 - Draft PR: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/34
 - PR base: `main`; do not merge, close or convert from Draft.
 - At the time of the new VLM run, PR head was `d3070b19681d6f15824c8eeb7547504fcaaf3d90`.
+- Current PR head after handoff and aggregate-status corrections: `8d0346122de2de175807becb946105c43198da48`.
 - Runner source pin: `650f3a1437ee0cdcab1c3ea41005a599a373d578`.
 - Patch helper used by this run (v3): `f3d9592f704881819f416d3e1d0c18348888c16f`.
 - Current patch helper for subsequent runs (v4): `db54501d459569eaa3e75a8e22ef1385ecee68f9`.
@@ -59,4 +60,11 @@ Earlier full-profile runs showed `kIOGPUCommandBufferCallbackErrorSubmissionsIgn
 
 
 ## Status at handoff update
-The PR branch contains the next-agent handoff document and patch v4 with its idempotency marker corrected. The reported VLM-only run remains a historical v3 run and is conservatively classified as DEGRADED for acceptance because its `error_count=1` has not been diagnosed. A new v4 run is not required just to repeat VLM inference; first inspect the local error entry and then decide whether a repeat is necessary. Current-head CI must be checked after the v4 fix and handoff updates.
+The PR branch contains the next-agent handoff document and patch v4 with its idempotency marker corrected. The reported VLM-only run remains a historical v3 run and is conservatively classified as DEGRADED for acceptance because its `error_count=1` has not been diagnosed. A new v4 run is not required just to repeat VLM inference; first inspect the local error entry and then decide whether a repeat is necessary. All six workflows passed on the code-bearing v4 head `fd6a9a547ce0515af299e533c0c301b7792e2c3e`; only aggregate artifact commits followed.
+
+
+## Final PR/CI pointers
+- Latest PR head: `8d0346122de2de175807becb946105c43198da48`.
+- Last code-bearing head: `fd6a9a547ce0515af299e533c0c301b7792e2c3e`; all six workflows completed successfully there.
+- No source/test changes were made after that successful CI run; subsequent commits only amended the aggregate `summary.md` and `launcher_status.txt` to supersede the misleading v3 `completed` label with pending-error-review `degraded`.
+- PR #34 remains open and Draft.
