@@ -49,6 +49,8 @@ on:
       - "VideoContextEngine_v3.19.py"
       - "docs/MEMORY_SAFETY_AND_VIDEO_COMPATIBILITY.md"
       - "docs/MLX_METAL_DIAGNOSTICS.md"
+      - "tests/test_vce_repository_hygiene.py"
+      - ".github/workflows/cleanup-merged-topic-branches.yml"
       - ".github/workflows/full-distribution-installer.yml"
 
 permissions:
