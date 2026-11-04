@@ -3,17 +3,16 @@
   "runtime": "VideoContext Engine v3.19",
   "distribution_branch": "main",
   "publication_status": "merged_installable_distribution",
-  "merge_commit": "d7f0a83793340bde7010112e2f2ac16feeea7046",
+  "merge_commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
   "initial_distribution_merge_commit": "c4f661867f65296327b547889a1db11e2a32b471",
-  "last_verified_main_checkpoint": "d7f0a83793340bde7010112e2f2ac16feeea7046",
+  "last_verified_main_checkpoint": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
   "repository_state": {
     "remaining_branches": [
-      "main",
-      "chore/reconcile-audit-metadata-20261104"
+      "main"
     ],
     "open_pull_requests": 0,
-    "closed_pull_requests": 29,
-    "merged_pull_requests": 22,
+    "closed_pull_requests": 30,
+    "merged_pull_requests": 23,
     "closed_without_merge_pull_requests": [
       3,
       4,
@@ -25,10 +24,10 @@
     ],
     "historical_superseded_branches_deleted": 14,
     "cleanup_workflow": ".github/workflows/cleanup-merged-topic-branches.yml",
-    "merged_topic_branch_cleanup": "The workflow deletes merged PR branches and orphan topic branches only when ahead_by=0; default, protected, open-PR, non-topic and divergent branches are preserved.",
+    "merged_topic_branch_cleanup": "Verified success: run 41868806204 on main ee132eeea4661b61980bfffe5cf232ac999b1a7d; the workflow removed the merged PR #30 topic ref and the orphan chore/reconcile-audit-metadata-20261104 ref. Live branch inventory after cleanup contains only main.",
     "main_branch_protection": "disabled; CI workflows run on push and are not required status checks",
-    "latest_merged_pull_request": 29,
-    "audit_snapshot_boundary": "Inventory verified on 2026-11-04 at main d7f0a83793340bde7010112e2f2ac16feeea7046, immediately before PR #30. Snapshot counts refer to that checkpoint, not to commits merged afterwards.",
+    "latest_merged_pull_request": 30,
+    "audit_snapshot_boundary": "Post-merge inventory verified on 2026-11-04 at main ee132eeea4661b61980bfffe5cf232ac999b1a7d, after PR #30 and successful merged-topic cleanup run 41868806204. Counts refer to this exact checkpoint.",
     "closed_without_merge_disposition": [
       {
         "pr": 3,
@@ -59,14 +58,7 @@
         "disposition": "Closed after selective migration of the generic structural audit and source-aware lexical-grounding tools, tests and docs. Raw per-video Text LLM outputs and review bundles were excluded."
       }
     ],
-    "latest_runtime_change_pull_request": 27,
-    "stale_topic_branch_pending_cleanup": {
-      "branch": "chore/reconcile-audit-metadata-20261104",
-      "ahead_by": 0,
-      "behind_by": 1,
-      "open_pull_request": false,
-      "disposition": "Obsolete audit branch with no unique commits; deleted by the updated cleanup workflow on the next main push."
-    }
+    "latest_runtime_change_pull_request": 27
   },
   "public_contents": [
     "Complete customized Python runtime and matching web interface",
@@ -114,42 +106,42 @@
     "benchmark_inputs_explicit": true,
     "no_empty_tracked_files": true,
     "no_open_pull_requests": true,
-    "only_main_branch_remains": false,
+    "only_main_branch_remains": true,
     "superseded_branches_deleted": true,
     "pr15_merged": true,
     "pr13_pr14_closed_as_superseded": true,
-    "latest_ci": "At audit checkpoint d7f0a83, FFmpeg OCR-worker and quality-benchmark jobs passed; audio-resilience was queued; full distribution had distribution in progress and macOS Swift compile queued; merged-topic cleanup was in progress. The prior successful native Swift compile remains run 41716538619 on code checkpoint 2276b939.",
+    "latest_ci": "Post-PR-#30 main checkpoint ee132ee: distribution validation, audio resilience V6, FFmpeg OCR-worker tests, VCE quality benchmark tests and merged-topic cleanup all succeeded. The native Swift compile job remained queued at the time of this audit; the latest successful native Swift compile remains run 41716538619 on code checkpoint 2276b939.",
     "latest_ci_runs": [
       {
         "workflow": "Full distribution installer validation",
-        "run_id": 41865224044,
-        "commit": "d7f0a83793340bde7010112e2f2ac16feeea7046",
-        "distribution_job": "in_progress_at_audit",
+        "run_id": 41868805849,
+        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
+        "distribution_job": "success",
         "native_swift_compile": "queued_at_audit"
       },
       {
         "workflow": "Audio resilience V6 patch tests",
-        "run_id": 41865224056,
-        "commit": "d7f0a83793340bde7010112e2f2ac16feeea7046",
-        "status": "queued_at_audit"
+        "run_id": 41868805610,
+        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
+        "conclusion": "success"
       },
       {
         "workflow": "FFmpeg OCR worker setting tests",
-        "run_id": 41865223887,
-        "commit": "d7f0a83793340bde7010112e2f2ac16feeea7046",
+        "run_id": 41868805636,
+        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
         "conclusion": "success"
       },
       {
         "workflow": "VCE quality benchmark tests",
-        "run_id": 41865224048,
-        "commit": "d7f0a83793340bde7010112e2f2ac16feeea7046",
+        "run_id": 41868805402,
+        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
         "conclusion": "success"
       },
       {
-        "workflow": "Cleanup merged topic branches",
-        "run_id": 41865223909,
-        "commit": "d7f0a83793340bde7010112e2f2ac16feeea7046",
-        "status": "in_progress_at_audit"
+        "workflow": "Cleanup merged and fully integrated topic branches",
+        "run_id": 41868806204,
+        "commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
+        "conclusion": "success"
       }
     ],
     "no_dead_branch_urls": true,
@@ -188,10 +180,13 @@
     "orphan_topic_branch_has_no_unique_commits": true,
     "orphan_topic_branch_has_no_open_pr": true,
     "cleanup_workflow_preserves_divergent_and_open_branches": true,
-    "tree_file_count": 130,
-    "tree_total_bytes": 1793311
+    "tree_file_count": 131,
+    "tree_total_bytes": 1799161,
+    "no_open_issues": true,
+    "cleanup_workflow_post_merge_success": true,
+    "cleanup_workflow_run": 41868806204
   },
-  "notice": "Audit snapshots identify their exact main commit and boundary. Per-video artifacts and raw local telemetry are intentionally excluded from the public distribution; MLX telemetry caveats are documented.",
+  "notice": "This audit snapshot is post-PR-#30 and records only main after the merged-topic cleanup workflow succeeded. Per-video artifacts and raw local telemetry are intentionally excluded from the public distribution; MLX telemetry caveats are documented.",
   "retained_benchmark_data": "Two anonymized aggregate timing/quality metrics files and an anonymized VCE parameter-tuning summary only. The retained metric manifests use video_identity=redacted_local_sample, video_sha256=null and raw_video_and_vce_scene_payload_uploaded=false.",
   "code_validation_commit": "eec9fbaf44fcd6156630c55b302f2cf803776a28",
   "privacy_cleanup_commit": "1f742ea72951bb171d198cbd9f90f3da6151557d",
@@ -220,12 +215,13 @@
     26,
     27,
     28,
-    29
+    29,
+    30
   ],
-  "latest_repository_audit_commit": "d7f0a83793340bde7010112e2f2ac16feeea7046",
-  "latest_repository_maintenance_pr": 29,
+  "latest_repository_audit_commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d",
+  "latest_repository_maintenance_pr": 30,
   "latest_runtime_merge_commit": "2276b939ce6f697f6f642453a4ba9ed698cba01e",
   "latest_runtime_merge_pr": 27,
-  "latest_repository_audit_pr": 29,
-  "latest_repository_maintenance_merge_commit": "d7f0a83793340bde7010112e2f2ac16feeea7046"
+  "latest_repository_audit_pr": 30,
+  "latest_repository_maintenance_merge_commit": "ee132eeea4661b61980bfffe5cf232ac999b1a7d"
 }

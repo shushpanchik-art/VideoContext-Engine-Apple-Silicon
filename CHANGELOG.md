@@ -17,7 +17,7 @@
 - PR #25 fixed Homebrew PATH handling for GUI-launched servers and added explicit `ffmpeg`/`ffprobe` checks.
 - PR #27 made the native app own the Python engine process lifecycle, with project-scoped stale-process cleanup on launch and shutdown.
 - PR #28 reconciled repository publication metadata and added publication-manifest JSON validation to the full distribution CI workflow.
-- PR #29 finalized the first repository-audit snapshot. PR #30 reconciles its post-merge counts/checkpoint and makes cleanup remove orphan topic refs only when they have no commits ahead of `main` and no open PR.
+- PR #29 finalized the first repository-audit snapshot. PR #30 reconciled post-merge counts/checkpoint, added safe orphan/reused-branch cleanup rules, and merged the final repository hygiene pass. Cleanup run 41868806204 succeeded; only `main` remained.
 
 ## 0.2.3 — Remove per-video outputs from public tree (2026-11-02)
 
