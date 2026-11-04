@@ -73,3 +73,8 @@ The launcher supports two opt-in environment variables for a controlled one-prof
 - `VCE_BENCH_SKIP_AUDIO=1` sets `skip_audio=true`, disables audio features, and disables word timestamps for that request. This bypasses Whisper inference while leaving the visual/VLM/OCR path enabled.
 
 These switches are applied only to the in-memory request fields. They do not persist settings or rewrite local configuration. This diagnostic is not a performance or accuracy benchmark. Comparing the result with a normal run can help isolate whether a native crash is associated with the audio/Whisper path; a successful run alone does not prove causation.
+
+
+### Whisper-preserving crash isolation
+
+Use `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1` for a single baseline request that keeps Whisper enabled, preserves word timestamps and audio features, and selects API mode `whisper_ocr`. The diagnostic disables Qwen3-VL, Apple Vision OCR, FFmpeg/Tesseract OCR, and Qwen3.5 post-processing for that request only. It does not change persisted settings. This is an isolation run, not a quality/performance comparison.
