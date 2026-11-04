@@ -12,7 +12,9 @@ on:
       - "docs/**"
       - "macos/**"
       - "tests/test_vce_speed_profile.py"
+      - "tests/test_vce_full_profile_benchmark_patch.py"
       - "tests/test_vce_memory_safety.py"
+      - "tests/test_vce_full_profile_benchmark_patch.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
       - "scripts/**"
   push:
