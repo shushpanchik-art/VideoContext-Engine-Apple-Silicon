@@ -234,6 +234,8 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
     _reasons = []
     if _http_status != 200:
         _reasons.append("HTTP request did not complete with status 200")
+    if not _meta:
+        _reasons.append("HTTP response lacks the required non-empty meta payload")
     if _metal_failure:
         _reasons.append("Metal command-buffer submission failure observed")
     if _vlm_requested and _vlm_status != "completed":
@@ -243,7 +245,7 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
     if _whisper_requested and not _audio_missing and _whisper_status != "completed":
         _reasons.append("requested Whisper stage is " + _whisper_status)
 
-    if _http_status != 200 or _metal_failure or (_vlm_requested and _vlm_status == "failed"):
+    if _http_status != 200 or not _meta or _metal_failure or (_vlm_requested and _vlm_status == "failed"):
         _overall = "failed"
     elif (_vlm_requested and _vlm_status != "completed") or (_text_requested and _text_status != "completed") or (_whisper_requested and not _audio_missing and _whisper_status != "completed"):
         _overall = "degraded"
@@ -296,7 +298,7 @@ def run_one(*args, **kwargs):
     )
     _print = print
     _print(
-        "  -> {status} (API {api_status}); wall={wall:.1f}s; VCE={vce}s; scenes={scenes}; errors={errors}".format(
+        "  CLASSIFIER OVERRIDE: {status} (API {api_status}); wall={wall:.1f}s; VCE={vce}s; scenes={scenes}; errors={errors}".format(
             status=_record.get("status"),
             api_status=_record.get("api_status"),
             wall=float(_record.get("client_wall_seconds") or 0.0),
