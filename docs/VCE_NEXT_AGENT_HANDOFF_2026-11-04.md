@@ -6,7 +6,7 @@
 - Draft PR: https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/34
 - PR base: `main`; do not merge, close or convert from Draft.
 - At the time of the new VLM run, PR head was `d3070b19681d6f15824c8eeb7547504fcaaf3d90`.
-- Current PR head after handoff and aggregate-status corrections: `8d0346122de2de175807becb946105c43198da48`.
+- For the live branch tip, use the current PR head shown by GitHub; this document is updated in its own commits.
 - Runner source pin: `650f3a1437ee0cdcab1c3ea41005a599a373d578`.
 - Patch helper used by this run (v3): `f3d9592f704881819f416d3e1d0c18348888c16f`.
 - Current patch helper for subsequent runs (v4): `db54501d459569eaa3e75a8e22ef1385ecee68f9`.
@@ -64,7 +64,7 @@ The PR branch contains the next-agent handoff document and patch v4 with its ide
 
 
 ## Final PR/CI pointers
-- Latest PR head: `8d0346122de2de175807becb946105c43198da48`.
+- Resolve the live PR head from the PR page; this handoff is itself versioned on the feature branch.
 - Last code-bearing head: `fd6a9a547ce0515af299e533c0c301b7792e2c3e`; all six workflows completed successfully there.
 - No source/test changes were made after that successful CI run; subsequent commits only amended the aggregate `summary.md` and `launcher_status.txt` to supersede the misleading v3 `completed` label with pending-error-review `degraded`.
 - PR #34 remains open and Draft.
