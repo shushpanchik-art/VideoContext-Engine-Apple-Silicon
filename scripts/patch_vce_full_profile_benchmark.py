@@ -1,12 +1,8 @@
 #!/usr/bin/env python3
 """Patch a downloaded VCE benchmark runner in its temporary directory.
 
-The adapter fixes two observed runner defects:
-- converts local JSONL paths to pathlib.Path;
-- redirects an API progress endpoint accidentally passed to jsonl_append()
-  into the run's local progress_trace.jsonl file.
-
-It also provides opt-in baseline-only and Whisper-only diagnostic modes.
+The adapter fixes observed runner defects and hardens per-profile classification.
+It also provides opt-in, single-profile VLM-only and Whisper-only isolation modes.
 It never edits the installed VCE source or persisted settings.
 """
 from __future__ import annotations
@@ -104,31 +100,214 @@ def build_plan(*args, **kwargs):
     source = _insert_after_function(
         source,
         "build_base_fields",
-        r'''# VCE_BENCH_DIAGNOSTIC_WHISPER_ONLY_WRAPPER_V2
+        r'''# VCE_BENCH_DIAGNOSTIC_ISOLATION_WRAPPER_V3
 _vce_original_build_base_fields = build_base_fields
 def build_base_fields(*args, **kwargs):
+    import os as _vce_os
+    _vce_whisper_only = _vce_os.environ.get("VCE_BENCH_WHISPER_ONLY") == "1"
+    _vce_vlm_only = _vce_os.environ.get("VCE_BENCH_VLM_ONLY") == "1"
+    if _vce_whisper_only and _vce_vlm_only:
+        raise RuntimeError("Choose only one of VCE_BENCH_WHISPER_ONLY or VCE_BENCH_VLM_ONLY")
     _vce_result = _vce_original_build_base_fields(*args, **kwargs)
-    if __import__('os').environ.get('VCE_BENCH_WHISPER_ONLY') != '1':
+    if not (_vce_whisper_only or _vce_vlm_only):
         return _vce_result
     if not isinstance(_vce_result, tuple) or len(_vce_result) != 2:
-        raise RuntimeError("build_base_fields() returned an unexpected value; cannot apply Whisper-only mode")
+        raise RuntimeError("build_base_fields() returned an unexpected value; cannot apply isolation mode")
     _vce_fields, _vce_missing = _vce_result
     if not isinstance(_vce_fields, dict):
         raise RuntimeError("build_base_fields() did not return a settings dictionary")
     _vce_fields = dict(_vce_fields)
-    # Preserve speech recognition and word-level timing.
-    _vce_fields['analysis_mode'] = 'whisper_ocr'
-    _vce_fields['skip_audio'] = False
-    _vce_fields['word_timestamps'] = True
-    _vce_fields['enable_audio_features'] = True
-    # Isolate Whisper from concurrent visual/secondary model work.
-    _vce_fields['skip_visual'] = True
-    _vce_fields['enable_apple_ocr'] = False
-    _vce_fields['enable_ffmpeg_ocr'] = False
-    _vce_fields['text_llm_enabled'] = False
-    _vce_fields['generate_summary'] = False
+    if _vce_whisper_only:
+        # Keep Whisper inference, word timing and audio features; disable every visual/secondary model.
+        _vce_fields["analysis_mode"] = "whisper_ocr"
+        _vce_fields["skip_audio"] = False
+        _vce_fields["word_timestamps"] = True
+        _vce_fields["enable_audio_features"] = True
+        _vce_fields["skip_visual"] = True
+        _vce_fields["enable_apple_ocr"] = False
+        _vce_fields["enable_ffmpeg_ocr"] = False
+        _vce_fields["text_llm_enabled"] = False
+        _vce_fields["generate_summary"] = False
+    else:
+        # Keep the visual/VLM path; disable Whisper/audio, OCR and Text LLM to isolate VLM.
+        _vce_fields["skip_audio"] = True
+        _vce_fields["word_timestamps"] = False
+        _vce_fields["enable_audio_features"] = False
+        _vce_fields["skip_visual"] = False
+        _vce_fields["enable_apple_ocr"] = False
+        _vce_fields["enable_ffmpeg_ocr"] = False
+        _vce_fields["text_llm_enabled"] = False
+        _vce_fields["generate_summary"] = False
     return _vce_fields, _vce_missing''',
-        "# VCE_BENCH_DIAGNOSTIC_WHISPER_ONLY_WRAPPER_V2",
+        "# VCE_BENCH_DIAGNOSTIC_ISOLATION_WRAPPER_V3",
+    )
+
+    source = _insert_after_function(
+        source,
+        "run_one",
+        r'''# VCE_BENCH_STAGE_CLASSIFIER_V1
+def _vce_classify_profile_result(record, requested_fields, payload, log_text):
+    """Separate HTTP completion from evidence that each requested ML stage completed."""
+    import re as _vce_re
+
+    if not isinstance(record, dict):
+        raise TypeError("run_one() must return a result dictionary for stage classification")
+    if not isinstance(requested_fields, dict):
+        requested_fields = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    _meta = payload.get("meta") if isinstance(payload.get("meta"), dict) else {}
+    _meta_params = _meta.get("params") if isinstance(_meta.get("params"), dict) else {}
+    _meta_timings = _meta.get("timings") if isinstance(_meta.get("timings"), dict) else {}
+    _skipped = _meta.get("skipped") if isinstance(_meta.get("skipped"), dict) else {}
+    _vlm_timing = _meta_timings.get("vlm") if isinstance(_meta_timings.get("vlm"), dict) else {}
+    _whisper_timing = _meta_timings.get("whisper") if isinstance(_meta_timings.get("whisper"), dict) else {}
+    _text_llm = payload.get("text_llm") if isinstance(payload.get("text_llm"), dict) else {}
+
+    def _positive_number(value):
+        return isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0
+
+    _http_status = record.get("http_status")
+    _api_status = "http_200" if _http_status == 200 else "http_error"
+    _log = str(log_text or "")
+    _metal_failure = bool(_vce_re.search(
+        r"command buffer execution failed|kIOGPUCommandBufferCallbackErrorSubmissionsIgnored|submissionsignored",
+        _log, _vce_re.I
+    ))
+    _vlm_guard = bool(_vce_re.search(
+        r"VLM memory guard.{0,240}(?:disabl|timeout|fail|error)|disabling VLM for the rest of this video",
+        _log, _vce_re.I | _vce_re.S
+    ))
+    _vlm_specific_failure = bool(_vce_re.search(
+        r"(?:\[VLM\].{0,180}(?:failed|failure|error|fallback)|VLM.{0,100}(?:disabled|fallback|failed))",
+        _log, _vce_re.I
+    ))
+
+    _analysis_mode = str(requested_fields.get("analysis_mode", "full")).lower()
+    _vlm_requested = not bool(requested_fields.get("skip_visual", False)) and _analysis_mode not in {"whisper_ocr", "audio", "transcription"}
+    _text_requested = bool(requested_fields.get("text_llm_enabled", False))
+    _whisper_requested = not bool(requested_fields.get("skip_audio", False)) and _analysis_mode not in {"visual", "video"}
+    _audio_missing = _meta_params.get("audio_track_available") is False or _meta_params.get("audio_auto_skipped") is True
+
+    _vlm_inference = _vlm_timing.get("inference_time")
+    _run_vlm = _meta_params.get("run_vlm")
+    if not _vlm_requested:
+        _vlm_status, _vlm_reason = "skipped", "not requested by this profile"
+    elif _vlm_guard or _vlm_specific_failure or _run_vlm is False:
+        _vlm_status, _vlm_reason = "failed", "VLM was disabled or failed in the runtime"
+    elif _positive_number(_vlm_inference):
+        _vlm_status, _vlm_reason = "completed", "positive VLM inference timing returned"
+    else:
+        _vlm_status, _vlm_reason = "degraded", "VLM was requested but completion telemetry is absent"
+
+    _text_enabled = _text_llm.get("enabled")
+    _text_state = str(_text_llm.get("status", "")).lower()
+    _text_inference = _text_llm.get("inference_time")
+    _text_error = _text_llm.get("error")
+    if not _text_requested:
+        _text_status, _text_reason = "skipped", "not requested by this profile"
+    elif _text_state == "failed" or _text_error:
+        _text_status, _text_reason = "failed", "Text LLM returned failed status or an error"
+    elif _text_state == "success" and _positive_number(_text_inference) and _text_enabled is not False and payload.get("enhanced_analysis") is not None:
+        _text_status, _text_reason = "completed", "Text LLM success status and output returned"
+    else:
+        _text_status, _text_reason = "degraded", "Text LLM was requested but successful completion is not evidenced"
+
+    _whisper_inference = _whisper_timing.get("inference_time")
+    if not _whisper_requested or _audio_missing:
+        _whisper_status, _whisper_reason = "skipped", "audio inference was not requested or no audio track was available"
+    elif _positive_number(_whisper_inference):
+        _whisper_status, _whisper_reason = "completed", "positive Whisper inference timing returned"
+    else:
+        _whisper_status, _whisper_reason = "degraded", "Whisper was requested but completion telemetry is absent"
+
+    _metal_status = "failed" if _metal_failure else "no_failure_observed"
+    _stage_status = {
+        "api": {"status": _api_status, "http_status": _http_status},
+        "metal": {"status": _metal_status},
+        "vlm": {"requested": _vlm_requested, "status": _vlm_status, "reason": _vlm_reason, "inference_seconds": _vlm_inference},
+        "text_llm": {"requested": _text_requested, "status": _text_status, "reason": _text_reason, "inference_seconds": _text_inference},
+        "whisper": {"requested": _whisper_requested and not _audio_missing, "status": _whisper_status, "reason": _whisper_reason, "inference_seconds": _whisper_inference},
+    }
+
+    _reasons = []
+    if _http_status != 200:
+        _reasons.append("HTTP request did not complete with status 200")
+    if _metal_failure:
+        _reasons.append("Metal command-buffer submission failure observed")
+    if _vlm_requested and _vlm_status != "completed":
+        _reasons.append("required VLM stage is " + _vlm_status)
+    if _text_requested and _text_status != "completed":
+        _reasons.append("required Text LLM stage is " + _text_status)
+    if _whisper_requested and not _audio_missing and _whisper_status != "completed":
+        _reasons.append("requested Whisper stage is " + _whisper_status)
+
+    if _http_status != 200 or _metal_failure or (_vlm_requested and _vlm_status == "failed"):
+        _overall = "failed"
+    elif (_vlm_requested and _vlm_status != "completed") or (_text_requested and _text_status != "completed") or (_whisper_requested and not _audio_missing and _whisper_status != "completed"):
+        _overall = "degraded"
+    else:
+        _overall = "completed"
+
+    return {
+        "status": _overall,
+        "api_status": _api_status,
+        "stage_status": _stage_status,
+        "classification_reasons": _reasons,
+    }
+
+
+_vce_original_run_one = run_one
+def run_one(*args, **kwargs):
+    import json as _vce_json
+    from pathlib import Path as _VCEPath
+
+    _record = _vce_original_run_one(*args, **kwargs)
+    if not isinstance(_record, dict):
+        return _record
+    _base_fields = kwargs.get("base_fields", args[3] if len(args) > 3 else {})
+    _overrides = kwargs.get("overrides", args[2] if len(args) > 2 else {})
+    _requested_fields = dict(_base_fields) if isinstance(_base_fields, dict) else {}
+    if isinstance(_overrides, dict):
+        _requested_fields.update(_overrides)
+
+    _result_directory = _record.get("result_directory")
+    if not _result_directory:
+        return _record
+    _run_dir = _VCEPath(_result_directory)
+    try:
+        _payload = _vce_json.loads((_run_dir / "response.json").read_text(encoding="utf-8"))
+    except Exception:
+        _payload = {}
+    try:
+        _log_text = (_run_dir / "server_log_delta.log").read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        _log_text = ""
+    _classification = _vce_classify_profile_result(_record, _requested_fields, _payload, _log_text)
+    _record.update(_classification)
+    (_run_dir / "stage_status.json").write_text(
+        _vce_json.dumps(_classification, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8"
+    )
+    (_run_dir / "run_summary.json").write_text(
+        _vce_json.dumps(_record, ensure_ascii=False, indent=2, default=str) + "\n",
+        encoding="utf-8"
+    )
+    _print = print
+    _print(
+        "  -> {status} (API {api_status}); wall={wall:.1f}s; VCE={vce}s; scenes={scenes}; errors={errors}".format(
+            status=_record.get("status"),
+            api_status=_record.get("api_status"),
+            wall=float(_record.get("client_wall_seconds") or 0.0),
+            vce=_record.get("vce_process_seconds", "—"),
+            scenes=_record.get("scene_count", "—"),
+            errors=_record.get("error_count", 0),
+        ),
+        flush=True,
+    )
+    return _record''',
+        "# VCE_BENCH_STAGE_CLASSIFIER_V1",
     )
 
     compile(source, "<patched-vce-benchmark-runner>", "exec")
@@ -142,7 +321,7 @@ def main() -> int:
     runner = Path(sys.argv[1])
     patched = patch_source(runner.read_text(encoding="utf-8"))
     runner.write_text(patched, encoding="utf-8")
-    print("Applied VCE benchmark patch v2: JSONL path routing, baseline limit and Whisper-only diagnostic mode.")
+    print("Applied VCE benchmark patch v3: JSONL path routing, isolated modes and explicit per-stage FAILED/DEGRADED classification.")
     return 0
 
 
