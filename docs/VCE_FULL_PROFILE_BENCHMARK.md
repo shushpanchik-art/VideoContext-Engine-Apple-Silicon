@@ -60,7 +60,7 @@ VLM resolution выбирается по объёму unified memory: 1280 px п
 
 ## Launcher compatibility guard (2026-11-04)
 
-The one-command launcher now downloads a small patch helper alongside the compressed runner. It normalizes the argument passed to `jsonl_append()` with `pathlib.Path` before the JSONL writer calls `.open()`. This addresses the observed runner-side `AttributeError: 'str' object has no attribute 'open'` and restores progress/error telemetry collection. The patch is applied only to the temporary unpacked runner; it does not edit the installed VCE runtime or user settings.
+The one-command launcher downloads a small patch helper alongside the compressed runner. The helper fixes the JSONL path argument, adds baseline-only/VLM-only/Whisper-only diagnostic modes, and classifies API, Metal, VLM, Whisper and Text LLM outcomes independently from HTTP status. It treats Metal submission failures, missing metadata and requested stages without positive completion evidence as FAILED or DEGRADED. It also rejects a Whisper-only profile as completed when the input has no audio track. The patch is applied only to the temporary unpacked runner; it does not edit the installed VCE runtime or user settings.
 
 This is deliberately separate from engine-native crashes. A Python `SIGSEGV` in Apple `libBNNS.dylib` is outside Python exception handling and cannot be repaired by the benchmark launcher. Treat a runner error and a VCE process crash as distinct events; use the macOS crash report and server log to isolate the native backend.
 
@@ -82,7 +82,7 @@ Use `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1` for a single baseline r
 
 ### Immutable source pin
 
-The one-command launcher pins the runner and patch-helper downloads to commit `650f3a1437ee0cdcab1c3ea41005a599a373d578` rather than the mutable `main` branch. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing an old helper with a new launcher. It also prints the pinned source revision and helper URL before applying the patch.
+The one-command launcher pins the compressed runner to `650f3a1437ee0cdcab1c3ea41005a599a373d578` and the stage-aware patch helper to `f3d9592f704881819f416d3e1d0c18348888c16f`, each by immutable commit rather than mutable `main`. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing runner/helper versions. It prints both pinned revisions before applying the patch.
 
 
 ### Progress-trace routing fix (2026-11-04)
