@@ -1,5 +1,7 @@
 ## Unreleased — local full-profile performance benchmark
 
+- Updated the one-command Apple Silicon launcher to use the requested NSR video path by default, pin runner/helper downloads to the regression-fixed source commit, run the baseline plus isolated and combined experimental profiles, retain console/error diagnostics, and publish only sanitized aggregate benchmark tables and error excerpts to the feature branch. Full video-derived artifacts and raw logs remain local.
+
 - Fixed the one-command launcher by normalizing `jsonl_append()` paths and routing accidental `/api/v1/progress/...` endpoint strings to the per-profile local JSONL trace. Confirmed Whisper-only run completed (185.99 s, Russian, HTTP 200); added regression tests and retained immutable source pins.
 
 - Added a one-command macOS Apple Silicon benchmark for a baseline full-analysis profile, each experimental optimization independently, and a combined experiment run.
