@@ -48,7 +48,7 @@ GitHub Actions проверяет исходники и автоматизиро
 - PR #27 синхронизировал жизненный цикл native app и проектного Python engine.
 - PR #28 сверил публикационный манифест, changelog и CI; заключительный аудит исправляет оставшиеся post-merge счётчики и checkpoint.
 
-Защита `main` через branch protection не включена (`protected=false)); CI workflows запускаются, но не являются обязательными merge checks. Слияния следует выполнять через PR и проверять CI вручную.
+Защита `main` через branch protection не включена (`protected=false`); CI workflows запускаются, но не являются обязательными merge checks. Слияния следует выполнять через PR и проверять CI вручную.
 
 ## Закрытые PR без merge: итоговое решение
 
