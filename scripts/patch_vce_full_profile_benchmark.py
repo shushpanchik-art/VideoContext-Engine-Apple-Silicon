@@ -322,7 +322,7 @@ def run_one(*args, **kwargs):
         flush=True,
     )
     return _record''',
-        "# VCE_BENCH_STAGE_CLASSIFIER_V1",
+        "# VCE_BENCH_STAGE_CLASSIFIER_V2",
     )
 
     compile(source, "<patched-vce-benchmark-runner>", "exec")
