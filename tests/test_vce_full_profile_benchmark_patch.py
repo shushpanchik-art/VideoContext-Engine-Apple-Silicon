@@ -16,12 +16,11 @@ SPEC.loader.exec_module(PATCHER)
 
 class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
     def test_string_path_is_normalized_before_path_open(self):
-        source = (
-            "import json\\n"
-            "def jsonl_append(path, payload):\\n"
-            "    with path.open('a', encoding='utf-8') as handle:\\n"
-            "        handle.write(json.dumps(payload) + '\\\\n')\\n"
-        )
+        source = """import json
+def jsonl_append(path, payload):
+    with path.open('a', encoding='utf-8') as handle:
+        handle.write(json.dumps(payload) + "\\n")
+"""
         patched = PATCHER.patch_source(source)
         namespace = {}
         exec(compile(patched, "<test-runner>", "exec"), namespace)
@@ -31,11 +30,10 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
             self.assertEqual(json.loads(target.read_text(encoding="utf-8")), {"status": "ok"})
 
     def test_patch_is_idempotent(self):
-        source = (
-            "def jsonl_append(path, payload):\\n"
-            "    with path.open('a', encoding='utf-8') as handle:\\n"
-            "        handle.write(str(payload))\\n"
-        )
+        source = """def jsonl_append(path, payload):
+    with path.open('a', encoding='utf-8') as handle:
+        handle.write(str(payload))
+"""
         once = PATCHER.patch_source(source)
         twice = PATCHER.patch_source(once)
         self.assertEqual(once, twice)
