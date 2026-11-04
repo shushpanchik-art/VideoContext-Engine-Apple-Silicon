@@ -36,3 +36,8 @@ Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3
 Upstream source file blob at reference: cfa22be84dfbb5f9e6f29269c9906c376e90ef17
 
 The distribution intentionally excludes ML model weights, local Python virtual environments, personal settings, source video/audio, raw telemetry, per-video JSON payloads and backup copies.
+
+Historical checkpoints:
+- Initial full runtime distribution PR #15 was squash-merged as 549186bbf9c4653955cb8d8f4d1e967055e80b55.
+- PRs #13 and #14 were closed after selective migration of reusable code/tests; their final dispositions are recorded in TEST_STATUS.md.
+- Initial cleanup of 14 superseded branches was completed before the persistent merged-branch cleanup workflow was introduced by PR #18.
