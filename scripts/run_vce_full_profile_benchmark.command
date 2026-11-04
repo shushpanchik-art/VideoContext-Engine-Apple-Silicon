@@ -95,6 +95,16 @@ pathlib.Path(dst).write_text(data, encoding="utf-8")
 PY
   fi
 done
+if [[ -f "$TMP_DIR/runner_console.log" ]]; then
+  "$PYTHON" - "$TMP_DIR/runner_console.log" "$DEST/launcher_errors.txt" "$VIDEO_DEFAULT" "$HOME" <<'PY'
+import pathlib, re, sys
+src, dst, video, home = map(str, sys.argv[1:])
+lines = pathlib.Path(src).read_text(encoding="utf-8", errors="replace").splitlines()
+pattern = re.compile(r"error|exception|traceback|failed|fatal|timed out|segmentation fault", re.I)
+selected = [line.replace(video, "<INPUT_VIDEO>").replace(home, "<HOME>") for line in lines if pattern.search(line)]
+pathlib.Path(dst).write_text("\n".join(selected[-500:]) + ("\n" if selected else ""), encoding="utf-8")
+PY
+fi
 {
   echo "benchmark_timestamp_utc=$STAMP"
   echo "runner_exit_code=$RUN_EXIT"
