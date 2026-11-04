@@ -145,7 +145,7 @@ def build_base_fields(*args, **kwargs):
     source = _insert_after_function(
         source,
         "run_one",
-        r'''# VCE_BENCH_STAGE_CLASSIFIER_V1
+        r'''# VCE_BENCH_STAGE_CLASSIFIER_V2
 def _vce_classify_profile_result(record, requested_fields, payload, log_text):
     """Separate HTTP completion from evidence that each requested ML stage completed."""
     import re as _vce_re
@@ -170,6 +170,10 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
 
     _http_status = record.get("http_status")
     _api_status = "http_200" if _http_status == 200 else "http_error"
+    try:
+        _runtime_error_count = max(0, int(record.get("error_count") or 0))
+    except (TypeError, ValueError, OverflowError):
+        _runtime_error_count = 1
     _log = str(log_text or "")
     _metal_failure = bool(_vce_re.search(
         r"command buffer execution failed|kIOGPUCommandBufferCallbackErrorSubmissionsIgnored|submissionsignored",
@@ -231,6 +235,11 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
         "vlm": {"requested": _vlm_requested, "status": _vlm_status, "reason": _vlm_reason, "inference_seconds": _vlm_inference},
         "text_llm": {"requested": _text_requested, "status": _text_status, "reason": _text_reason, "inference_seconds": _text_inference},
         "whisper": {"requested": _whisper_requested, "status": _whisper_status, "reason": _whisper_reason, "inference_seconds": _whisper_inference},
+        "runtime_errors": {
+            "count": _runtime_error_count,
+            "status": "degraded" if _runtime_error_count else "none",
+            "reason": "runner reported errors; inspect local errors.csv before accepting profile" if _runtime_error_count else "runner reported no errors",
+        },
     }
 
     _reasons = []
@@ -246,10 +255,12 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
         _reasons.append("required Text LLM stage is " + _text_status)
     if _whisper_requested and _whisper_status != "completed":
         _reasons.append("requested Whisper stage is " + _whisper_status)
+    if _runtime_error_count:
+        _reasons.append(f"runner reported {_runtime_error_count} error(s); inspect local errors.csv before accepting profile")
 
     if _http_status != 200 or not _meta or _metal_failure or (_vlm_requested and _vlm_status == "failed"):
         _overall = "failed"
-    elif (_vlm_requested and _vlm_status != "completed") or (_text_requested and _text_status != "completed") or (_whisper_requested and _whisper_status != "completed"):
+    elif _runtime_error_count or (_vlm_requested and _vlm_status != "completed") or (_text_requested and _text_status != "completed") or (_whisper_requested and _whisper_status != "completed"):
         _overall = "degraded"
     else:
         _overall = "completed"
@@ -325,7 +336,7 @@ def main() -> int:
     runner = Path(sys.argv[1])
     patched = patch_source(runner.read_text(encoding="utf-8"))
     runner.write_text(patched, encoding="utf-8")
-    print("Applied VCE benchmark patch v3: JSONL path routing, isolated modes and explicit per-stage FAILED/DEGRADED classification.")
+    print("Applied VCE benchmark patch v4: per-stage and runtime-error-aware FAILED/DEGRADED classification.")
     return 0
 
 
