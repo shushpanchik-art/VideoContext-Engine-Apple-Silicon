@@ -16,8 +16,8 @@
 - PR #24 made the managed macOS app patcher refresh independently when local runtime edits cause the installer to skip `git pull`.
 - PR #25 fixed Homebrew PATH handling for GUI-launched servers and added explicit `ffmpeg`/`ffprobe` checks.
 - PR #27 made the native app own the Python engine process lifecycle, with project-scoped stale-process cleanup on launch and shutdown.
-- PR #28 reconciled repository publication metadata and added publication-manifest JSON validation to the full distribution CI workflow.
-- PR #29 finalized the first repository-audit snapshot. PR #30 reconciled post-merge counts/checkpoint, added safe orphan/reused-branch cleanup rules, and merged the final repository hygiene pass. Cleanup run 41868806204 succeeded; only `main` remained.
+- Added publication-manifest JSON validation and separated stable distribution metadata from live GitHub branch/PR/CI state.
+- Hardened automatic topic-branch cleanup: merged branches are removed only when their tips still match the merged SHA; orphan topic branches are removed only with zero commits ahead of `main`. Protected, open-PR, non-topic and divergent branches are preserved.
 
 ## 0.2.3 — Remove per-video outputs from public tree (2026-11-02)
 
