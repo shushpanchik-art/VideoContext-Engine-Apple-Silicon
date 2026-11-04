@@ -239,6 +239,13 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertEqual(result["api_status"], "http_error")
 
+    def test_http_200_without_meta_payload_is_failed(self):
+        namespace = self._load()
+        result = self._classify(namespace, payload={})
+        self.assertEqual(result["api_status"], "http_200")
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("HTTP response lacks the required non-empty meta payload", result["classification_reasons"])
+
     def test_patch_is_idempotent(self):
         once = PATCHER.patch_source(STUB_RUNNER)
         self.assertEqual(PATCHER.patch_source(once), once)
