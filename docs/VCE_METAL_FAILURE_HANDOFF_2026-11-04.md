@@ -242,3 +242,32 @@ https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/34
 First read this file and the PR description. Treat the 2026-11-04 MacBook Pro M1 Max run as a failed/degraded diagnostic, not a valid benchmark. Confirm whether the previous launcher is still running, preserve local diagnostics, and inspect the exact VCE Python process/environment. The strongest current finding is repeated MLX Metal command-buffer `SubmissionsIgnored`, followed by VLM guard shutdown and Text LLM fallback; system memory was 87% free at the supplied snapshot. Whisper is explicitly CPU-streamed. GPU detection and smoke tests pass, but they do not prove successful full inference. Do not assume CPU Whisper concurrency or H.264 warnings are the root cause.
 
 Next: inspect the pinned gzip runner and patcher, harden per-profile success/failure classification so HTTP 200 cannot mask VLM/Text LLM failure, add regression tests, then perform controlled VLM-only / Whisper-only / concurrent isolation runs on a freshly restarted VCE process. Do not publish raw logs, prompts, transcripts, OCR, model outputs, or the input video. Do not claim end-to-end success until every required stage has completed and the target-Mac evidence is reviewed.
+
+## Follow-on six-profile run received 2026-11-04
+
+A later terminal capture showed a complete six-profile matrix with runner exit code 1. That capture explicitly reported benchmark patch v2; it predates the stage-aware v3 classifier now pinned by the launcher and must not be used to validate the new classification logic.
+
+- The old runner labelled the baseline `completed` while also recording four errors.
+- The five subsequent experimental profiles (adaptive keyframes, OCR cache, MLX Whisper validation flag, fast scene detection, combined) each ended in `error`.
+- Repeated MLX/Metal `kIOGPUCommandBufferCallbackErrorSubmissionsIgnored` messages remained present. The non-zero runner exit confirms the matrix was not successful.
+- The log capture did not include a `ps`, `pgrep` or `lsof` snapshot. The shell prompt returned after the runner exit, but the current VCE server/process state was not independently measured.
+- This matrix did not run the new isolated VLM-only or Whisper-only modes. Enabling the legacy `enable_mlx_whisper` validation flag is not a Whisper-only test and does not change the current CPU Whisper backend.
+
+Do not publish any CSV, error excerpt, terminal log, server log, response or video-derived material from this run. The benchmark-results directory was removed from the PR tree and the feature branch was rewritten to exclude the commit that had added those local artifacts. Git hosting may retain an unreferenced object/cache for some time; current branch history no longer includes that commit.
+
+### Next target-Mac sequence
+
+1. Before a new run, inspect process/listener state locally without printing command-line arguments or video paths:
+   ```bash
+   ps -axo pid,ppid,stat,etime,%cpu,%mem,comm | egrep -i 'VideoContext|python|uvicorn' | grep -v egrep
+   lsof -nP -iTCP:7555 -sTCP:LISTEN
+   ```
+   Confirm no benchmark launcher or stale analysis request remains. Restart VCE cleanly and verify its API is ready.
+2. Set `VCE_VIDEO_PATH` locally in Terminal. Do not add the private path to GitHub, logs or reports.
+3. Run VLM-only with `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_VLM_ONLY=1`. Require `status=completed`, positive VLM inference evidence and no Metal/guard failure.
+4. Restart VCE cleanly, then run Whisper-only with `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1`. Require positive Whisper inference evidence and an available audio track. The current Whisper backend is CPU.
+5. Only after both isolated tests pass, run the concurrent baseline with `VCE_BENCH_ONLY_BASELINE=1`. Require VLM, Whisper and Text LLM all to show `completed`.
+6. If a requested stage returns failed/degraded, or Metal submissions are ignored, stop the matrix and preserve diagnostics locally. Do not rank profiles or call HTTP 200 a successful benchmark.
+
+The launcher now publishes only the redacted aggregate `summary.md`, `stage_comparison.csv` and `launcher_status.txt`. Detailed errors, raw logs, run summaries and full responses remain local.
+
