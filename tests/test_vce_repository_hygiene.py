@@ -71,6 +71,37 @@ class TestRepositoryHygiene(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_speed_profile_workflow_path_filters_are_current_and_deduplicated(self):
+        workflow_path = ROOT / ".github" / "workflows" / "vce-speed-profile-tests.yml"
+        lines = workflow_path.read_text(encoding="utf-8").splitlines()
+
+        def event_paths(event):
+            event_line = next(i for i, line in enumerate(lines) if line == f"  {event}:")
+            section_end = next(
+                (i for i in range(event_line + 1, len(lines))
+                 if lines[i] and not lines[i][0].isspace()),
+                len(lines),
+            )
+            section = lines[event_line + 1:section_end]
+            paths_line = next(i for i, line in enumerate(section) if line.strip() == "paths:")
+            result = []
+            for line in section[paths_line + 1:]:
+                if line and len(line) - len(line.lstrip()) <= 4:
+                    break
+                item = line.strip()
+                if item.startswith('- "') and item.endswith('"'):
+                    result.append(item[3:-1])
+            return result
+
+        for event in ("pull_request", "push"):
+            paths = event_paths(event)
+            self.assertEqual(len(paths), len(set(paths)), f"duplicate {event} path filter")
+            self.assertIn("tests/test_vce_native_app_lifecycle.py", paths)
+            self.assertNotIn("install_patches_to_existing_checkout.command", paths)
+            for path in paths:
+                if not any(char in path for char in "*?[]"):
+                    self.assertTrue((ROOT / path).exists(), f"stale {event} path: {path}")
+
     def test_manifest_is_valid_json_and_contains_stable_distribution_provenance(self):
         import json
 
