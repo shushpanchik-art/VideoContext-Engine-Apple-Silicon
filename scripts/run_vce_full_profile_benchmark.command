@@ -58,8 +58,8 @@ RUN_EXIT=${PIPESTATUS[0]}
 set -e
 echo "Benchmark runner exit code: $RUN_EXIT"
 
-# Publish only aggregate tables and error summaries. Never publish video, transcript,
-# full API response, OCR text, model output, or raw process/server logs.
+# Publish only the aggregate summary, stage timings and run status.
+# Error excerpts/CSVs, full API responses, video-derived text and raw logs stay local.
 RUN_DIR="$(/usr/bin/find "$RESULT_ROOT" -mindepth 1 -maxdepth 1 -type d -newer "$MARKER" -print 2>/dev/null | /usr/bin/sort | /usr/bin/tail -n 1)"
 if [[ -z "$RUN_DIR" || ! -d "$RUN_DIR" ]]; then
   STAMP_FALLBACK="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
@@ -79,27 +79,19 @@ git clone --quiet --branch "$PUBLISH_BRANCH" "https://github.com/$REPOSITORY.git
 STAMP="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
 DEST="$PUBLISH_DIR/benchmark-results/$STAMP"
 mkdir -p "$DEST"
-for name in summary.md stage_comparison.csv run_summary.csv errors.csv; do
+for name in summary.md stage_comparison.csv; do
   if [[ -f "$RUN_DIR/$name" ]]; then
     "$PYTHON" - "$RUN_DIR/$name" "$DEST/$name" "$VIDEO_DEFAULT" "$HOME" <<'PY'
 import pathlib, sys
 src, dst, video, home = map(str, sys.argv[1:])
 data = pathlib.Path(src).read_text(encoding="utf-8", errors="replace")
-data = data.replace(video, "<INPUT_VIDEO>").replace(home, "<HOME>")
+data = data.replace(video, "<INPUT_VIDEO>")
+data = data.replace(pathlib.Path(video).name, "<INPUT_VIDEO>")
+data = data.replace(home, "<HOME>")
 pathlib.Path(dst).write_text(data, encoding="utf-8")
 PY
   fi
 done
-if [[ -f "$TMP_DIR/runner_console.log" ]]; then
-  "$PYTHON" - "$TMP_DIR/runner_console.log" "$DEST/launcher_errors.txt" "$VIDEO_DEFAULT" "$HOME" <<'PY'
-import pathlib, re, sys
-src, dst, video, home = map(str, sys.argv[1:])
-lines = pathlib.Path(src).read_text(encoding="utf-8", errors="replace").splitlines()
-pattern = re.compile(r"error|exception|traceback|failed|fatal|timed out|segmentation fault", re.I)
-selected = [line.replace(video, "<INPUT_VIDEO>").replace(home, "<HOME>") for line in lines if pattern.search(line)]
-pathlib.Path(dst).write_text("\n".join(selected[-500:]) + ("\n" if selected else ""), encoding="utf-8")
-PY
-fi
 {
   echo "benchmark_timestamp_utc=$STAMP"
   echo "runner_exit_code=$RUN_EXIT"
