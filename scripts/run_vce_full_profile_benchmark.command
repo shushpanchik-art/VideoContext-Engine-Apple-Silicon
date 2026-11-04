@@ -32,6 +32,12 @@ if [[ ! -x "$PYTHON" ]]; then PYTHON="$(command -v python3 || true)"; fi
 [[ -n "$PYTHON" && -x "$PYTHON" ]] || fail "Не найден Python 3.10+."
 "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3,10) else 1)' || fail "Требуется Python 3.10+."
 
+[[ -n "$(command -v git || true)" ]] || fail "Не найден git."
+command -v gh >/dev/null 2>&1 || fail "Для автоматической публикации установите GitHub CLI: brew install gh"
+gh auth status >/dev/null 2>&1 || fail "GitHub CLI не авторизован. Один раз выполните: gh auth login"
+gh auth setup-git >/dev/null
+git ls-remote --exit-code --heads "https://github.com/$REPOSITORY.git" "$PUBLISH_BRANCH" >/dev/null 2>&1 || fail "Не найдена ветка публикации $PUBLISH_BRANCH или нет доступа к ней."
+
 echo "VCE benchmark pinned source: ${SOURCE_REF}"
 echo "Input video: ${VIDEO_DEFAULT}"
 echo "Project: ${PROJECT_DIR}"
@@ -61,19 +67,6 @@ fi
 if [[ -f "$TMP_DIR/runner_console.log" ]]; then
   cp "$TMP_DIR/runner_console.log" "$RUN_DIR/launcher_console.log"
 fi
-
-if ! command -v gh >/dev/null 2>&1; then
-  echo "ERROR: benchmark завершён, но публикация невозможна: GitHub CLI не установлен."
-  echo "Один раз выполните: brew install gh && gh auth login"
-  echo "Результаты сохранены локально: $RUN_DIR"
-  exit 3
-fi
-gh auth status >/dev/null 2>&1 || {
-  echo "ERROR: GitHub CLI не авторизован. Один раз выполните: gh auth login"
-  echo "Результаты сохранены локально: $RUN_DIR"
-  exit 3
-}
-gh auth setup-git >/dev/null
 
 PUBLISH_DIR="${TMP_DIR}/publish-repo"
 git clone --quiet --branch "$PUBLISH_BRANCH" "https://github.com/$REPOSITORY.git" "$PUBLISH_DIR" || {
