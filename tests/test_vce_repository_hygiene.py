@@ -57,7 +57,7 @@ class TestRepositoryHygiene(unittest.TestCase):
             else:
                 script_lines.append("")
 
-        script = "\\n".join(script_lines).strip() + "\\n"
+        script = "\n".join(script_lines).strip() + "\n"
         with tempfile.NamedTemporaryFile(mode="w", suffix=".js", encoding="utf-8") as handle:
             handle.write(script)
             handle.flush()
