@@ -1,0 +1,36 @@
+name: Temporary pinned VCE runner inspection
+
+on:
+  push:
+    branches:
+      - feat/experimental-benchmark-launcher
+    paths:
+      - ".github/workflows/inspect-pinned-vce-runner.yml"
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Inspect pinned runner structure (source only; no user data)
+        run: |
+          python - <<'PY'
+          import ast, gzip
+          from pathlib import Path
+          source = gzip.decompress(Path("scripts/vce_full_profile_benchmark.py.gz").read_bytes()).decode("utf-8")
+          tree = ast.parse(source)
+          lines = source.splitlines()
+          print("=== TOP LEVEL DEFINITIONS ===")
+          for node in tree.body:
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                  print(f"{node.__class__.__name__} {node.name} lines={node.lineno}-{node.end_lineno}")
+          print("=== RUN / PROFILE / SUMMARY / REPORT FUNCTIONS ===")
+          wanted = ("run", "profile", "summary", "report", "result", "status", "error", "main")
+          for node in tree.body:
+              if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and any(k in node.name.lower() for k in wanted):
+                  print(f"\\n===== {node.name} ({node.lineno}-{node.end_lineno}) =====")
+                  print("\\n".join(lines[node.lineno-1:node.end_lineno]))
+          PY
