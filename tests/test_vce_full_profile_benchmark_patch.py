@@ -19,7 +19,7 @@ SPEC.loader.exec_module(PATCHER)
 STUB_RUNNER = """import json
 def jsonl_append(path, payload):
     with path.open('a', encoding='utf-8') as handle:
-        handle.write(json.dumps(payload) + "\\\\n")
+        handle.write(json.dumps(payload) + "\\n")
 
 def build_plan():
     return [
