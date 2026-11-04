@@ -95,3 +95,15 @@ Patch v2 now detects that API-route value at the JSONL writer boundary and write
 ### Automatic report publication
 
 The launcher writes the full diagnostic bundle locally and, after the run (including a failed run), publishes only the aggregate comparison tables and sanitized error excerpts to the benchmark feature branch. It requires an authenticated GitHub CLI session with push access to the repository. A non-zero runner exit code is preserved after publication so failures remain visible to the terminal caller. If GitHub publication is unavailable, the local report is retained and the launcher explains the missing prerequisite.
+
+
+### Reading the CPU/GPU execution table
+
+The stage table distinguishes:
+- `CPU`: stage execution is evidenced on CPU;
+- `GPU`: GPU/Metal execution is evidenced for the stage;
+- `CPU+GPU`: the same stage has evidenced CPU and GPU work;
+- `CPU||GPU`: separate CPU and GPU work overlaps in time;
+- `unknown`: available telemetry cannot attribute the hardware path safely.
+
+MLX and Metal are reported where the VCE runtime exposes them. MPS is not inferred from Apple Silicon presence: it is reported only if the actual execution path exposes evidence for it. System-wide `powermetrics` is corroborating telemetry, not per-process or per-kernel attribution. Apple Vision's internal CPU/GPU/ANE choice remains unknown unless the OS/runtime exposes direct evidence.
