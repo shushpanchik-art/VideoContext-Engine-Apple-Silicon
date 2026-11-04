@@ -2,7 +2,8 @@
 set -euo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
-RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/main"
+SOURCE_REF="9579f659d7543dadcb795dd82187d4ab5573608c"
+RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${SOURCE_REF}"
 SCRIPT_URL="${RAW_BASE}/scripts/vce_full_profile_benchmark.py.gz"
 PATCH_URL="${RAW_BASE}/scripts/patch_vce_full_profile_benchmark.py"
 VIDEO_DEFAULT="${VCE_VIDEO_PATH:-$HOME/Downloads/video.mp4}"
@@ -27,7 +28,11 @@ if [[ -z "$PYTHON" || ! -x "$PYTHON" ]]; then
   exit 2
 fi
 
-/usr/bin/curl --fail --location --silent --show-error --retry 3 "$PATCH_URL" --output "$TMP_PATCH"
+echo "VCE benchmark pinned source: ${SOURCE_REF}"
+echo "Patcher URL: ${PATCH_URL}"
+/usr/bin/curl --fail --location --silent --show-error --retry 3 -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$SCRIPT_URL" --output "$TMP_GZIP"
+/usr/bin/gzip -t "$TMP_GZIP"
+/usr/bin/curl --fail --location --silent --show-error --retry 3 -H "Cache-Control: no-cache" -H "Pragma: no-cache" "$PATCH_URL" --output "$TMP_PATCH"
 "$PYTHON" "$TMP_PATCH" "$TMP_SCRIPT"
 
 "$PYTHON" "$TMP_SCRIPT" --project "$PROJECT_DIR" --video "$VIDEO_DEFAULT" "$@"

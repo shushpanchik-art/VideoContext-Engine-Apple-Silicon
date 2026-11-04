@@ -78,3 +78,8 @@ These switches are applied only to the in-memory request fields. They do not per
 ### Whisper-preserving crash isolation
 
 Use `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1` for a single baseline request that keeps Whisper enabled, preserves word timestamps and audio features, and selects API mode `whisper_ocr`. The diagnostic disables Qwen3-VL, Apple Vision OCR, FFmpeg/Tesseract OCR, and Qwen3.5 post-processing for that request only. It does not change persisted settings. This is an isolation run, not a quality/performance comparison.
+
+
+### Immutable source pin
+
+The one-command launcher pins the runner and patch-helper downloads to commit `9579f659d7543dadcb795dd82187d4ab5573608c` rather than the mutable `main` branch. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing an old helper with a new launcher. It also prints the pinned source revision and helper URL before applying the patch.
