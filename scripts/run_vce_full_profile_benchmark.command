@@ -3,10 +3,11 @@ set -uo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 SOURCE_REF="650f3a1437ee0cdcab1c3ea41005a599a373d578"
+PATCHER_REF="d23693ed554ec6f1ee83d33c69d40f791ce418ce"
 PUBLISH_BRANCH="feat/experimental-benchmark-launcher"
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${SOURCE_REF}"
 SCRIPT_URL="${RAW_BASE}/scripts/vce_full_profile_benchmark.py.gz"
-PATCH_URL="${RAW_BASE}/scripts/patch_vce_full_profile_benchmark.py"
+PATCH_URL="https://raw.githubusercontent.com/${REPOSITORY}/${PATCHER_REF}/scripts/patch_vce_full_profile_benchmark.py"
 VIDEO_DEFAULT="${VCE_VIDEO_PATH:-/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4}"
 PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
 RESULT_ROOT="${VCE_BENCH_RESULT_ROOT:-$HOME/Downloads/VCE_Full_Profile_Benchmark}"
@@ -38,7 +39,8 @@ gh auth status >/dev/null 2>&1 || fail "GitHub CLI не авторизован. 
 gh auth setup-git >/dev/null
 git ls-remote --exit-code --heads "https://github.com/$REPOSITORY.git" "$PUBLISH_BRANCH" >/dev/null 2>&1 || fail "Не найдена ветка публикации $PUBLISH_BRANCH или нет доступа к ней."
 
-echo "VCE benchmark pinned source: ${SOURCE_REF}"
+echo "VCE benchmark runner source: ${SOURCE_REF}"
+echo "VCE benchmark patch helper: ${PATCHER_REF}"
 echo "Input video: ${VIDEO_DEFAULT}"
 echo "Project: ${PROJECT_DIR}"
 echo "Run plan: baseline -> each experimental feature separately -> all experimental features."
