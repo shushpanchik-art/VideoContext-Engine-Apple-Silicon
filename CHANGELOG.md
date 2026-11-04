@@ -1,5 +1,7 @@
 ## Unreleased — local full-profile performance benchmark
 
+- Fixed the one-command launcher by normalizing `jsonl_append()` paths before opening progress-trace files; added an idempotent AST-based temporary-runner patch and regression tests.
+
 - Added a one-command macOS Apple Silicon benchmark for a baseline full-analysis profile, each experimental optimization independently, and a combined experiment run.
 - Added local-only per-stage timing, VCE process/resource sampling, optional system-wide powermetrics GPU telemetry, CPU/GPU/overlap classification, and error capture.
 - Added regression tests and documentation; source video, transcripts, responses, settings and runtime telemetry are never uploaded to GitHub.

@@ -56,3 +56,10 @@ VLM resolution выбирается по объёму unified memory: 1280 px п
 Полные ответы могут содержать исходный транскрипт, OCR и содержимое видео. Скрипт не меняет `videocontext_settings.json`, не перезаписывает пользовательские TXT/JSON и не загружает видео, ответы, логи или результаты в GitHub. Не добавляйте папку результатов в Git.
 
 Без размеченного эталонного транскрипта нельзя вычислить WER/CER. Количество распознанных слов и сцен показываются только как coverage proxies, а не оценка точности.
+
+
+## Launcher compatibility guard (2026-11-04)
+
+The one-command launcher now downloads a small patch helper alongside the compressed runner. It normalizes the argument passed to `jsonl_append()` with `pathlib.Path` before the JSONL writer calls `.open()`. This addresses the observed runner-side `AttributeError: 'str' object has no attribute 'open'` and restores progress/error telemetry collection. The patch is applied only to the temporary unpacked runner; it does not edit the installed VCE runtime or user settings.
+
+This is deliberately separate from engine-native crashes. A Python `SIGSEGV` in Apple `libBNNS.dylib` is outside Python exception handling and cannot be repaired by the benchmark launcher. Treat a runner error and a VCE process crash as distinct events; use the macOS crash report and server log to isolate the native backend.
