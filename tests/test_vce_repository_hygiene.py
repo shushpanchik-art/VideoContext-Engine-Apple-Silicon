@@ -15,6 +15,13 @@ class TestRepositoryHygiene(unittest.TestCase):
         self.assertIn("openHeads.has(ref)", workflow)
         self.assertIn('ref === defaultBranch', workflow)
 
+    def test_merged_pr_branch_is_deleted_only_if_its_tip_was_not_reused(self):
+        workflow = CLEANUP_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("const mergedHeads = new Map()", workflow)
+        self.assertIn("shas.add(pr.head.sha)", workflow)
+        self.assertIn("mergedShas.has(branch.commit.sha)", workflow)
+        self.assertIn("Preserved reused branch with a newer tip", workflow)
+
     def test_orphan_cleanup_requires_zero_commits_ahead_of_main(self):
         workflow = CLEANUP_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("github.rest.repos.compareCommits", workflow)
