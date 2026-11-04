@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
-SOURCE_REF="9579f659d7543dadcb795dd82187d4ab5573608c"
+SOURCE_REF="d510211d9390dcc75de016ca9694a0321db28795"
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${SOURCE_REF}"
 SCRIPT_URL="${RAW_BASE}/scripts/vce_full_profile_benchmark.py.gz"
 PATCH_URL="${RAW_BASE}/scripts/patch_vce_full_profile_benchmark.py"
