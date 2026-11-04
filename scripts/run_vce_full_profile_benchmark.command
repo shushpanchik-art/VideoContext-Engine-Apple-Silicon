@@ -8,7 +8,7 @@ PUBLISH_BRANCH="feat/experimental-benchmark-launcher"
 RAW_BASE="https://raw.githubusercontent.com/${REPOSITORY}/${SOURCE_REF}"
 SCRIPT_URL="${RAW_BASE}/scripts/vce_full_profile_benchmark.py.gz"
 PATCH_URL="https://raw.githubusercontent.com/${REPOSITORY}/${PATCHER_REF}/scripts/patch_vce_full_profile_benchmark.py"
-VIDEO_DEFAULT="${VCE_VIDEO_PATH:-/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4}"
+VIDEO_DEFAULT="${VCE_VIDEO_PATH:-}"
 PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
 RESULT_ROOT="${VCE_BENCH_RESULT_ROOT:-$HOME/Downloads/VCE_Full_Profile_Benchmark}"
 
@@ -24,7 +24,8 @@ fail() { echo "ERROR: $*" >&2; exit 2; }
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "Этот benchmark предназначен для macOS на Apple Silicon."
 [[ "$(uname -m)" == "arm64" ]] || fail "Обнаружена не arm64 архитектура. Нужен Apple Silicon Mac."
-[[ -f "$VIDEO_DEFAULT" ]] || fail "Видео не найдено: $VIDEO_DEFAULT"
+[[ -n "$VIDEO_DEFAULT" ]] || fail "Укажите локальный путь к видео через VCE_VIDEO_PATH; приватный путь не хранится в репозитории."
+[[ -f "$VIDEO_DEFAULT" ]] || fail "Видео не найдено по VCE_VIDEO_PATH."
 [[ -d "$PROJECT_DIR" ]] || fail "Не найден проект VCE: $PROJECT_DIR. Установите проект или задайте VCE_PROJECT_DIR."
 [[ -f "$PROJECT_DIR/.venv/bin/python" ]] || echo "NOTICE: .venv/bin/python не найден; будет использован системный python3."
 

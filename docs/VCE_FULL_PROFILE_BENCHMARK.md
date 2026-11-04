@@ -2,13 +2,13 @@
 
 ## Запуск одной командой
 
-После установки проекта в `~/VideoContext-Engine` и авторизации GitHub CLI (`gh auth login`) скопируйте команду в Terminal. Путь к указанному тестовому видео уже задан в launcher; при необходимости его можно переопределить через `VCE_VIDEO_PATH`. Launcher загружает с GitHub сжатый Python runner, распаковывает его во временный файл и удаляет после выполнения:
+После установки проекта в `~/VideoContext-Engine` и авторизации GitHub CLI (`gh auth login`) укажите локальный путь к входному видео через `VCE_VIDEO_PATH`, затем запустите команду в Terminal. Приватный путь и имя видео намеренно не хранятся в репозитории. Launcher загружает с GitHub сжатый Python runner, распаковывает его во временный файл и удаляет после выполнения:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command | /bin/bash
 ```
 
-Путь по умолчанию: `/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4`. Переопределить его можно через `VCE_VIDEO_PATH`. Каталог проекта задаётся через `VCE_PROJECT_DIR` (по умолчанию `~/VideoContext-Engine`). Для автоматической публикации нужен установленный и авторизованный GitHub CLI: `brew install gh && gh auth login` (один раз).
+Перед запуском задайте `export VCE_VIDEO_PATH="/path/to/private-input.mp4"`. Каталог проекта задаётся через `VCE_PROJECT_DIR` (по умолчанию `~/VideoContext-Engine`). Для автоматической публикации безопасной агрегированной сводки нужен установленный и авторизованный GitHub CLI: `brew install gh && gh auth login` (один раз).
 
 Скрипт сам пытается открыть `/Applications/VideoContext Engine.app`, если API `127.0.0.1:7555` ещё не запущен. При нестандартном каталоге установки можно задать `VCE_PROJECT_DIR`; дополнительные аргументы передаются runner, например `--dry-run` или `--no-combined`.
 
@@ -53,7 +53,7 @@ VLM resolution выбирается по объёму unified memory: 1280 px п
 - `errors.csv` и per-run `errors.log`;
 - per-run `response.json`, `stage_timings.json/csv`, `progress_trace.jsonl`, `process_samples.jsonl`, `powermetrics_gpu_power.jsonl`, `server_log_delta.log`.
 
-Полные ответы могут содержать исходный транскрипт, OCR и содержимое видео. Скрипт не меняет `videocontext_settings.json` и не перезаписывает пользовательские TXT/JSON. После завершения он автоматически создаёт commit в ветке `feat/experimental-benchmark-launcher` и отправляет только агрегированные `summary.md`, `stage_comparison.csv`, `run_summary.csv`, `errors.csv`, отфильтрованные error excerpts и статус запуска в `benchmark-results/<UTC timestamp>/`. Видео, транскрипт, OCR-текст, полный API response, модельные ответы и сырые process/server logs остаются локально. Локальная полная диагностика хранится в `$HOME/Downloads/VCE_Full_Profile_Benchmark/<run_id>/`.
+Полные ответы могут содержать исходный транскрипт, OCR и содержимое видео. Скрипт не меняет `videocontext_settings.json` и не перезаписывает пользовательские TXT/JSON. После завершения он автоматически создаёт commit в ветке `feat/experimental-benchmark-launcher` и отправляет только `summary.md`, `stage_comparison.csv` и `launcher_status.txt` в `benchmark-results/<UTC timestamp>/`. Путь и basename видео удаляются из сводки. `run_summary.csv`, `errors.csv`, per-run `errors.log`, filtered error excerpts, полный API response, транскрипт, OCR-текст, модельные ответы и все сырые process/server logs остаются локально и не публикуются. Локальная полная диагностика хранится в `$HOME/Downloads/VCE_Full_Profile_Benchmark/<run_id>/`.
 
 Без размеченного эталонного транскрипта нельзя вычислить WER/CER. Количество распознанных слов и сцен показываются только как coverage proxies, а не оценка точности.
 
@@ -94,7 +94,7 @@ Patch v2 now detects that API-route value at the JSONL writer boundary and write
 
 ### Automatic report publication
 
-The launcher writes the full diagnostic bundle locally and, after the run (including a failed run), publishes only the aggregate comparison tables and sanitized error excerpts to the benchmark feature branch. It requires an authenticated GitHub CLI session with push access to the repository. A non-zero runner exit code is preserved after publication so failures remain visible to the terminal caller. If GitHub publication is unavailable, the local report is retained and the launcher explains the missing prerequisite.
+The launcher writes the full diagnostic bundle locally and, after the run (including a failed run), publishes only `summary.md`, `stage_comparison.csv`, and `launcher_status.txt` to the benchmark feature branch. It does not publish `run_summary.csv`, `errors.csv`, any error excerpts, full API responses, video-derived text, or raw logs. The input video path and basename are redacted from the published summary. It requires an authenticated GitHub CLI session with push access to the repository. A non-zero runner exit code is preserved after publication so failures remain visible to the terminal caller. If GitHub publication is unavailable, the local report is retained and the launcher explains the missing prerequisite.
 
 
 ### Reading the CPU/GPU execution table
@@ -122,7 +122,7 @@ A profile is not comparable unless `status=completed`. A baseline that is failed
 
 ### Controlled single-profile isolation switches
 
-These environment variables are applied to the in-memory request only; they do not change persisted VCE settings:
+First set `VCE_VIDEO_PATH` locally to the private input file. These isolation variables are applied to the in-memory request only; they do not change persisted VCE settings:
 
 - VLM-only, with audio/Whisper, both OCR paths and Text LLM disabled:
   ```bash
