@@ -5,13 +5,13 @@
 - Engine: VideoContext Engine v3.19; repository distribution version at script publication: 0.2.5
 - Machine: `arm64` / `macOS-27.0.1-arm64-arm-64bit-Mach-O`; unified memory: 32.0 GiB
 - Input: `<INPUT_VIDEO>`; 17.41 MiB; duration: 108.233333 s
-- Storage: local only; no video, transcript, raw response or telemetry is uploaded to GitHub.
+- Privacy: input filename is redacted; no video, transcript, raw response, per-run diagnostics or private process/server logs are uploaded. This aggregate report does publish coarse device capability metadata and stage timings.
 
 ## Сравнение прогонов
 
 | Профиль | Статус | Wall, с | VCE, с | Сцен | Слов Whisper | VLM, с | Whisper, с | Apple OCR, с | FFmpeg OCR, с | Qwen3.5, с | CPU||GPU overlap, с | Ошибки |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Оптимальный базовый профиль | completed | 117.0 | 114.8 | 14 | 0 | 104.8 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 1 |
+| Оптимальный базовый профиль | degraded — 1 unreviewed runtime error | 117.0 | 114.8 | 14 | 0 | 104.8 | 0.0 | 0.0 | 0.0 | 0.0 | 0.0 | 1 |
 
 ## Мониторинг CPU / RAM / GPU
 
@@ -50,3 +50,8 @@
 - `device_monitoring.csv` — CPU/RSS и системная GPU телеметрия.
 - `errors.csv` — ошибки/предупреждения по каждому прогону.
 - Подпапки каждого прогона содержат полный JSON ответ и приватную телеметрию.
+
+
+## Acceptance note (added after patch v3 review)
+
+The run used patch v3. It returned HTTP 200 and runner exit code 0, and the VLM stage reports positive inference timing (104.805 s). However the runner also reported `error_count=1`. Patch v3 did not include the runtime error-count gate, so its `completed` label is superseded for PR acceptance. The profile is conservatively recorded as **DEGRADED pending local review of the single error entry**. No error text or local diagnostic file is included here. Patch v4 now requires `error_count=0` for `COMPLETED`.
