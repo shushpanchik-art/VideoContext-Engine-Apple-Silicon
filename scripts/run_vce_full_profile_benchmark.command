@@ -45,8 +45,8 @@ touch "$MARKER"
 mkdir -p "$RESULT_ROOT"
 
 set +e
-"$PYTHON" "$TMP_SCRIPT" --project "$PROJECT_DIR" --video "$VIDEO_DEFAULT" "$@"
-RUN_EXIT=$?
+"$PYTHON" "$TMP_SCRIPT" --project "$PROJECT_DIR" --video "$VIDEO_DEFAULT" "$@" 2>&1 | /usr/bin/tee "$TMP_DIR/runner_console.log"
+RUN_EXIT=${PIPESTATUS[0]}
 set -e
 echo "Benchmark runner exit code: $RUN_EXIT"
 
@@ -54,8 +54,12 @@ echo "Benchmark runner exit code: $RUN_EXIT"
 # full API response, OCR text, model output, or raw process/server logs.
 RUN_DIR="$(/usr/bin/find "$RESULT_ROOT" -mindepth 1 -maxdepth 1 -type d -newer "$MARKER" -print 2>/dev/null | /usr/bin/sort | /usr/bin/tail -n 1)"
 if [[ -z "$RUN_DIR" || ! -d "$RUN_DIR" ]]; then
-  echo "WARNING: Не удалось определить папку результатов. Локальные данные: $RESULT_ROOT"
-  exit "$RUN_EXIT"
+  STAMP_FALLBACK="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
+  RUN_DIR="$RESULT_ROOT/launcher-failed-$STAMP_FALLBACK"
+  mkdir -p "$RUN_DIR"
+fi
+if [[ -f "$TMP_DIR/runner_console.log" ]]; then
+  cp "$TMP_DIR/runner_console.log" "$RUN_DIR/launcher_console.log"
 fi
 
 if ! command -v gh >/dev/null 2>&1; then
