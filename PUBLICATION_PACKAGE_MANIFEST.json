@@ -28,7 +28,37 @@
     "main_branch_protection": "disabled; CI workflows run on push and are not required status checks",
     "latest_merged_pull_request": 28,
     "latest_code_change_pull_request": 27,
-    "audit_snapshot_boundary": "Snapshot taken on main at f71c7ef before final metadata PR #29; counts describe the repository immediately before that PR, not live post-merge counts."
+    "audit_snapshot_boundary": "Snapshot taken on main at f71c7ef before final metadata PR #29; counts describe the repository immediately before that PR, not live post-merge counts.",
+    "closed_without_merge_disposition": [
+      {
+        "pr": 3,
+        "disposition": "Early standalone-window prototype; superseded by the current managed AppKit/WebKit application and PR #27 lifecycle work."
+      },
+      {
+        "pr": 4,
+        "disposition": "Alternative early native-window implementation; superseded by the current managed AppKit/WebKit application and PR #27 lifecycle work."
+      },
+      {
+        "pr": 6,
+        "disposition": "Legacy timing-only summary reconstructed from terminal output; not selected as a canonical benchmark artifact. Current main retains the anonymized aggregate benchmark documentation and metrics."
+      },
+      {
+        "pr": 7,
+        "disposition": "Raw per-run benchmark reports/settings and full local outputs; intentionally excluded from the public repository. Anonymized aggregate metrics are retained instead."
+      },
+      {
+        "pr": 12,
+        "disposition": "Explicitly superseded by PR #13 because the initial patcher targeted an older source layout and failed preflight."
+      },
+      {
+        "pr": 13,
+        "disposition": "Closed after selective migration of reusable observed-run/watchdog code and tests; raw installed-app snapshots and process/Metal telemetry were excluded. Current main contains scripts/vce_observed_run.py, scripts/vce_runtime_watchdog.py and their tests/docs."
+      },
+      {
+        "pr": 14,
+        "disposition": "Closed after selective migration of the generic structural audit and source-aware lexical-grounding tools, tests and docs. Raw per-video Text LLM outputs and review bundles were excluded."
+      }
+    ]
   },
   "public_contents": [
     "Complete customized Python runtime and matching web interface",
@@ -144,7 +174,8 @@
       "conclusion": "success"
     },
     "pr28_merged": true,
-    "targeted_artifact_hygiene_scan_clean": true
+    "targeted_artifact_hygiene_scan_clean": true,
+    "closed_pr_dispositions_documented": true
   },
   "notice": "The repository contains reusable source and tests; per-video artifacts and raw local telemetry are intentionally kept out of the public distribution. MLX telemetry caveat is documented; no unsupported claim of per-operator GPU acceptance is made.",
   "retained_benchmark_data": "Two anonymized aggregate timing/quality metrics files and an anonymized VCE parameter-tuning summary only. The retained metric manifests use video_identity=redacted_local_sample, video_sha256=null and raw_video_and_vce_scene_payload_uploaded=false.",
