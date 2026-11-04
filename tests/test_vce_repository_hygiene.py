@@ -71,6 +71,84 @@ class TestRepositoryHygiene(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_speed_profile_workflow_path_filters_are_current_and_deduplicated(self):
+        workflow_path = ROOT / ".github" / "workflows" / "vce-speed-profile-tests.yml"
+        lines = workflow_path.read_text(encoding="utf-8").splitlines()
+
+        def event_paths(event):
+            event_line = next(i for i, line in enumerate(lines) if line == f"  {event}:")
+            section_end = next(
+                (i for i in range(event_line + 1, len(lines))
+                 if lines[i] and not lines[i][0].isspace()),
+                len(lines),
+            )
+            section = lines[event_line + 1:section_end]
+            paths_line = next(i for i, line in enumerate(section) if line.strip() == "paths:")
+            result = []
+            for line in section[paths_line + 1:]:
+                if line and len(line) - len(line.lstrip()) <= 4:
+                    break
+                match = __import__("re").match(r'^\s+-\s+"([^"]+)"\s*
+        import json
+
+        manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
+        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["distribution_branch"], "main")
+        self.assertEqual(
+            manifest["source_provenance"]["initial_full_runtime_distribution"]["pull_request"],
+            15,
+        )
+        self.assertEqual(
+            manifest["source_provenance"]["initial_full_runtime_distribution"]["merge_commit"],
+            "549186bbf9c4653955cb8d8f4d1e967055e80b55",
+        )
+        self.assertFalse(manifest["privacy_defaults"]["github_upload_enabled_by_default"])
+        self.assertTrue(manifest["publication_contract"]["local_user_settings_and_model_weights_excluded"])
+        # Volatile repository state belongs to GitHub, not to the distribution manifest.
+        for key in (
+            "repository_state",
+            "merge_pull_requests",
+            "latest_repository_audit_commit",
+            "latest_repository_maintenance_merge_commit",
+            "last_verified_main_checkpoint",
+            "checks",
+        ):
+            self.assertNotIn(key, manifest)
+
+    def test_commit_info_contains_immutable_provenance_not_a_live_audit_snapshot(self):
+        info = COMMIT_INFO.read_text(encoding="utf-8")
+        self.assertIn("Upstream reference commit: 4a42b4a309d9d7d8f7f944c2e210a027940208f3", info)
+        self.assertIn("Merge commit: 549186bbf9c4653955cb8d8f4d1e967055e80b55", info)
+        self.assertIn("Current branch inventory", info)
+        self.assertNotIn("LATEST VERIFIED AUDIT CHECKPOINT", info)
+        self.assertNotIn("Closed without merge:", info)
+        self.assertNotIn("Open pull requests:", info)
+
+    def test_test_status_uses_live_actions_instead_of_frozen_run_numbers(self):
+        status = TEST_STATUS.read_text(encoding="utf-8")
+        self.assertIn("actions?query=branch%3Amain", status)
+        self.assertIn("Apple Silicon Mac", status)
+        self.assertIn("MLX/Metal", status)
+        self.assertNotIn("41868806204", status)
+        self.assertNotIn("Текущий подтверждённый checkpoint", status)
+
+
+if __name__ == "__main__":
+    unittest.main()
+, line)
+                if match:
+                    result.append(match.group(1))
+            return result
+
+        for event in ("pull_request", "push"):
+            paths = event_paths(event)
+            self.assertEqual(len(paths), len(set(paths)), f"duplicate {event} path filter")
+            self.assertIn("tests/test_vce_native_app_lifecycle.py", paths)
+            self.assertNotIn("install_patches_to_existing_checkout.command", paths)
+            for path in paths:
+                if not any(char in path for char in "*?[]"):
+                    self.assertTrue((ROOT / path).exists(), f"stale {event} path: {path}")
+
     def test_manifest_is_valid_json_and_contains_stable_distribution_provenance(self):
         import json
 
