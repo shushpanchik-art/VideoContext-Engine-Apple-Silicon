@@ -102,3 +102,38 @@ bash scripts/run_vce_whisper_mps_smoke.command
 Optional controls: `VCE_WHISPER_MODEL` (default `large`), `VCE_WHISPER_SMOKE_SECONDS` (default `20`), `VCE_WHISPER_START_SECONDS` (default `0`), `VCE_WHISPER_FP16` (default `1`), and `VCE_WHISPER_RESULT_ROOT`.
 
 **Scope limitation:** this validates PyTorch/openai-whisper on MPS independently, not VCE's Whisper integration or the full fast profile. The branch runtime is still hardwired to `mlx-whisper` on `mx.cpu`; setting `enable_mlx_whisper=false` does not change that backend. Do not use a passing smoke result to claim that VCE itself has switched to MPS. The runtime MPS patch and serialized GPU-stage integration remain separate work.
+
+
+## Baseline PyTorch/MPS profile patch and launcher
+
+The isolated user-side smoke test completed successfully on the target Mac:
+- `openai-whisper` / PyTorch `2.15.0`, `device=mps`, model `large`;
+- 20-second audio clip, Russian detected, 27 words, 5.994 s inference after 12.778 s model load;
+- `mlx_imported=false`.
+
+This proves the standalone Whisper/MPS stack only. It does not by itself prove VCE integration.
+
+New guarded implementation files:
+- `patches/patch_vce_fast_profile_mps.py`: exact, idempotent runtime/UI patch; writes timestamped backups; preserves custom prompts and unrelated settings; aborts on source drift.
+- `scripts/launch_vce_fast_profile_mps.command`: preflights the target venv, PyTorch MPS, MLX/Metal, `ocrmac`, FFmpeg/ffprobe and Tesseract `rus+eng`; applies the patch; checks syntax and the live settings API; then starts VCE on port 7555 and opens the local UI. It does **not** submit a video.
+
+Restored profile values:
+- Whisper `large`, PyTorch `openai-whisper`, MPS explicitly verified after model load;
+- MPS Whisper runs to completion before the MLX/Metal Qwen3-VL stage is loaded;
+- Qwen3-VL `mlx-community/Qwen3-VL-8B-Instruct-4bit`;
+- Qwen3.5 Text LLM `mlx-community/Qwen3.5-9B-MLX-4bit`;
+- Apple Vision OCR on, its bounded OCR cache on;
+- FFmpeg/Tesseract OCR on, 5-second interval, 3 CPU workers;
+- ordinary scene detector and fixed configured keyframe count; adaptive keyframes, MLX Whisper and fast scene detection are removed from runtime/API/UI;
+- stage timing remains enabled as diagnostics, not as an inference optimization.
+
+Example target-Mac invocation after the branch files are available:
+
+```bash
+export VCE_PROJECT_DIR="$HOME/VideoContext-Engine-Apple-Silicon"
+bash scripts/launch_vce_fast_profile_mps.command
+```
+
+The launcher intentionally refuses to overwrite a running listener on port 7555, does not silently fall back from requested MPS, and does not install packages automatically. It requires the project `.venv` to already contain PyTorch/openai-whisper, MLX/MLX-VLM and `ocrmac`; Homebrew FFmpeg and Tesseract with `rus` and `eng` language data must also be installed. It uses a commit-pinned patcher, not a floating branch download.
+
+**Validation status:** source-level tests and the target-Mac launcher still need to complete. Keep PR #34 in Draft. After launch, first run the separate short VLM/Metal smoke test, then a short end-to-end VCE sample; do not start the 108-second full benchmark until those pass. Confirm logs report `backend=openai-whisper device=mps model=large`, serialized stage order, Apple Vision cache activity, and FFmpeg/Tesseract sample count.
