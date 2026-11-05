@@ -1351,7 +1351,7 @@ def patch_engine(source: str) -> str:
 def _upgrade_ui_to_llama_cpp(ui: str) -> str:
     """Change VLM and Text LLM controls to their original GGUF models under llama.cpp Metal."""
     ui = ui.replace("локальная обработка · Apple Silicon / MLX", "локальная обработка · Apple Silicon / llama.cpp Metal")
-    ui = ui.replace("Qwen3-VL", "Qwen3.5 GGUF")
+    ui = ui.replace("Qwen3-VL", "Qwen3-VL GGUF")
     ui = ui.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B GGUF Q4_K_M")
     ui = ui.replace("очередь работает последовательно, чтобы не перегружать память и MLX", "очередь работает последовательно, чтобы не перегружать память и llama.cpp/Metal")
     ui = ui.replace(
@@ -1359,7 +1359,7 @@ def _upgrade_ui_to_llama_cpp(ui: str) -> str:
         "Улучшенная структура и смысловой анализ (Qwen3.5-9B · llama.cpp Metal)",
     )
 
-    # The VLM and text stages intentionally share one multimodal GGUF model.
+    # Keep the original VLM and Text LLM model choices as separate GGUFs.
     vlm_pattern = re.compile(r'(?m)^(?P<indent>[ \t]*)<select id="cfg-vlm-model">.*?</select>[ \t]*$')
     vlm_matches = list(vlm_pattern.finditer(ui))
     fixed_vlm = '<input id="cfg-vlm-model" type="text" value="' + LLAMA_VLM_MODEL_ID + '" readonly>'
