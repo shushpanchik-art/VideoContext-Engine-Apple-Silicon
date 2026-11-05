@@ -1,0 +1,36 @@
+name: VCE Metal runtime latch patch tests
+
+on:
+  pull_request:
+    paths:
+      - "patches/patch_vce_metal_runtime_latch.py"
+      - "tests/test_vce_metal_runtime_latch_patch.py"
+      - ".github/workflows/vce-metal-runtime-latch-patch.yml"
+  push:
+    branches:
+      - "feat/experimental-benchmark-launcher"
+    paths:
+      - "patches/patch_vce_metal_runtime_latch.py"
+      - "tests/test_vce_metal_runtime_latch_patch.py"
+      - ".github/workflows/vce-metal-runtime-latch-patch.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  patcher-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Compile patch helper
+        run: python -m py_compile patches/patch_vce_metal_runtime_latch.py
+
+      - name: Run focused patcher tests
+        run: python -m unittest discover -s tests -p "test_vce_metal_runtime_latch_patch.py" -v
