@@ -19,6 +19,7 @@ FIXTURE = r'''import asyncio
 import functools as _vce_mlx_functools
 import json
 import os
+import sys as _vce_mlx_trace_sys
 import threading as _vce_threading
 import time
 from concurrent.futures import ThreadPoolExecutor
