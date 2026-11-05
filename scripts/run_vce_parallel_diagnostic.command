@@ -2,7 +2,7 @@
 # One-request VCE stage/device diagnostic for Apple Silicon.
 # Runs one guarded full end-to-end baseline: VLM + Whisper + Text LLM + Apple Vision OCR.
 # FFmpeg/Tesseract OCR and experimental MLX Whisper validation stay disabled.
-set -uo pipefail
+set -Eeuo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 PUBLISH_BRANCH="feat/experimental-benchmark-launcher"
