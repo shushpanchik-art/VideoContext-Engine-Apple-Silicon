@@ -5,7 +5,7 @@ set -Eeuo pipefail
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 RUNNER_REF="650f3a1437ee0cdcab1c3ea41005a599a373d578"
 PATCHER_REF="db54501d459569eaa3e75a8e22ef1385ecee68f9"
-EXPECTED_ENGINE_SHA="eacd4eecfda2cc8a2c71203bf5ae3589611f5fd8d0405ded747146a78f147055"
+EXPECTED_ENGINE_SHA="6a47735e6cff4ea72e66f4052c7eeb770fb32c790504986f07967da4cd242ca6"
 EXPECTED_BACKUP_SUFFIX=".backup-20261105T000114"
 
 PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine-Apple-Silicon}"
@@ -35,6 +35,7 @@ ACTUAL_ENGINE_SHA="$(/usr/bin/shasum -a 256 "$ENGINE_SOURCE" | awk '{print $1}')
 BACKUP="$ENGINE_SOURCE$EXPECTED_BACKUP_SUFFIX"
 [[ -s "$BACKUP" ]] || fail "Expected timestamped pre-patch backup is missing: $BACKUP"
 grep -q "VCE_METAL_RUNTIME_FAILURE_LATCH_V1" "$ENGINE_SOURCE" || fail "The Metal runtime latch marker is missing from the engine source."
+grep -q "VCE_METAL_RUNTIME_LATCH_RAM_MINUS_TEARDOWN_V1" "$ENGINE_SOURCE" || fail "The reviewed RAM- teardown safeguard is missing from the engine source."
 
 "$PYTHON" - "$ENGINE_SOURCE" <<'PY'
 from pathlib import Path
