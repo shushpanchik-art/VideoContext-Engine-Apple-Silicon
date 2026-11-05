@@ -577,7 +577,6 @@ def patch_engine(source: str) -> str:
         "enable_fast_scene_detection",
         "_VCEWhisperMLXCPU",
         "_vce_validate_mlx_whisper_model",
-        "_vce_whisper_supported_languages",
         "mlx_whisper",
         "_vce_detect_scenes_fast",
         "_vce_adaptive_keyframe_limit",
