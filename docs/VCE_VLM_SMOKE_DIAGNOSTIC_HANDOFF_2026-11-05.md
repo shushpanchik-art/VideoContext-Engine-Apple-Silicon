@@ -118,3 +118,34 @@ Positive evidence: visual/Qwen3-VL progress reached 2/2 scenes; HTTP 200 was rep
 Blocking evidence: runner reported `errors=1`, classified the baseline as degraded, and exited 1. The smoke collector also failed to find the runner's actual result directory, so response metadata and VLM timing were not captured by the launcher. OCR-isolation semantics remain unresolved.
 
 Do not claim a successful clean VLM-only run, a fixed Metal root cause, or a performance result. The prior fatal Metal timeout remains unexplained; the runtime latch is recovery hardening, not a root-cause fix.
+
+---
+
+## Follow-up — 2026-11-05 13:39 local — false-positive runtime error identified
+
+The user inspected the local result bundle for the 12:35 VLM smoke run.
+
+### Local evidence (sanitized)
+
+- errors.json: error_count=1, transport_error=null, http_status=200, text_llm_error=null.
+- run_summary.json and stage_status.json: API http_200; VLM completed; Metal no_failure_observed; Text LLM and Whisper skipped; runtime_errors.count=1.
+- response.json: run_vlm=true; VLM load 2.456 s; inference 14.941 s; enable_apple_ocr=false; enable_ffmpeg_ocr=false; generate_summary=false; analysis_mode=full.
+- The single errors.csv entry was not a runtime failure. It was the positive capability message: FFmpeg and Tesseract CLI are available, and only installed selected languages (rus+eng) are used. errors.log contains the same informational line.
+
+### Root cause confirmed in pinned runner source
+
+The immutable runner source 650f3a1437ee0cdcab1c3ea41005a599a373d578 unconditionally takes meta.timings.ffmpeg_ocr.message, prefixes it with FFmpeg OCR, and appends it to the errors list whenever the message is non-empty. It then sets error_count = len(errors) and copies the list to error_excerpt. There is no severity check. Thus an informational OCR capability banner alone increments the runtime error count and causes patch v4 to classify an otherwise stage-complete HTTP 200 result as DEGRADED.
+
+This explains the single count in this run. It does not establish that OCR inference ran: the recorded request flags had both explicit OCR flags disabled. analysis_mode=full and the “OCR + Qwen3-VL” progress label remain isolation-semantics questions; do not infer actual OCR processing from the capability banner.
+
+### Feature-branch remediation
+
+- Patch helper v5 adds a narrow allowlist for the positive FFmpeg/Tesseract availability banner. It moves that message into local diagnostics.log / informational_diagnostics, removes it from errors.json / errors.log, and updates error_count / error_excerpt before stage classification.
+- Filtering is fail-closed: both recorded counters must equal the length of the exact local error list. Other messages remain runtime errors; mixed informational + real-error cases retain the real error.
+- Regression tests cover the exact Russian informational banner, a mixed real-error case, and counter mismatch.
+- The smoke launcher now passes --out-root "$RUN_OUTPUT" explicitly. VCE_BENCH_RESULT_ROOT was not honored by the pinned runner; the explicit CLI option directs its response.json and run_summary.json below the collector's searched output tree.
+- Smoke launcher is pinned to patch helper commit 16655e86ba48b5fe16cb8b759a8d7a1dbc2de9f4.
+
+The historical 12:35 run remains recorded as DEGRADED because it was executed with the old runner/patcher and its original artifacts must not be silently rewritten. It is now understood to have a false-positive count from the informational banner. Do not launch a new test until the patcher's CI passes and the updated launcher/collector is reviewed. Any later short test remains limited to a single visual path; no full video, Text LLM, Whisper, concurrent workload, or matrix.
+
+PR #34 remains Draft; no merge and no changes to main.
