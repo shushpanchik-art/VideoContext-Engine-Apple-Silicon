@@ -89,7 +89,41 @@ def run_text_llm_postprocess(model_path, source_name, video_duration, existing_s
     """Run the text-only MLX post-processing stage."""
     import gc
     _vce_configure_mlx_metal("text_llm")
-    return {}
+    raw = ""
+    try:
+        if stream_generate is not None:
+            try:
+                for item in stream_generate():
+                    pass
+            except TypeError as stream_error:
+                if not any(_kw in str(stream_error) for _kw in ("enable_thinking", "thinking_budget")):
+                    print(f"stream failed: {stream_error}")
+                else:
+                    try:
+                        for item in stream_generate():
+                            pass
+                    except Exception as fallback_stream_error:
+                        print(f"stream failed: {fallback_stream_error}")
+                        raw = ""
+            except Exception as stream_error:
+                print(f"stream failed: {stream_error}")
+                raw = ""
+        if not raw.strip():
+            try:
+                raw = generate()
+            except TypeError:
+                raw = generate()
+        return {}
+    finally:
+        model = None
+        processor = None
+        config = None
+        gc.collect()
+        try:
+            import mlx.core as mx
+            mx.clear_cache()
+        except Exception:
+            pass
 '''
 
 
@@ -103,6 +137,10 @@ class MetalLatchPatcherTests(unittest.TestCase):
         self.assertIn('run_vlm = False', patched)
         self.assertIn('Skipping model unload and cache operations after fatal Metal timeout', patched)
         self.assertIn('Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout', patched)
+        self.assertIn('_vce_mark_metal_runtime_failed("text_llm_stream_fallback", fallback_stream_error)', patched)
+        self.assertIn('_vce_mark_metal_runtime_failed("text_llm_stream_generate", stream_error)', patched)
+        self.assertIn('_vce_mark_metal_runtime_failed("text_llm_generation", _vce_text_llm_active_error)', patched)
+        self.assertIn('Skipping Text LLM cache cleanup after fatal Metal timeout', patched)
         fallback_start = patched.index("def _vce_describe_scene_with_memory_fallback(")
         timeout_start = patched.index("if _vce_is_metal_command_timeout(exc):", fallback_start)
         oom_start = patched.index('print("[VLM memory guard] Metal OOM', timeout_start)
@@ -132,6 +170,60 @@ class MetalLatchPatcherTests(unittest.TestCase):
         self.assertIn("GPU Timeout Error", failure["error"])
         with self.assertRaisesRegex(RuntimeError, "Restart VideoContext Engine"):
             namespace["_vce_assert_metal_runtime_healthy"]("text_llm")
+
+
+    def test_text_llm_stream_timeout_is_latched_before_generate_retry(self):
+        patched = patch_source(FIXTURE)
+        namespace = {
+            "_vce_threading": threading,
+            "_vce_exception_chain_text": lambda exc: str(exc),
+            "os": os,
+            "time": time,
+            "json": json,
+        }
+        exec(compile(patched, "fixture.py", "exec"), namespace)
+        generate_calls = []
+
+        def broken_stream():
+            raise RuntimeError("[METAL] GPU Timeout Error (kIOGPUCommandBufferCallbackErrorTimeout)")
+
+        namespace["stream_generate"] = broken_stream
+        namespace["generate"] = lambda: generate_calls.append("called") or "unexpected"
+
+        with self.assertRaisesRegex(RuntimeError, "GPU Timeout Error"):
+            namespace["run_text_llm_postprocess"]("model", "source", 1.0, "", [])
+
+        self.assertEqual(generate_calls, [])
+        self.assertEqual(namespace["_vce_metal_runtime_failure"]()["stage"], "text_llm_stream_generate")
+
+    def test_text_llm_fallback_stream_timeout_is_not_swallowed(self):
+        patched = patch_source(FIXTURE)
+        namespace = {
+            "_vce_threading": threading,
+            "_vce_exception_chain_text": lambda exc: str(exc),
+            "os": os,
+            "time": time,
+            "json": json,
+        }
+        exec(compile(patched, "fixture.py", "exec"), namespace)
+        stream_calls = []
+        generate_calls = []
+
+        def broken_fallback_stream():
+            stream_calls.append("call")
+            if len(stream_calls) == 1:
+                raise TypeError("enable_thinking is unsupported")
+            raise RuntimeError("[METAL] GPU Timeout Error (kIOGPUCommandBufferCallbackErrorTimeout)")
+
+        namespace["stream_generate"] = broken_fallback_stream
+        namespace["generate"] = lambda: generate_calls.append("called") or "unexpected"
+
+        with self.assertRaisesRegex(RuntimeError, "GPU Timeout Error"):
+            namespace["run_text_llm_postprocess"]("model", "source", 1.0, "", [])
+
+        self.assertEqual(len(stream_calls), 2)
+        self.assertEqual(generate_calls, [])
+        self.assertEqual(namespace["_vce_metal_runtime_failure"]()["stage"], "text_llm_stream_fallback")
 
     def test_missing_or_ambiguous_anchor_fails_without_partial_output(self):
         damaged = FIXTURE.replace("release_accelerator_memory('before VLM load')", "release_memory()")
