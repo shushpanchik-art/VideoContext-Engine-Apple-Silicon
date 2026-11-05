@@ -16,7 +16,7 @@
 - Local project/source: `~/VideoContext-Engine-Apple-Silicon/VideoContextEngine_v3.19.py`.
 - Current source SHA256: `6a47735e6cff4ea72e66f4052c7eeb770fb32c790504986f07967da4cd242ca6`.
 - Timestamped pre-patch backup exists: `VideoContextEngine_v3.19.py.backup-20261105T000114`, SHA256 `eb0708be06944503a9a2ad3429b8f27938356d1d16816634855fc93b7cda4f2c`.
-- Reconstructing the expected source from that backup with the pinned Metal patcher produced SHA256 `eacd4eecfda2cc8a2c71203bf5ae3589611f5fd8d0405ded146a78f147055` (the known base latch patch); the installed file differs only by the reviewed additional `VCE_METAL_RUNTIME_LATCH_RAM_MINUS_TEARDOWN_V1` block. The installed file contains both latch markers and passed in-memory Python syntax compilation in the launcher.
+- Reconstructing the expected source from that backup with the pinned Metal patcher produced SHA256 `eacd4eecfda2cc8a2c71203bf5ae3589611f5fd8d0405ded747146a78f147055` (the known base latch patch); the installed file differs only by the reviewed additional `VCE_METAL_RUNTIME_LATCH_RAM_MINUS_TEARDOWN_V1` block. The installed file contains both latch markers and passed in-memory Python syntax compilation in the launcher.
 - The launcher was updated to pin the actual installed source SHA and require the additional RAM-minus teardown marker.
 - VCE listener: PID `47366`, Python 3.11.18, serving the same project/source path. It remained stable through the latest test.
 - macOS uses a Russian locale. The launcher process-start check was corrected to use `LC_ALL=C`; it now passes.
