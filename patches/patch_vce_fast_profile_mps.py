@@ -721,7 +721,7 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
         '''        model, processor = load(model_path)
         config = load_config(model_path)
 ''',
-        "        _vce_ensure_llama_server(model_path)\\n",
+        "        _vce_ensure_llama_server(model_path)\n",
         "Text LLM llama.cpp server startup"
     )
     function_source = _replace_exact(
@@ -955,9 +955,12 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
             1,
         )
     source = source.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B-GGUF Q4_K_M")
+    source = source.replace("VCE_MLX", "VCE_LLAMA_CPP")
+    source = source.replace("MLX", "llama.cpp")
+    source = source.replace("mlx", "llama.cpp")
     source = source.replace("Qwen3-VL-8B-Instruct-4bit", "Qwen3.5-9B GGUF Q4_K_M")
     source = source.replace("CPU Whisper / MLX VLM", "PyTorch Whisper MPS / llama.cpp Metal")
-    source = source.replace("before the MLX/Metal VLM stage", "before the llama.cpp Metal VLM stage")
+    source = source.replace("before the llama.cpp Metal VLM stage", "before the llama.cpp Metal VLM stage")
     source = source.replace("PyTorch MPS -> MLX VLM", "PyTorch MPS -> llama.cpp Metal VLM + Text LLM")
     source = source.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B-GGUF Q4_K_M")
     if LLAMA_MARKER not in source:
@@ -998,8 +1001,8 @@ def patch_engine(source: str) -> str:
     source = source.replace("_vce_run_whisper_cpu_stage", "_vce_run_whisper_mps_stage")
     source = _replace_exact(
         source,
-        "Whisper CPU: распознаём речь параллельно с MLX/Metal VLM",
-        "Whisper PyTorch: отдельный MPS-этап перед MLX/Metal VLM",
+        "Whisper CPU: распознаём речь параллельно с llama.cpp/Metal VLM",
+        "Whisper PyTorch: отдельный MPS-этап перед llama.cpp/Metal VLM",
         "Whisper progress label",
     )
     source = _replace_exact(
@@ -1035,7 +1038,7 @@ def patch_engine(source: str) -> str:
     source = _replace_exact(
         source,
         'print(f"[VCE parallelism] CPU Whisper / MLX VLM overlap: {_vce_overlap_seconds:.2f}s")',
-        'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")',
+        'print("[VCE stage order] PyTorch Whisper MPS completed before llama.cpp Metal VLM; GPU inference stages are serialized.")',
         "Sequential stage-order log",
     )
 
@@ -1519,9 +1522,9 @@ def apply_project(project: Path) -> list[Path]:
         print(f"Updated: {path.name}")
         if path in backups:
             print(f"Backup:  {backups[path].name}")
-    print("Profile: Whisper large / PyTorch MPS -> MLX VLM; serialized GPU stages.")
+    print("Profile: Whisper large / PyTorch MPS -> llama.cpp Metal VLM + Text LLM; one shared GGUF model.")
     print("OCR: Apple Vision ON; OCR cache ON; FFmpeg/Tesseract ON (5 s, 3 workers).")
-    print("Removed UI/API experiments: adaptive keyframes, MLX Whisper, fast scene detection.")
+    print("Removed UI/API experiments: adaptive keyframes, MLX Whisper, fast scene detection. VLM/Text LLM now use llama.cpp Metal.")
     return list(backups.values())
 
 
