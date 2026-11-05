@@ -145,7 +145,7 @@ def build_base_fields(*args, **kwargs):
     source = _insert_after_function(
         source,
         "run_one",
-        r'''# VCE_BENCH_STAGE_CLASSIFIER_V2
+        r'''# VCE_BENCH_STAGE_CLASSIFIER_V3
 def _vce_classify_profile_result(record, requested_fields, payload, log_text):
     """Separate HTTP completion from evidence that each requested ML stage completed."""
     import re as _vce_re
@@ -273,6 +273,82 @@ def _vce_classify_profile_result(record, requested_fields, payload, log_text):
     }
 
 
+def _vce_filter_informational_ffmpeg_ocr_diagnostics(record, run_dir):
+    """Move the known positive FFmpeg/Tesseract availability banner out of errors."""
+    import json as _vce_json
+    import re as _vce_re
+    from pathlib import Path as _VCEPath
+
+    if not isinstance(record, dict):
+        return record
+    _run_dir = _VCEPath(run_dir)
+    _errors_path = _run_dir / "errors.json"
+    if not _errors_path.is_file():
+        return record
+    try:
+        _error_data = _vce_json.loads(_errors_path.read_text(encoding="utf-8"))
+    except Exception:
+        return record
+    if not isinstance(_error_data, dict) or not isinstance(_error_data.get("errors"), list):
+        return record
+
+    _errors = _error_data["errors"]
+    try:
+        _json_count = int(_error_data.get("error_count"))
+        _record_count = int(record.get("error_count"))
+    except (TypeError, ValueError, OverflowError):
+        return record
+    # Fail closed if the runner's counters do not agree with the exact local list.
+    if _json_count != len(_errors) or _record_count != len(_errors):
+        return record
+
+    _info_pattern = _vce_re.compile(
+        r"^\s*FFmpeg OCR:\s*FFmpeg\s*\+\s*Tesseract CLI\s+"
+        r"(?:доступны|available)\s*;\s*"
+        r"(?:используются только выбранные установленные языки|"
+        r"only selected installed languages are used)\s*:",
+        _vce_re.I,
+    )
+    _informational = [
+        item for item in _errors
+        if isinstance(item, str) and _info_pattern.search(item)
+    ]
+    if not _informational:
+        return record
+
+    _remaining = [item for item in _errors if item not in _informational]
+    record["error_count"] = len(_remaining)
+    record["error_excerpt"] = _remaining[:5]
+    record["informational_diagnostics"] = _informational[:10]
+
+    _error_data["error_count"] = len(_remaining)
+    _error_data["errors"] = _remaining
+    _error_data["informational_diagnostics"] = _informational
+    _error_data["classification_note"] = (
+        "Known positive FFmpeg/Tesseract CLI availability messages are diagnostics, "
+        "not runtime errors."
+    )
+    _errors_path.write_text(
+        _vce_json.dumps(_error_data, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    _errors_log = _run_dir / "errors.log"
+    if _errors_log.exists():
+        _errors_log.write_text(
+            "\n".join(str(item) for item in _remaining)
+            + ("\n" if _remaining else "No API/server error markers were captured.\n"),
+            encoding="utf-8",
+        )
+    (_run_dir / "diagnostics.log").write_text(
+        "Informational diagnostics (excluded from runtime error count):\n"
+        + "\n".join(str(item) for item in _informational)
+        + "\n",
+        encoding="utf-8",
+    )
+    return record
+
+
 _vce_original_run_one = run_one
 def run_one(*args, **kwargs):
     import json as _vce_json
@@ -291,6 +367,7 @@ def run_one(*args, **kwargs):
     if not _result_directory:
         return _record
     _run_dir = _VCEPath(_result_directory)
+    _record = _vce_filter_informational_ffmpeg_ocr_diagnostics(_record, _run_dir)
     try:
         _payload = _vce_json.loads((_run_dir / "response.json").read_text(encoding="utf-8"))
     except Exception:
@@ -336,7 +413,7 @@ def main() -> int:
     runner = Path(sys.argv[1])
     patched = patch_source(runner.read_text(encoding="utf-8"))
     runner.write_text(patched, encoding="utf-8")
-    print("Applied VCE benchmark patch v4: per-stage and runtime-error-aware FAILED/DEGRADED classification.")
+    print("Applied VCE benchmark patch v5: stage-aware classification and informational FFmpeg OCR diagnostic filtering.")
     return 0
 
 
