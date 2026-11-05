@@ -58,7 +58,7 @@ After applying, restart VideoContext Engine once so the patched module is loaded
 ## Validation completed here
 
 - At commit `f9a02cb9d35d18801eca821707a0c2e9a1531670`, the benchmark-tests GitHub Actions job discovered and passed the initial four fixture tests (patch generation/parse, idempotence, first-failure latch semantics, and fail-closed behavior for missing anchors).
-- Subsequent revisions added an executor-level timeout/latch test, shutdown-teardown protection, and two Text LLM tests that prove streaming timeout exceptions are not swallowed into a second GPU submission. They also assert that the fatal-timeout path skips model unload and explicit MLX cache cleanup. The current fixture suite contains seven tests. No CI result has been retrieved for the latest branch head, so these later changes remain unverified by GitHub Actions.
+- Subsequent revisions added an executor-level timeout/latch test, shutdown-teardown protection, and two Text LLM tests that prove streaming timeout exceptions are not swallowed into a second GPU submission. They also assert that the fatal-timeout path skips model unload and explicit MLX cache cleanup. The seven-test fixture suite passed on PR head \`563214acec9272b0e723315e25d3f75a507de9dc\` in [GitHub Actions run 41958576434](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/actions/runs/41958576434). This validates the patcher logic against a representative fixture, not the complete local source at runtime or the M1 Max Metal behavior.
 - All tests use a representative source fixture. They are not a substitute for running the patcher against the complete local engine file or testing on the M1 Max Metal runtime.
 
 ## Remaining unknowns
