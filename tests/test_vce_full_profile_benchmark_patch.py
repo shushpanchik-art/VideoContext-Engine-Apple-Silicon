@@ -193,6 +193,103 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertEqual(result["status"], "degraded")
         self.assertTrue(any("inspect local errors.csv" in reason for reason in result["classification_reasons"]))
 
+    def test_ffmpeg_ocr_availability_banner_is_informational_not_runtime_error(self):
+        namespace = self._load()
+        info = (
+            "FFmpeg OCR: FFmpeg + Tesseract CLI доступны; "
+            "используются только выбранные установленные языки: rus+eng"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+            (run_dir / "errors.json").write_text(
+                json.dumps({
+                    "error_count": 1,
+                    "errors": [info],
+                    "transport_error": None,
+                    "http_status": 200,
+                    "text_llm_error": None,
+                }, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            (run_dir / "errors.log").write_text(info + "\n", encoding="utf-8")
+            record = {
+                "http_status": 200,
+                "error_count": 1,
+                "error_excerpt": [info],
+                "result_directory": str(run_dir),
+            }
+
+            namespace["_vce_filter_informational_ffmpeg_ocr_diagnostics"](record, run_dir)
+
+            self.assertEqual(record["error_count"], 0)
+            self.assertEqual(record["error_excerpt"], [])
+            self.assertEqual(record["informational_diagnostics"], [info])
+            error_data = json.loads((run_dir / "errors.json").read_text(encoding="utf-8"))
+            self.assertEqual(error_data["error_count"], 0)
+            self.assertEqual(error_data["errors"], [])
+            self.assertEqual(error_data["informational_diagnostics"], [info])
+            self.assertIn(info, (run_dir / "diagnostics.log").read_text(encoding="utf-8"))
+            self.assertIn("No API/server error markers", (run_dir / "errors.log").read_text(encoding="utf-8"))
+
+            result = self._classify(
+                namespace,
+                record=record,
+                fields={
+                    "analysis_mode": "full",
+                    "skip_audio": True,
+                    "skip_visual": False,
+                    "text_llm_enabled": False,
+                },
+                payload={
+                    "meta": {
+                        "params": {"run_vlm": True},
+                        "timings": {"vlm": {"inference_time": 14.941}},
+                    },
+                    "text_llm": {"enabled": False, "status": "disabled", "inference_time": 0.0},
+                },
+            )
+            self.assertEqual(result["stage_status"]["runtime_errors"]["count"], 0)
+            self.assertEqual(result["status"], "completed")
+
+    def test_informational_ffmpeg_banner_does_not_hide_a_real_error(self):
+        namespace = self._load()
+        info = (
+            "FFmpeg OCR: FFmpeg + Tesseract CLI доступны; "
+            "используются только выбранные установленные языки: rus+eng"
+        )
+        real_error = "FFmpeg OCR worker failed while processing a frame"
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+            errors = [info, real_error]
+            (run_dir / "errors.json").write_text(
+                json.dumps({"error_count": 2, "errors": errors}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            record = {"error_count": 2, "error_excerpt": errors}
+            namespace["_vce_filter_informational_ffmpeg_ocr_diagnostics"](record, run_dir)
+            self.assertEqual(record["error_count"], 1)
+            self.assertEqual(record["error_excerpt"], [real_error])
+            error_data = json.loads((run_dir / "errors.json").read_text(encoding="utf-8"))
+            self.assertEqual(error_data["errors"], [real_error])
+            self.assertEqual(error_data["informational_diagnostics"], [info])
+
+    def test_informational_filter_fails_closed_when_error_counters_disagree(self):
+        namespace = self._load()
+        info = (
+            "FFmpeg OCR: FFmpeg + Tesseract CLI доступны; "
+            "используются только выбранные установленные языки: rus+eng"
+        )
+        with tempfile.TemporaryDirectory() as temp:
+            run_dir = Path(temp)
+            (run_dir / "errors.json").write_text(
+                json.dumps({"error_count": 1, "errors": [info]}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            record = {"error_count": 2, "error_excerpt": [info, "unreviewed"]}
+            namespace["_vce_filter_informational_ffmpeg_ocr_diagnostics"](record, run_dir)
+            self.assertEqual(record["error_count"], 2)
+            self.assertEqual(record["error_excerpt"], [info, "unreviewed"])
+
     def test_complete_vlm_whisper_and_text_llm_profile(self):
         namespace = self._load()
         result = self._classify(namespace)
