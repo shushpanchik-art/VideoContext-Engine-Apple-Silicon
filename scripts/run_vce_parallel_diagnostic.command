@@ -63,8 +63,54 @@ gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated. Run gh 
 gh auth setup-git >/dev/null 2>&1 || fail "Could not configure Git credential helper."
 git ls-remote --exit-code --heads "https://github.com/$REPOSITORY.git" "$PUBLISH_BRANCH" >/dev/null 2>&1 || fail "Cannot access publication branch $PUBLISH_BRANCH. Check GitHub write permissions."
 
+ENGINE_SOURCE="\${VCE_ENGINE_SOURCE:-$PROJECT_DIR/VideoContextEngine_v3.19.py}"
+EXPECTED_ENGINE_SHA="6a47735e6cff4ea72e66f4052c7eeb770fb32ca6"
+[[ -f "$ENGINE_SOURCE" ]] || fail "VCE engine source not found: $ENGINE_SOURCE"
+ACTUAL_ENGINE_SHA="$(/usr/bin/shasum -a 256 "$ENGINE_SOURCE" | awk '{print $1}')"
+[[ "$ACTUAL_ENGINE_SHA" == "$EXPECTED_ENGINE_SHA" ]] || fail "Unexpected VCE runtime SHA256. Expected $EXPECTED_ENGINE_SHA, got $ACTUAL_ENGINE_SHA."
+[[ -s "$ENGINE_SOURCE.backup-20261105T000114" ]] || fail "Expected pre-patch runtime backup is missing."
+grep -q "VCE_METAL_RUNTIME_FAILURE_LATCH_V1" "$ENGINE_SOURCE" || fail "Metal runtime latch marker is missing."
+grep -q "VCE_METAL_RUNTIME_LATCH_RAM_MINUS_TEARDOWN_V1" "$ENGINE_SOURCE" || fail "Reviewed RAM-minus teardown safeguard is missing."
+"$PYTHON" - "$ENGINE_SOURCE" <<'PY'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1])
+compile(source.read_text(encoding="utf-8"), str(source), "exec")
+print("Engine syntax: OK (compiled in memory)")
+PY
+command -v ffprobe >/dev/null 2>&1 || fail "ffprobe is required to validate the input audio track."
+AUDIO_STREAM="$(ffprobe -v error -select_streams a:0 -show_entries stream=index -of csv=p=0 "$VIDEO_PATH" 2>/dev/null || true)"
+[[ -n "$AUDIO_STREAM" ]] || fail "No audio stream detected in the input MP4; Whisper cannot be validated."
+"$PYTHON" -c 'import ocrmac, mlx_whisper; print("Apple Vision OCR and Whisper packages are available.")' || fail "Required Apple Vision OCR / Whisper packages are missing."
+SERVER_LOG="$HOME/Library/Logs/VideoContext Engine/server.log"
+[[ -r "$SERVER_LOG" ]] || fail "VCE server.log is not readable."
+LISTENER_PIDS="$(/usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 {print $2}' | sort -u || true)"
+[[ -n "$LISTENER_PIDS" ]] || fail "VCE is not listening on port 7555. Start the app normally."
+PID_COUNT="$(printf '%s\n' "$LISTENER_PIDS" | sed '/^$/d' | wc -l | tr -d ' ')"
+[[ "$PID_COUNT" == "1" ]] || fail "Expected exactly one VCE listener; found: $LISTENER_PIDS"
+SERVER_PID="$LISTENER_PIDS"
+"$PYTHON" - "$SERVER_PID" "$ENGINE_SOURCE" <<'PY'
+from datetime import datetime
+import os, subprocess, sys, time
+pid, source = sys.argv[1], sys.argv[2]
+env = dict(os.environ)
+env["LC_ALL"] = "C"
+env["LANG"] = "C"
+started = subprocess.check_output(["ps", "-p", pid, "-o", "lstart="], text=True, env=env).strip()
+process_epoch = time.mktime(datetime.strptime(started, "%a %b %d %H:%M:%S %Y").timetuple())
+if process_epoch < os.stat(source).st_mtime:
+    raise SystemExit("VCE listener predates the reviewed runtime; restart VCE before testing.")
+print(f"VCE listener {pid} is newer than the reviewed runtime.")
+PY
+/usr/bin/curl --fail --silent --show-error "http://127.0.0.1:7555/openapi.json" -o /dev/null || fail "VCE API health check failed."
+ACTIVE_CONNECTIONS="$(/usr/sbin/lsof -nP -iTCP:7555 -sTCP:ESTABLISHED 2>/dev/null | awk 'NR > 1 {print}' || true)"
+if [[ -n "$ACTIVE_CONNECTIONS" ]]; then
+  printf '%s\n' "$ACTIVE_CONNECTIONS" >&2
+  fail "An established API connection already exists. Wait for the previous VCE request to finish."
+fi
+
 mkdir -p "$RESULT_ROOT"
-printf '%s\n' "Video: <local input; redacted from publication>" "Project: $PROJECT_DIR" "Runner revision: $RUNNER_REF" "Patch helper revision: $PATCHER_REF" "Plan: one normal full-profile request only" "enable_mlx_whisper: forced false" ""
+printf '%s\n' "Video: <local input; redacted from publication>" "Project: $PROJECT_DIR" "Runner revision: $RUNNER_REF" "Patch helper revision: $PATCHER_REF" "Plan: one full end-to-end baseline request" "enable_mlx_whisper=false; full VLM/Whisper/Text LLM/Apple OCR" ""
 echo "Downloading the pinned diagnostic runner..."
 RAW_BASE="https://raw.githubusercontent.com/$REPOSITORY/$RUNNER_REF"
 /usr/bin/curl --fail --location --silent --show-error --retry 3 "$RAW_BASE/scripts/vce_full_profile_benchmark.py.gz" --output "$TMP_GZIP" || fail "Could not download the pinned benchmark runner."
