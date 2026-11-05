@@ -214,3 +214,63 @@ The user inspected the local result bundle under the smoke archive. Sanitized fi
 5. If further validation is authorized, begin with static inspection and a short isolated test only. No full video, Text LLM, Whisper, concurrent request or profile matrix based solely on this smoke result.
 
 Privacy: the local archive path, source video path/name, raw response, errors CSV, transcripts, model output and full server logs are intentionally omitted from this public handoff.
+
+
+---
+
+## Follow-up — 2026-11-05 17:08 UTC — second clean VLM smoke
+
+The user ran the pinned VLM smoke launcher against a separate 20-second video-only excerpt generated from the local MP4. The original MP4 was not modified.
+
+### Sanitized evidence
+
+- Run interval: `2026-11-05T17:08:00Z`–`2026-11-05T17:08:22Z`.
+- Runner exit code: `0`; HTTP `200`; stage status `completed`.
+- Runtime error count: `0`.
+- VLM inference: `15.083 s`; two visual descriptions returned.
+- `meta.params.run_vlm=true`; no VLM metadata contradiction.
+- Listener PID `47366` remained stable; the 65-line server-log delta was stable; six lines explicitly carried the listener PID.
+- No Metal timeout, submissions-ignored, or command-buffer failure signature appeared in the captured log delta.
+- Request flags: `analysis_mode=full`, `skip_audio=true`, `skip_visual=false`, Apple OCR=false, FFmpeg OCR=false, Text LLM=false, summary=false.
+- The request manifest and sanitized summary were supplied by the user. Raw response, errors, transcript, full logs, source video and private paths remain local.
+
+**Acceptance:** accepted as a clean short VLM-only smoke diagnostic. This is the second clean short VLM smoke; it is not a full-video, Whisper, OCR-inference, Text LLM or performance result. It does not establish a fix or root cause for the earlier Metal timeout.
+
+## Runtime source review — `analysis_mode` and OCR paths
+
+Reviewed the v3.19 API handler and OCR call sites in `VideoContextEngine_v3.19.py` at the PR source revision.
+
+### `analysis_mode` semantics
+
+- The API accepts `full`, `whisper_ocr`, or `ocr_only`.
+- `full` permits Qwen3-VL when `skip_visual=false`.
+- `whisper_ocr` sets `skip_visual=true`; `ocr_only` sets both `skip_visual=true` and `skip_audio=true`.
+- The handler comment is explicit: `analysis_mode` controls the visual VLM path; it does not automatically disable the separate Qwen3.5 Text LLM post-processing stage.
+- Whisper is governed by the audio skip/effective audio fields. In the standard full mode it runs when `skip_audio=false` and an audio track is present.
+- The current `enable_mlx_whisper` checkbox is a validation flag, not a switch that moves Whisper to GPU. The current runtime invokes mlx-whisper on the CPU stream (`mx.cpu`). Keep this experimental flag false.
+
+### Actual OCR execution gates
+
+- Apple Vision OCR is called per selected keyframe only inside `if enable_apple_ocr:`. The normal full profile defaults this to true, but the request can override it.
+- FFmpeg/Tesseract OCR is started separately only inside `if enable_ffmpeg_ocr:`; it samples frames and runs either the native FFmpeg OCR filter or standalone Tesseract CLI. This path is optional and defaults false.
+- Therefore, the two smoke runs (both OCR flags false) did not execute either OCR engine. The progress text “OCR + Qwen3-VL” is a generic scene-progress label; the actual Apple and FFmpeg OCR call sites remain guarded by their independent boolean fields.
+- Text LLM post-processing is a separate `if text_llm_enabled:` stage. It can run in `analysis_mode=full` and depends on its explicit request flag, not on the analysis-mode enum.
+
+This review resolves why a VLM-only smoke could log an “OCR + Qwen3-VL” progress label while recording both OCR flags false: the label itself is not evidence that OCR inference executed.
+
+## One-shot full end-to-end diagnostic launcher
+
+Added an updated `scripts/run_vce_parallel_diagnostic.command` to the feature branch. It now uses the immutable v5 stage-classifier helper (`10f8c706e9aae494f6d6a092db7ba7d34a21897a`) and wraps the single baseline request with a fail-closed in-memory request contract:
+
+- `analysis_mode=full`, VLM enabled, Whisper/audio enabled, word timestamps and audio features enabled.
+- Apple Vision OCR enabled.
+- FFmpeg/Tesseract OCR intentionally disabled for this first end-to-end run; it is a separate optional CPU-intensive worker path.
+- Text LLM and global summary enabled.
+- TXT/JSON autosave disabled to avoid overwriting reports beside the source MP4.
+- Experimental `enable_mlx_whisper=false`; this does not disable the normal CPU mlx-whisper transcription path.
+- One baseline request only; no six-profile matrix. The launcher checks the expected patched runtime SHA/backup/latch markers, source syntax, input audio stream, required Python modules, listener health and absence of another established request before launch.
+- It requires authenticated GitHub CLI and publishes only sanitized aggregate results/error categories. Full response, raw error text, source media, transcripts/OCR text and raw logs remain local.
+
+The full-video end-to-end request has **not yet been run**. The earlier 108.23-second run failed after approximately 44m48s with a fatal Metal command-buffer timeout during VLM generation; this remains a material risk. The runtime latch is recovery hardening, not evidence that the original Metal issue has been fixed.
+
+Keep PR #34 Draft. Do not merge or change `main`. Accept a full run only when the stage classifier reports completed and provides positive completion evidence for VLM, Whisper and Text LLM, with zero runtime errors; inspect Apple OCR timing and metadata separately.
