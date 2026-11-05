@@ -300,7 +300,7 @@ def _remove_optional_ast_nodes(source: str, names: set[str]) -> str:
         end_line = getattr(node, "end_lineno", node.lineno)
         start = offsets[start_line - 1]
         end = offsets[end_line]
-        while end < len(source) and source[end] in "\\r\\n":
+        while end < len(source) and source[end] in "\r\n":
             end += 1
         spans.append((start, end))
 
