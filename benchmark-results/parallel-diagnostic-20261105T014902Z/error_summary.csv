@@ -1,0 +1,2 @@
+category,stage,exception_type,observed_lines
+METAL_SUBMISSION,VLM,RuntimeError,1

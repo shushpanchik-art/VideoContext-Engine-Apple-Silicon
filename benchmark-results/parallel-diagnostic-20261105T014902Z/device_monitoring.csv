@@ -1,0 +1,2 @@
+profile,process_samples,max_process_tree_cpu_percent_sum,max_process_tree_rss_mib_sum,powermetrics_sample_count,gpu_system_avg_residency_percent,gpu_system_max_residency_percent,note
+baseline,90,0.0,0.0,0,,,"GPU power/residency is system-wide, not PID-attributed."
