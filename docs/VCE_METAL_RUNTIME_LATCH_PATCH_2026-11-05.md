@@ -57,9 +57,9 @@ After applying, restart VideoContext Engine once so the patched module is loaded
 
 ## Validation completed here
 
-- The patcher passes Python syntax compilation.
-- Four focused unit tests pass: patch generation/parse, idempotence, first-failure latch semantics, and fail-closed behavior when an expected source anchor is missing.
-- These tests use a representative source fixture. They are not a substitute for running the patcher against the complete local engine file or testing on the M1 Max Metal runtime.
+- At commit `f9a02cb9d35d18801eca821707a0c2e9a1531670`, the benchmark-tests GitHub Actions job discovered and passed the initial four fixture tests (patch generation/parse, idempotence, first-failure latch semantics, and fail-closed behavior for missing anchors).
+- Subsequent revisions added an executor-level timeout/latch test, shutdown-teardown protection, and assertions that the fatal-timeout path does not call model unload or MLX cache/synchronization helpers. No CI result has been retrieved for the latest branch head, so those later changes remain unverified by GitHub Actions.
+- All tests use a representative source fixture. They are not a substitute for running the patcher against the complete local engine file or testing on the M1 Max Metal runtime.
 
 ## Remaining unknowns
 
