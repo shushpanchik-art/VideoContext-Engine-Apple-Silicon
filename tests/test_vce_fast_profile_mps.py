@@ -148,7 +148,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn("_vce_cached_apple_vision_ocr", patched)
         self.assertIn("enable_ffmpeg_ocr: bool = Form(bool(setting", patched)
         self.assertIn("ffmpeg_ocr_workers: int = Form(int(setting", patched)
-        self.assertIn("await torch.mps.empty_cache()", patched)
+        self.assertIn("await asyncio.to_thread(torch.mps.empty_cache)", patched)
 
     def test_ui_uses_shared_llama_cpp_model_and_keeps_ocr_and_mps_controls(self):
         patched = self.patcher.patch_ui(self.ui)
