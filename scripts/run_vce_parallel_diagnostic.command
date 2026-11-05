@@ -1,12 +1,13 @@
 #!/bin/bash
 # One-request VCE stage/device diagnostic for Apple Silicon.
-# Runs only the normal baseline and forcibly disables enable_mlx_whisper.
+# Runs one guarded full end-to-end baseline: VLM + Whisper + Text LLM + Apple Vision OCR.
+# FFmpeg/Tesseract OCR and experimental MLX Whisper validation stay disabled.
 set -uo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 PUBLISH_BRANCH="feat/experimental-benchmark-launcher"
 RUNNER_REF="650f3a1437ee0cdcab1c3ea41005a599a373d578"
-PATCHER_REF="db54501d459569eaa3e75a8e22ef1385ecee68f9"
+PATCHER_REF="10f8c706e9aae494f6d6a092db7ba7d34a21897a"
 VIDEO_PATH="$(printenv VCE_VIDEO_PATH 2>/dev/null || true)"
 PROJECT_DIR="$(printenv VCE_PROJECT_DIR 2>/dev/null || true)"
 RESULT_ROOT="$HOME/Downloads/VCE_Full_Profile_Benchmark"
@@ -74,27 +75,53 @@ RAW_BASE="https://raw.githubusercontent.com/$REPOSITORY/$RUNNER_REF"
   --output "$TMP_PATCHER" || fail "Could not download the pinned runner patch helper."
 "$PYTHON" "$TMP_PATCHER" "$TMP_RUNNER" || fail "The compatibility/stage classifier patch failed."
 
-# The v4 helper provides baseline-only mode. This in-memory wrapper explicitly
-# overrides the request flag so a persisted UI value cannot enable mlx-whisper validation.
+# Fail-closed request guard: override persisted UI toggles in memory for one complete baseline.
 "$PYTHON" - "$TMP_RUNNER" <<'PY'
 from pathlib import Path
 import sys
 path = Path(sys.argv[1])
 source = path.read_text(encoding="utf-8")
-marker = "# VCE_PARALLEL_DIAG_FORCE_MLX_WHISPER_OFF_V1"
+marker = "# VCE_FULL_E2E_REQUEST_GUARD_V1"
 if marker not in source:
     entry = 'if __name__ == "__main__":'
     if entry not in source:
-        raise SystemExit("Could not find the runner entrypoint for the safety override")
-    wrapper = r'''# VCE_PARALLEL_DIAG_FORCE_MLX_WHISPER_OFF_V1
-_vce_parallel_previous_build_base_fields = build_base_fields
+        raise SystemExit("Cannot locate runner entrypoint; refusing an unguarded full run")
+    wrapper = r'''# VCE_FULL_E2E_REQUEST_GUARD_V1
+_vce_full_e2e_original_build_base_fields = build_base_fields
 def build_base_fields(*args, **kwargs):
-    result = _vce_parallel_previous_build_base_fields(*args, **kwargs)
-    if not isinstance(result, tuple) or len(result) != 2 or not isinstance(result[0], dict):
-        raise RuntimeError("Unexpected build_base_fields() result; cannot guarantee mlx-whisper is disabled")
-    fields = dict(result[0])
-    fields["enable_mlx_whisper"] = False
-    return fields, result[1]
+    import json as _vce_e2e_json
+    import os as _vce_e2e_os
+    _result = _vce_full_e2e_original_build_base_fields(*args, **kwargs)
+    if not isinstance(_result, tuple) or len(_result) != 2 or not isinstance(_result[0], dict):
+        raise RuntimeError("Unexpected build_base_fields() result; refusing full end-to-end request")
+    _fields = dict(_result[0])
+    _required = {
+        "analysis_mode": "full",
+        "skip_audio": False,
+        "skip_visual": False,
+        "word_timestamps": True,
+        "enable_audio_features": True,
+        "enable_apple_ocr": True,
+        "enable_ffmpeg_ocr": False,
+        "text_llm_enabled": True,
+        "generate_summary": True,
+        "enable_stage_timing": True,
+        "generate_txt": False,
+        "generate_json": False,
+        "enable_mlx_whisper": False,
+        "enable_fast_scene_detection": False,
+        "enable_adaptive_keyframes": False,
+    }
+    _fields.update(_required)
+    _manifest = {key: _fields.get(key) for key in _required}
+    _manifest_path = _vce_e2e_os.environ.get("VCE_FULL_E2E_REQUEST_MANIFEST")
+    if not _manifest_path:
+        raise RuntimeError("VCE_FULL_E2E_REQUEST_MANIFEST is not set")
+    with open(_manifest_path, "w", encoding="utf-8") as _handle:
+        _vce_e2e_json.dump(_manifest, _handle, ensure_ascii=False, indent=2)
+        _handle.write("\\n")
+    print("[VCE full E2E] Verified request flags: " + _vce_e2e_json.dumps(_manifest, sort_keys=True), flush=True)
+    return _fields, _result[1]
 
 '''
     source = source.replace(entry, wrapper + entry, 1)
@@ -105,13 +132,14 @@ PY
 # Exactly one full baseline request. No settings file is edited.
 export VCE_BENCH_ONLY_BASELINE=1
 export VCE_BENCH_RESULT_ROOT="$RESULT_ROOT"
+export VCE_FULL_E2E_REQUEST_MANIFEST="$TMP_DIR/request_flags.json"
 unset VCE_BENCH_VLM_ONLY VCE_BENCH_WHISPER_ONLY
 
 touch "$RUN_MARKER"
-echo "Starting one full recognition request. Live CPU/RSS and available system GPU sampling run alongside it."
+echo "Starting one full end-to-end request: VLM + Whisper + Text LLM + Apple Vision OCR."
 set +e
 "$PYTHON" "$TMP_RUNNER" --project "$PROJECT_DIR" --video "$VIDEO_PATH" 2>&1 | /usr/bin/tee "$TMP_DIR/runner_console.log"
-RUN_EXIT=$PIPESTATUS
+RUN_EXIT=${PIPESTATUS[0]}
 set -e
 printf '\nRunner exit code: %s\n' "$RUN_EXIT"
 
@@ -122,6 +150,8 @@ if [[ -z "$RUN_DIR" || ! -d "$RUN_DIR" ]]; then
   mkdir -p "$RUN_DIR"
 fi
 cp "$TMP_DIR/runner_console.log" "$RUN_DIR/launcher_console.log" 2>/dev/null || true
+[[ -s "$TMP_DIR/request_flags.json" ]] || fail "Full E2E request flags were not captured."
+cp "$TMP_DIR/request_flags.json" "$RUN_DIR/request_flags.json"
 
 # Build a publication-safe error digest. Raw messages, tracebacks, API payloads,
 # transcripts, OCR text, model output and raw logs remain in RUN_DIR only.
