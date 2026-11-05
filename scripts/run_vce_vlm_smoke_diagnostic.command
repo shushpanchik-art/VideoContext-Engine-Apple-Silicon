@@ -62,11 +62,19 @@ note "Listener working directory: ${PROC_CWD:-unavailable}"
 from datetime import datetime
 import os, subprocess, sys, time
 pid, source = sys.argv[1], sys.argv[2]
-started = subprocess.check_output(["ps", "-p", pid, "-o", "lstart="], text=True).strip()
+# Force a stable English time format regardless of the user's macOS locale.
+env = dict(os.environ)
+env["LC_ALL"] = "C"
+env["LANG"] = "C"
+started = subprocess.check_output(
+    ["ps", "-p", pid, "-o", "lstart="], text=True, env=env
+).strip()
 try:
     process_epoch = time.mktime(datetime.strptime(started, "%a %b %d %H:%M:%S %Y").timetuple())
-except ValueError as exc:
-    raise SystemExit("Cannot parse VCE listener start time; refusing to assume the patched source is loaded: " + str(exc))
+except ValueError:
+    raise SystemExit(
+        "Cannot parse VCE listener start time even with LC_ALL=C: " + repr(started)
+    )
 source_mtime = os.stat(source).st_mtime
 if process_epoch < source_mtime:
     raise SystemExit("VCE listener started before the patched source was written. Restart VCE normally, then rerun this script.")
