@@ -496,7 +496,7 @@ def patch_engine(source: str) -> str:
 
     source = source.replace(
         'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")',
-        'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")\n' + MARKER,
+        'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")\n# ' + MARKER,
         1,
     )
     ast.parse(source)
