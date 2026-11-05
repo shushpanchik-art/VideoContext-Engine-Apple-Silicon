@@ -427,12 +427,12 @@ def patch_engine(source: str) -> str:
         source,
         (
             (
-                '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 2,',
-                '"analysis_mode": "full", "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 3,',
+                '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,',
+                '"analysis_mode": "full", "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 3,',
             ),
             (
-                '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 2,',
-                '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 3,',
+                '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,',
+                '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 3,',
             ),
         ),
         "Settings API OCR defaults",
