@@ -718,10 +718,11 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
     )
     function_source = _replace_exact(
         function_source,
-        '''        _vce_ensure_llama_server(model_path)
+        '''        model, processor = load(model_path)
+        config = load_config(model_path)
 ''',
-        "",
-        "Text LLM MLX model load"
+        "        _vce_ensure_llama_server(model_path)\\n",
+        "Text LLM llama.cpp server startup"
     )
     function_source = _replace_exact(
         function_source,
@@ -818,6 +819,30 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
 
     source = _replace_top_level_definition(
         source,
+        "_vce_clear_metal_memory_caches",
+        '''def _vce_clear_metal_memory_caches():
+    """Best-effort cleanup of PyTorch MPS cache and Python objects after an OOM."""
+    try:
+        gc.collect()
+    except Exception:
+        pass
+    try:
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.synchronize()
+            except Exception:
+                pass
+            torch.mps.empty_cache()
+    except Exception:
+        pass
+    try:
+        gc.collect()
+    except Exception:
+        pass''',
+    )
+
+    source = _replace_top_level_definition(
+        source,
         "release_accelerator_memory",
         '''def release_accelerator_memory(stage: str = "") -> None:
     """Release unused PyTorch MPS allocator cache between inference stages."""
@@ -852,6 +877,7 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
             "_vce_load_whisper_model",
             "_VCE_MLX_EXECUTOR",
             "_VCE_MLX_WHISPER_LOCK",
+            "_VCE_MLX_WHISPER_REPOS",
             "DEFAULT_VLM_MODEL_MLX",
             "DEFAULT_VLM_REPO_GGUF",
             "DEFAULT_VLM_MODEL_GGUF",
