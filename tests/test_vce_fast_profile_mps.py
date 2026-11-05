@@ -41,30 +41,42 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn('"whisper_backend": "openai-whisper"', patched)
         self.assertIn('"gpu_stages_serialized": True', patched)
 
-    def test_engine_removes_optional_local_mlx_whisper_language_helper(self):
+    def test_local_mlx_language_helper_is_preserved_with_openai_whisper_tokenizer(self):
         helper = (
-            "\ndef _vce_whisper_supported_languages():\n"
-            "    from mlx_whisper.tokenizer import LANGUAGES\n"
-            "    return LANGUAGES\n"
+            "\\ndef _vce_whisper_supported_languages():\\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
+            "    return LANGUAGES\\n"
+            "\\ndef _vce_language_picker():\\n"
+            "    return _vce_whisper_supported_languages()\\n"
+            "\\ndef _vce_language_validator():\\n"
+            "    return _vce_whisper_supported_languages()\\n"
         )
         variant = self.engine + helper
 
         patched = self.patcher.patch_engine(variant)
         ast.parse(patched)
+        self.assertIn("def _vce_openai_whisper_supported_languages():", patched)
+        self.assertIn("from whisper.tokenizer import LANGUAGES", patched)
+        self.assertIn("return _vce_openai_whisper_supported_languages()", patched)
+        self.assertEqual(patched.count("_vce_openai_whisper_supported_languages"), 3)
         self.assertNotIn("_vce_whisper_supported_languages", patched)
         self.assertNotIn("mlx_whisper", patched)
 
-    def test_optional_local_mlx_helper_rejects_duplicate_definitions(self):
-        duplicate = (
-            "def _vce_whisper_supported_languages():\n"
-            "    return {}\n\n"
-            "def _vce_whisper_supported_languages():\n"
-            "    return {}\n"
+    def test_local_mlx_tokenizer_import_without_helper_fails_closed(self):
+        variant = self.engine + "\\nfrom mlx_whisper.tokenizer import LANGUAGES\\n"
+        with self.assertRaisesRegex(ValueError, "without its expected local helper"):
+            self.patcher.patch_engine(variant)
+
+    def test_local_whisper_language_helper_requires_exactly_one_tokenizer_import(self):
+        helper = (
+            "\\ndef _vce_whisper_supported_languages():\\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
+            "    return LANGUAGES\\n"
+            "\\n# An unexpected second legacy import is ambiguous.\\n"
+            "from mlx_whisper.tokenizer import LANGUAGES\\n"
         )
-        with self.assertRaisesRegex(ValueError, "ambiguous"):
-            self.patcher._remove_optional_ast_nodes(
-                duplicate, {"_vce_whisper_supported_languages"}
-            )
+        with self.assertRaisesRegex(ValueError, "expected exactly one MLX tokenizer import"):
+            self.patcher.patch_engine(self.engine + helper)
 
     def test_settings_api_ocr_defaults_preserve_recognition_languages_layout(self):
         compact = '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
