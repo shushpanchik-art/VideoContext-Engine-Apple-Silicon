@@ -41,6 +41,31 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn('"whisper_backend": "openai-whisper"', patched)
         self.assertIn('"gpu_stages_serialized": True', patched)
 
+    def test_engine_removes_optional_local_mlx_whisper_language_helper(self):
+        helper = (
+            "\\ndef _vce_whisper_supported_languages():\\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
+            "    return LANGUAGES\\n"
+        )
+        variant = self.engine + helper
+
+        patched = self.patcher.patch_engine(variant)
+        ast.parse(patched)
+        self.assertNotIn("_vce_whisper_supported_languages", patched)
+        self.assertNotIn("mlx_whisper", patched)
+
+    def test_optional_local_mlx_helper_rejects_duplicate_definitions(self):
+        duplicate = (
+            "def _vce_whisper_supported_languages():\\n"
+            "    return {}\\n\\n"
+            "def _vce_whisper_supported_languages():\\n"
+            "    return {}\\n"
+        )
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            self.patcher._remove_optional_ast_nodes(
+                duplicate, {"_vce_whisper_supported_languages"}
+            )
+
     def test_settings_api_ocr_defaults_preserve_recognition_languages_layout(self):
         compact = '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
         with_languages = '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
