@@ -95,7 +95,7 @@ else
 fi
 
 duration_of() {
-  ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1" 2>/dev/null | head -n 1
+  ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$1" 2>/dev/null | head -n 1 || true
 }
 DURATION="$(duration_of "$VIDEO_PATH")"
 DURATION_OK="$("$PYTHON" - "$DURATION" <<'PY'
@@ -317,6 +317,7 @@ report = {
     "report_params_run_vlm": run_vlm,
     "vlm_inference_seconds": inference_number,
     "visual_description_count": description_count,
+    "vlm_positive_completion": inference_number > 0 or description_count > 0,
     "run_vlm_metadata_contradiction": contradiction,
     "server_log_delta_line_count": len(lines),
     "server_log_lines_explicitly_containing_pid": len(pid_lines),
@@ -351,6 +352,30 @@ fi
 if [[ "$PID_STABLE" != "true" ]]; then
   fail "VCE listener PID changed during the test. Treat this run as non-attributable."
 fi
+
+"$PYTHON" - "$RUN_DIR/diagnostic_summary.json" <<'PY' || fail "The run did not satisfy VLM smoke-test acceptance."
+import json, sys
+from pathlib import Path
+data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+problems = []
+if not data.get("response_found"):
+    problems.append("response.json missing")
+if data.get("http_status") != 200:
+    problems.append("HTTP status is not 200")
+if data.get("runner_stage_status") != "completed":
+    problems.append("stage classifier did not return completed")
+if data.get("runtime_error_count") != 0:
+    problems.append("runtime error count is non-zero or unavailable")
+if not data.get("vlm_positive_completion"):
+    problems.append("no positive VLM inference/description evidence")
+if data.get("metal_signature_lines_in_new_log_delta", 0) != 0:
+    problems.append("new server.log window contains a Metal failure signature")
+if not data.get("server_pid_stable_after_run"):
+    problems.append("listener PID changed during the request")
+if problems:
+    print("Acceptance failed: " + "; ".join(problems), file=sys.stderr)
+    raise SystemExit(1)
+PY
 
 CONTRADICTION="$("$PYTHON" - "$RUN_DIR/diagnostic_summary.json" <<'PY'
 import json, sys
