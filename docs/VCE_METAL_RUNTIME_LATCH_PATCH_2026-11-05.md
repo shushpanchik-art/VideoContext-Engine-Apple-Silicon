@@ -37,18 +37,18 @@ This patch is **recovery hardening, not a fix for the initiating GPU timeout**. 
 
 ## Applying safely on the target Mac
 
-The patcher writes a separate candidate file by default and does not overwrite the installed runtime:
+The latest traceback for the listener PID 8742 points to `~/VideoContext-Engine-Apple-Silicon/VideoContextEngine_v3.19.py`; older log entries also refer to a separate `~/VideoContext-Engine` copy. Use the active PID 8742 path below. Do not patch both copies unless their active server ownership is independently confirmed. The patcher writes a separate candidate file by default and does not overwrite the installed runtime:
 
 \`\`\`bash
 python3 patches/patch_vce_metal_runtime_latch.py \\
-  "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py"
+  "$HOME/VideoContext-Engine-Apple-Silicon/VideoContextEngine_v3.19.py"
 \`\`\`
 
 It prints a unified diff and writes \`VideoContextEngine_v3.19.py.metal-latch.py\` next to the input file. Review that diff first. To apply in place only after review:
 
 \`\`\`bash
 python3 patches/patch_vce_metal_runtime_latch.py \\
-  "$HOME/VideoContext-Engine/VideoContextEngine_v3.19.py" --apply
+  "$HOME/VideoContext-Engine-Apple-Silicon/VideoContextEngine_v3.19.py" --apply
 \`\`\`
 
 \`--apply\` creates a timestamped backup before writing. If the actual source has drifted from the known anchors, the patcher exits without writing. It is idempotent.
