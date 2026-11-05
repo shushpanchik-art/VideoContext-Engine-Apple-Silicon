@@ -173,6 +173,21 @@ NEW_WHISPER_CLEANUP = '''                        # MPS and MLX/Metal share Apple
                                     flush=True,
                                 )'''
 
+def _ensure_threading_alias_for_local_runtime(source: str) -> str:
+    """Keep/restore the alias when local Metal runtime code still uses it."""
+    alias_import = "import threading as _vce_threading"
+    if alias_import in source:
+        return source
+    if not re.search(r"\\b_vce_threading\\b", source):
+        return source
+    return _replace_exact(
+        source,
+        "import threading\\n",
+        "import threading\\nimport threading as _vce_threading\\n",
+        "Restore threading alias for local runtime lock",
+    )
+
+
 def _line_numbers_containing(source: str, token: str) -> list[int]:
     """Return 1-based source line numbers containing a token, without echoing source text."""
     return [
@@ -304,6 +319,7 @@ def _serialize_whisper_before_vlm(source: str) -> str:
 
 def patch_engine(source: str) -> str:
     if MARKER in source:
+        source = _ensure_threading_alias_for_local_runtime(source)
         ast.parse(source)
         required = (
             '"backend": "openai-whisper"',
@@ -510,10 +526,17 @@ def patch_engine(source: str) -> str:
 
     source = _replace_exact(
         source,
-        "import threading as _vce_threading\n_VCE_MLX_WHISPER_LOCK = _vce_threading.Lock()\n\n",
-        "",
-        "Remove MLX Whisper lock",
+        "import threading as _vce_threading\\n_VCE_MLX_WHISPER_LOCK = _vce_threading.Lock()\\n\\n",
+        "import threading as _vce_threading\\n\\n",
+        "Remove MLX Whisper lock but retain shared threading import",
     )
+    if source.count("_vce_threading") == 1:
+        source = _replace_exact(
+            source,
+            "import threading as _vce_threading\\n",
+            "",
+            "Remove unused threading alias",
+        )
 
     source = _remove_ast_nodes(
         source,
