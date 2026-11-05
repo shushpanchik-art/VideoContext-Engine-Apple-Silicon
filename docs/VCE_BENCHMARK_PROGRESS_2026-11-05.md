@@ -67,7 +67,7 @@ After the six-profile matrix ended, the supplied `run_remaining_vce_profiles.com
 
 `FATAL: Required remaining profiles not found: all_experimental`
 
-The selector expected a plan entry named `all_experimental`, but did not find that entry in the pinned runner's plan. The script exited with code 2 before invoking the benchmark runner. Therefore, this second attempt did not submit another VCE profile request and produced no new inference measurement. Its sanitized launcher-status record is under [benchmark-results/20261105T011752Z](../benchmark-results/20261105T011752Z/launcher_status.txt).
+The selector expected a plan entry named `all_experimental`, but the actual combined-profile key recorded in the matrix report is `all_experiments` (plural). This naming mismatch caused the selector to abort. The script exited with code 2 before invoking the benchmark runner. Therefore, this second attempt did not submit another VCE profile request and produced no new inference measurement. Its sanitized launcher-status record is under [benchmark-results/20261105T011752Z](../benchmark-results/20261105T011752Z/launcher_status.txt).
 
 This selector defect is in the selective-launcher script, not in the recorded six-profile matrix. The matrix had already attempted both `fast_scene_detection` and the combined profile and had reported both as failed. Do not interpret the selector failure as an additional VCE/Metal runtime failure.
 
