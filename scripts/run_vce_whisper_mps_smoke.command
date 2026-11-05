@@ -63,7 +63,7 @@ print(f"Preflight: torch={torch.__version__}; openai-whisper={version}; MPS=avai
 PY
 
 AUDIO_STREAM="$(ffprobe -v error -select_streams a:0 -show_entries stream=codec_type -of default=noprint_wrappers=1:nokey=1 "$VIDEO_PATH" 2>/dev/null || true)"
-[[ "$AUDIO_STREAM" == "audio" ]] || fail "No audio stream was found in the input video."
+printf '%s\n' "$AUDIO_STREAM" | /usr/bin/grep -Fxq "audio" || fail "No audio stream was found in the input video."
 
 TMP_BASE="${TMPDIR:-/tmp}"
 TMP_DIR="$(mktemp -d "$TMP_BASE/vce_whisper_mps.XXXXXX")"
