@@ -86,7 +86,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
     def test_engine_preserves_threading_alias_for_local_metal_runtime_lock(self):
         local_engine = (
             self.engine
-            + "\\n_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()\\n"
+            + "\n_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()\n"
         )
         patched = self.patcher.patch_engine(local_engine)
         ast.parse(patched)
@@ -100,7 +100,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
         local_patched = (
             patched_baseline
-            + "\\n_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()\\n"
+            + "\n_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()\n"
         )
         upgraded = self.patcher.patch_engine(local_patched)
         ast.parse(upgraded)
