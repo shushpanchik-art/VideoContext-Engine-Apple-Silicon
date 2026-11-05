@@ -1291,258 +1291,41 @@ def patch_engine(source: str) -> str:
 
 
 def _upgrade_ui_to_llama_cpp(ui: str) -> str:
-    """Change model selectors and user-facing backend labels on old and fresh UIs."""
-    replacements = (
-        ("локальная обработка · Apple Silicon / MLX", "локальная обработка · Apple Silicon / llama.cpp Metal"),
-        ("Полный анализ — Whisper + OCR + Qwen3-VL", "Полный анализ — Whisper + OCR + Qwen3.5 GGUF"),
-        ("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B-GGUF Q4_K_M"),
-        ("очередь работает последовательно, чтобы не перегружать память и MLX", "очередь работает последовательно, чтобы не перегружать память и llama.cpp/Metal"),
-        ("Улучшенная структура и смысловой анализ (Qwen3.5-9B)", "Улучшенная структура и смысловой анализ (Qwen3.5-9B · llama.cpp Metal)"),
-    )
-    for old, new in replacements:
-        count = ui.count(old)
-        if count > 1:
-            raise ValueError(f"UI backend label {old!r} appears {count} times; refusing ambiguous rewrite.")
-        if count == 1:
-            ui = ui.replace(old, new, 1)
-
-    vlm_pattern = re.compile(r'(?m)^(?P<indent>[ \t]*)<select id="cfg-vlm-model">.*?</select>[ \t]*    if UI_MARKER in ui:
-        for forbidden in (
-            'id="cfg-stage-timing"',
-            'id="cfg-adaptive-keyframes"',
-            'id="cfg-mlx-whisper"',
-            'id="cfg-fast-scene-detection"',
-        ):
-            if forbidden in ui:
-                raise ValueError("UI patch marker exists but experimental control remains: " + forbidden)
-        return ui
-
-    for key in (
-        "enable_stage_timing",
-        "enable_adaptive_keyframes",
-        "enable_mlx_whisper",
-        "enable_fast_scene_detection",
-    ):
-        ui = re.sub(r"(?m)^[ \t]*" + re.escape(key) + r":[^\n]*\n", "", ui)
-
-    ui = _replace_exact(
-        ui,
-        "      'cfg-stage-timing':'enable_stage_timing',\n",
-        "",
-        "UI stage timing control mapping",
-    )
-    ui = _replace_exact(
-        ui,
-        "      'cfg-adaptive-keyframes':'enable_adaptive_keyframes',\n",
-        "",
-        "UI adaptive keyframe control mapping",
-    )
-    ui = _replace_exact(
-        ui,
-        "      'cfg-mlx-whisper':'enable_mlx_whisper',\n",
-        "",
-        "UI MLX Whisper control mapping",
-    )
-    ui = _replace_exact(
-        ui,
-        "      'cfg-fast-scene-detection':'enable_fast_scene_detection','cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\n",
-        "      'cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\n",
-        "UI fast scene detection control mapping",
-    )
-
-    for control_id in (
-        "cfg-stage-timing",
-        "cfg-adaptive-keyframes",
-        "cfg-mlx-whisper",
-        "cfg-fast-scene-detection",
-    ):
-        pattern = re.compile(
-            r'(?m)^[ \t]*<label[^\n]*id="' + re.escape(control_id) + r'"[^\n]*\n'
-        )
-        ui, count = pattern.subn("", ui)
-        if count != 1:
-            raise ValueError(f"Expected one UI label for {control_id}, found {count}.")
-
-    ui = _replace_exact(
-        ui,
-        "Экспериментальные оптимизации (все выключены по умолчанию)",
-        "Базовый профиль OCR",
-        "UI optimization heading",
-    )
-    ui = _replace_exact(
-        ui,
-        "Кэш OCR Apple Vision для повторяющихся кадров",
-        "Кэш Apple Vision OCR для повторяющихся кадров",
-        "UI OCR cache label",
-    )
-    ui = _replace_exact(
-        ui,
-        "Дополнительный OCR через FFmpeg/Tesseract (экспериментально)",
-        "Дополнительный OCR через FFmpeg/Tesseract",
-        "UI FFmpeg OCR label",
-    )
-
-    if 'id="cfg-ocr-cache"' not in ui:
-        raise ValueError("Apple Vision OCR cache control was removed unexpectedly.")
-    if "enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked" not in ui:
-        raise ValueError("Apple Vision OCR cache is no longer wired to the settings payload.")
-    for forbidden in (
-        'id="cfg-stage-timing"',
-        'id="cfg-adaptive-keyframes"',
-        'id="cfg-mlx-whisper"',
-        'id="cfg-fast-scene-detection"',
-        "enable_adaptive_keyframes",
-        "enable_mlx_whisper",
-        "enable_fast_scene_detection",
-    ):
-        if forbidden in ui:
-            raise ValueError("Experimental UI reference remains after patch: " + forbidden)
-    ui = _upgrade_ui_to_llama_cpp(ui)
+    """Change VLM and Text LLM controls to the same reviewed llama.cpp GGUF model."""
+    ui = ui.replace("локальная обработка · Apple Silicon / MLX", "локальная обработка · Apple Silicon / llama.cpp Metal")
+    ui = ui.replace("Qwen3-VL", "Qwen3.5 GGUF")
+    ui = ui.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B GGUF Q4_K_M")
+    ui = ui.replace("очередь работает последовательно, чтобы не перегружать память и MLX", "очередь работает последовательно, чтобы не перегружать память и llama.cpp/Metal")
     ui = ui.replace(
-        "</body>",
-        f"<!-- {UI_MARKER} -->\n<!-- {LLAMA_UI_MARKER} -->\n</body>",
-        1,
+        "Улучшенная структура и смысловой анализ (Qwen3.5-9B)",
+        "Улучшенная структура и смысловой анализ (Qwen3.5-9B · llama.cpp Metal)",
     )
-    _validate_llama_ui(ui)
-    return ui
 
-
-
-def migrate_settings(settings: dict[str, Any]) -> dict[str, Any]:
-    updated = dict(settings)
-    for key in REMOVED_SETTINGS:
-        updated.pop(key, None)
-    updated.update(PROFILE)
-    return updated
-
-
-def _atomic_write(path: Path, text: str, original_mode: int | None) -> None:
-    temp = path.with_name(path.name + f".tmp-{os.getpid()}")
-    try:
-        temp.write_text(text, encoding="utf-8")
-        if original_mode is not None:
-            temp.chmod(original_mode)
-        os.replace(temp, path)
-    finally:
-        try:
-            temp.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-def apply_project(project: Path) -> list[Path]:
-    engine = project / "VideoContextEngine_v3.19.py"
-    ui_file = project / "videocontext_web_ui.html"
-    settings_file = project / "videocontext_settings.json"
-    for required in (engine, ui_file):
-        if not required.is_file():
-            raise FileNotFoundError(f"Required VCE project file is missing: {required}")
-
-    engine_old = engine.read_text(encoding="utf-8")
-    ui_old = ui_file.read_text(encoding="utf-8")
-    try:
-        settings_old = settings_file.read_text(encoding="utf-8") if settings_file.is_file() else "{}\n"
-        settings_data = json.loads(settings_old)
-        if not isinstance(settings_data, dict):
-            raise ValueError("videocontext_settings.json must contain a JSON object.")
-    except Exception as exc:
-        raise ValueError(f"Cannot safely read VCE settings: {type(exc).__name__}: {exc}") from exc
-
-    engine_new = patch_engine(engine_old)
-    ui_new = patch_ui(ui_old)
-    settings_new_data = migrate_settings(settings_data)
-    settings_new = json.dumps(settings_new_data, ensure_ascii=False, indent=2) + "\n"
-    ast.parse(engine_new, filename=str(engine))
-
-    changed = []
-    candidates = (
-        (engine, engine_old, engine_new),
-        (ui_file, ui_old, ui_new),
-        (settings_file, settings_old, settings_new),
-    )
-    for path, old, new in candidates:
-        if old != new:
-            changed.append(path)
-    if not changed:
-        print("Fast MPS profile already applied; no files changed.")
-        return []
-
-    stamp = datetime.now().strftime("%Y%m%dT%H%M%S")
-    backups: dict[Path, Path] = {}
-    modes = {path: stat.S_IMODE(path.stat().st_mode) if path.exists() else None for path, _, _ in candidates}
-    for path in changed:
-        if path.exists():
-            backup = path.with_name(path.name + f".backup-fast-mps-{stamp}")
-            shutil.copy2(path, backup)
-            backups[path] = backup
-
-    try:
-        for path, old, new in candidates:
-            if old != new:
-                _atomic_write(path, new, modes[path])
-    except Exception:
-        for path in changed:
-            if path in backups:
-                shutil.copy2(backups[path], path)
-            else:
-                try:
-                    path.unlink(missing_ok=True)
-                except OSError:
-                    pass
-        raise
-
-    for path in changed:
-        print(f"Updated: {path.name}")
-        if path in backups:
-            print(f"Backup:  {backups[path].name}")
-    print("Profile: Whisper large / PyTorch MPS -> MLX VLM; serialized GPU stages.")
-    print("OCR: Apple Vision ON; OCR cache ON; FFmpeg/Tesseract ON (5 s, 3 workers).")
-    print("Removed UI/API experiments: adaptive keyframes, MLX Whisper, fast scene detection.")
-    return list(backups.values())
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--project-dir", type=Path, required=True)
-    args = parser.parse_args()
-    try:
-        backups = apply_project(args.project_dir.expanduser().resolve())
-    except Exception as exc:
-        print(f"ERROR: {type(exc).__name__}: {exc}", file=sys.stderr)
-        print("No partial profile should be used; inspect any timestamped backups before retrying.", file=sys.stderr)
-        return 2
-    print(f"Patch complete. Backup files: {len(backups)}")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
-)
-    vlm_match = list(vlm_pattern.finditer(ui))
+    # The VLM and text stages intentionally share one multimodal GGUF model.
+    vlm_pattern = re.compile(r'(?m)^(?P<indent>[ \t]*)<select id="cfg-vlm-model">.*?</select>[ \t]*$')
+    vlm_matches = list(vlm_pattern.finditer(ui))
     fixed_vlm = '<input id="cfg-vlm-model" type="text" value="' + LLAMA_MODEL_ID + '" readonly>'
-    if len(vlm_match) == 1:
-        match = vlm_match[0]
+    if len(vlm_matches) == 1:
+        match = vlm_matches[0]
         ui = ui[:match.start()] + match.group("indent") + fixed_vlm + ui[match.end():]
-    elif len(vlm_match) > 1:
+    elif len(vlm_matches) > 1:
         raise ValueError("UI has multiple VLM model selectors; refusing ambiguous rewrite.")
     elif fixed_vlm not in ui:
-        raise ValueError("UI VLM model selector is not in the expected old or new layout.")
+        raise ValueError("UI VLM selector is not in the expected legacy or llama.cpp layout.")
 
-    text_model_pattern = re.compile(
-        r'(<input id="cfg-text-llm-model" type="text" value=")[^"]+(" readonly>)'
-    )
-    ui, text_model_count = text_model_pattern.subn(
+    text_pattern = re.compile(r'(<input id="cfg-text-llm-model" type="text" value=")[^"]+(" readonly>)')
+    ui, count = text_pattern.subn(
         lambda match: match.group(1) + LLAMA_MODEL_ID + match.group(2),
         ui,
     )
-    if text_model_count != 1:
-        raise ValueError(f"Expected one Text LLM model field, found {text_model_count}.")
+    if count != 1:
+        raise ValueError(f"Expected one Text LLM model field, found {count}.")
 
-    if 'id="cfg-text-llm-model"' not in ui or 'id="cfg-vlm-model"' not in ui:
-        raise ValueError("The llama.cpp VLM/Text LLM model fields are missing from the UI.")
-    for forbidden in ("mlx-community/", "MLX Whisper", 'id="cfg-mlx-whisper"', "Apple Silicon / MLX"):
-        if forbidden in ui:
-            raise ValueError("Old MLX model/backend control remains in the UI: " + forbidden)
+    ui = ui.replace("Apple Silicon / MLX", "Apple Silicon / llama.cpp Metal")
+    ui = ui.replace("MLX", "llama.cpp")
+    ui = ui.replace("mlx-community/", "")
+    if 'id="cfg-vlm-model"' not in ui or 'id="cfg-text-llm-model"' not in ui:
+        raise ValueError("The VLM and Text LLM model fields are missing from the UI.")
     return ui
 
 
@@ -1559,8 +1342,14 @@ def _validate_llama_ui(ui: str) -> None:
     )
     missing = [item for item in required if item not in ui]
     if missing:
-        raise ValueError("llama.cpp UI marker exists but required controls are missing: " + ", ".join(missing))
-    for forbidden in ("mlx-community/", "MLX", "mlx_vlm", "cfg-mlx-whisper", "enable_mlx_whisper"):
+        raise ValueError("llama.cpp UI is incomplete: " + ", ".join(missing))
+    for forbidden in (
+        "MLX",
+        "mlx-community/",
+        "mlx_vlm",
+        "cfg-mlx-whisper",
+        "enable_mlx_whisper",
+    ):
         if forbidden in ui:
             raise ValueError("MLX reference remains in the UI: " + forbidden)
 
@@ -1571,6 +1360,7 @@ def patch_ui(ui: str) -> str:
         return ui
 
     if UI_MARKER in ui:
+        # This is the already-patched MPS/OCR UI from the previous launcher.
         for forbidden in (
             'id="cfg-stage-timing"',
             'id="cfg-adaptive-keyframes"',
@@ -1578,93 +1368,67 @@ def patch_ui(ui: str) -> str:
             'id="cfg-fast-scene-detection"',
         ):
             if forbidden in ui:
-                raise ValueError("UI patch marker exists but experimental control remains: " + forbidden)
-        ui = _upgrade_ui_to_llama_cpp(ui)
-        ui = ui.replace("</body>", f"<!-- {LLAMA_UI_MARKER} -->\n</body>", 1)
-        _validate_llama_ui(ui)
-        return ui
+                raise ValueError("Existing UI marker is inconsistent: " + forbidden)
+    else:
+        # Remove the four experimental settings that the reviewed baseline excludes.
+        for key in (
+            "enable_stage_timing",
+            "enable_adaptive_keyframes",
+            "enable_mlx_whisper",
+            "enable_fast_scene_detection",
+        ):
+            ui = re.sub(
+                r"(?m)^[ \t]*" + re.escape(key) + r":[^\n]*\n",
+                "",
+                ui,
+            )
 
-    for key in (
-        "enable_stage_timing",
-        "enable_adaptive_keyframes",
-        "enable_mlx_whisper",
-        "enable_fast_scene_detection",
-    ):
-        ui = re.sub(r"(?m)^[ \t]*" + re.escape(key) + r":[^\n]*\n", "", ui)
+        for mapping in (
+            "      'cfg-stage-timing':'enable_stage_timing',\n",
+            "      'cfg-adaptive-keyframes':'enable_adaptive_keyframes',\n",
+            "      'cfg-mlx-whisper':'enable_mlx_whisper',\n",
+            "      'cfg-fast-scene-detection':'enable_fast_scene_detection',",
+        ):
+            ui = ui.replace(mapping, "")
 
-    ui = _replace_exact(
-        ui,
-        "      'cfg-stage-timing':'enable_stage_timing',\n",
-        "",
-        "UI stage timing control mapping",
-    )
-    ui = _replace_exact(
-        ui,
-        "      'cfg-adaptive-keyframes':'enable_adaptive_keyframes',\n",
-        "",
-        "UI adaptive keyframe control mapping",
-    )
-    ui = _replace_exact(
-        ui,
-        "      'cfg-mlx-whisper':'enable_mlx_whisper',\n",
-        "",
-        "UI MLX Whisper control mapping",
-    )
-    ui = _replace_exact(
-        ui,
-        "      'cfg-fast-scene-detection':'enable_fast_scene_detection','cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\n",
-        "      'cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\n",
-        "UI fast scene detection control mapping",
-    )
+        for control_id in (
+            "cfg-stage-timing",
+            "cfg-adaptive-keyframes",
+            "cfg-mlx-whisper",
+            "cfg-fast-scene-detection",
+        ):
+            pattern = re.compile(
+                r'(?m)^[ \t]*<label[^\n]*id="' + re.escape(control_id) + r'"[^\n]*\n'
+            )
+            ui, _count = pattern.subn("", ui)
 
-    for control_id in (
-        "cfg-stage-timing",
-        "cfg-adaptive-keyframes",
-        "cfg-mlx-whisper",
-        "cfg-fast-scene-detection",
-    ):
-        pattern = re.compile(
-            r'(?m)^[ \t]*<label[^\n]*id="' + re.escape(control_id) + r'"[^\n]*\n'
+        ui = ui.replace(
+            "Экспериментальные оптимизации (все выключены по умолчанию)",
+            "Базовый профиль OCR",
         )
-        ui, count = pattern.subn("", ui)
-        if count != 1:
-            raise ValueError(f"Expected one UI label for {control_id}, found {count}.")
-
-    ui = _replace_exact(
-        ui,
-        "Экспериментальные оптимизации (все выключены по умолчанию)",
-        "Базовый профиль OCR",
-        "UI optimization heading",
-    )
-    ui = _replace_exact(
-        ui,
-        "Кэш OCR Apple Vision для повторяющихся кадров",
-        "Кэш Apple Vision OCR для повторяющихся кадров",
-        "UI OCR cache label",
-    )
-    ui = _replace_exact(
-        ui,
-        "Дополнительный OCR через FFmpeg/Tesseract (экспериментально)",
-        "Дополнительный OCR через FFmpeg/Tesseract",
-        "UI FFmpeg OCR label",
-    )
+        ui = ui.replace(
+            "Кэш OCR Apple Vision для повторяющихся кадров",
+            "Кэш Apple Vision OCR для повторяющихся кадров",
+        )
+        ui = ui.replace(
+            "Дополнительный OCR через FFmpeg/Tesseract (экспериментально)",
+            "Дополнительный OCR через FFmpeg/Tesseract",
+        )
 
     if 'id="cfg-ocr-cache"' not in ui:
         raise ValueError("Apple Vision OCR cache control was removed unexpectedly.")
     if "enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked" not in ui:
         raise ValueError("Apple Vision OCR cache is no longer wired to the settings payload.")
-    for forbidden in (
-        'id="cfg-stage-timing"',
-        'id="cfg-adaptive-keyframes"',
-        'id="cfg-mlx-whisper"',
-        'id="cfg-fast-scene-detection"',
-        "enable_adaptive_keyframes",
-        "enable_mlx_whisper",
-        "enable_fast_scene_detection",
-    ):
-        if forbidden in ui:
-            raise ValueError("Experimental UI reference remains after patch: " + forbidden)
-    ui = ui.replace("</body>", f"<!-- {UI_MARKER} -->\n</body>", 1)
+    if "cfg-whisper-acceleration" not in ui:
+        raise ValueError("Whisper MPS control was removed unexpectedly.")
+
+    ui = _upgrade_ui_to_llama_cpp(ui)
+    ui = ui.replace(
+        "</body>",
+        f"<!-- {UI_MARKER} -->\n<!-- {LLAMA_UI_MARKER} -->\n</body>",
+        1,
+    )
+    _validate_llama_ui(ui)
     return ui
 
 
