@@ -4,7 +4,7 @@ set -Eeuo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 RUNNER_REF="650f3a1437ee0cdcab1c3ea41005a599a373d578"
-PATCHER_REF="db54501d459569eaa3e75a8e22ef1385ecee68f9"
+PATCHER_REF="16655e86ba48b5fe16cb8b759a8d7a1dbc2de9f4"
 EXPECTED_ENGINE_SHA="6a47735e6cff4ea72e66f4052c7eeb770fb32c790504986f07967da4cd242ca6"
 EXPECTED_BACKUP_SUFFIX=".backup-20261105T000114"
 
@@ -183,7 +183,7 @@ gzip -dc "$TMP_DIR/runner.py.gz" > "$TMP_DIR/runner.py"
 curl --fail --location --silent --show-error --retry 3 \
   "https://raw.githubusercontent.com/$REPOSITORY/$PATCHER_REF/scripts/patch_vce_full_profile_benchmark.py" \
   -o "$TMP_DIR/patch_runner.py"
-"$PYTHON" "$TMP_DIR/patch_runner.py" "$TMP_DIR/runner.py" || fail "Could not apply the reviewed v4 runner adapter."
+"$PYTHON" "$TMP_DIR/patch_runner.py" "$TMP_DIR/runner.py" || fail "Could not apply the reviewed v5 runner adapter."
 
 # Add a final request guard after the v4 adapter. It refuses to send anything
 # unless the actual in-memory fields are VLM-only, and writes only the flags.
@@ -248,7 +248,7 @@ export VCE_BENCH_ONLY_BASELINE=1
 export VCE_BENCH_VLM_ONLY=1
 unset VCE_BENCH_WHISPER_ONLY || true
 unset VCE_BENCH_SKIP_AUDIO || true
-export VCE_BENCH_RESULT_ROOT="$RUN_OUTPUT"
+# Pass the runner output root explicitly; its CLI does not consume VCE_BENCH_RESULT_ROOT.
 export VCE_VLM_DIAG_REQUEST_MANIFEST="$RUN_DIR/request_flags.json"
 
 LOG_OFFSET="$(wc -c < "$SERVER_LOG" | tr -d '[:space:]')"
@@ -260,7 +260,7 @@ printf 'server_pid=%s\nsource_sha256=%s\nbackup_exists=true\nrun_started_utc=%s\
 note "Starting exactly one baseline request with VLM enabled and audio/OCR/Text LLM disabled."
 note "Raw request/response data and logs will remain local: $RUN_DIR"
 set +e
-"$PYTHON" "$TMP_DIR/runner.py" --project "$PROJECT_DIR" --video "$VIDEO_PATH" > "$RUN_DIR/launcher_console.log" 2>&1
+"$PYTHON" "$TMP_DIR/runner.py" --project "$PROJECT_DIR" --video "$VIDEO_PATH" --out-root "$RUN_OUTPUT" > "$RUN_DIR/launcher_console.log" 2>&1
 RUN_EXIT=$?
 set -e
 RUN_FINISHED_UTC="$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
