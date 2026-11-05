@@ -182,6 +182,24 @@ def _replace_exact(source: str, old: str, new: str, label: str, expected: int = 
     return source.replace(old, new, expected)
 
 
+def _replace_one_of_exact(
+    source: str,
+    variants: tuple[tuple[str, str], ...],
+    label: str,
+) -> str:
+    """Apply exactly one known source-layout variant; reject absent/ambiguous anchors."""
+    match_count = sum(source.count(old) for old, _new in variants)
+    if match_count != 1:
+        raise ValueError(
+            f"{label}: expected exactly 1 supported exact anchor match, found {match_count}; "
+            "no files were written."
+        )
+    for old, new in variants:
+        if old in source:
+            return source.replace(old, new, 1)
+    raise AssertionError("exact anchor count changed unexpectedly")
+
+
 def _remove_ast_nodes(source: str, names: set[str]) -> str:
     """Remove named top-level functions/classes/assignments without touching adjacent code."""
     tree = ast.parse(source)
@@ -405,10 +423,18 @@ def patch_engine(source: str) -> str:
         '''        "enable_stage_timing", "enable_ocr_cache",''',
         "Settings allow-list cleanup",
     )
-    source = _replace_exact(
+    source = _replace_one_of_exact(
         source,
-        '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,',
-        '"analysis_mode": "full", "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 3,',
+        (
+            (
+                '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 2,',
+                '"analysis_mode": "full", "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 3,',
+            ),
+            (
+                '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 2,',
+                '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 3,',
+            ),
+        ),
         "Settings API OCR defaults",
     )
     source = _replace_exact(
