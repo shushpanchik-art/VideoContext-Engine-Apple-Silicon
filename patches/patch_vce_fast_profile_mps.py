@@ -176,15 +176,24 @@ NEW_WHISPER_CLEANUP = '''                        # MPS and MLX/Metal share Apple
 def _ensure_threading_alias_for_local_runtime(source: str) -> str:
     """Keep/restore the alias when local Metal runtime code still uses it."""
     alias_import = "import threading as _vce_threading"
-    if alias_import in source:
+    if re.search(r"(?m)^import threading as _vce_threading\\s*$", source):
         return source
-    if not re.search(r"\b_vce_threading\b", source):
+    if not re.search(r"\\b_vce_threading\\b", source):
         return source
-    return _replace_exact(
-        source,
-        "import threading\n",
-        "import threading\nimport threading as _vce_threading\n",
-        "Restore threading alias for local runtime lock",
+
+    tree = ast.parse(source)
+    offsets = [0]
+    for line in source.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+
+    for node in tree.body:
+        if isinstance(node, ast.Import) and any(alias.name == "threading" for alias in node.names):
+            insert_at = offsets[node.end_lineno]
+            return source[:insert_at] + alias_import + "\\n" + source[insert_at:]
+
+    raise ValueError(
+        "Local runtime references _vce_threading but has no top-level threading import; "
+        "no files were written."
     )
 
 
