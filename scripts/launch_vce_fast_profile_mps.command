@@ -130,7 +130,8 @@ required = (
     "class LlamaServerEngine(VLMProvider):",
     "_vce_ensure_llama_server",
     "_vce_llama_chat_completion",
-    'LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
+    'LLAMA_VLM_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M"',
+    'LLAMA_TEXT_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
     "enable_ocr_cache",
     "_vce_cached_apple_vision_ocr",
 )
@@ -167,7 +168,7 @@ for removed in legacy:
 ui_required = (
     "VCE_FAST_MPS_LLAMA_CPP_UI_V1",
     "Apple Silicon / llama.cpp Metal",
-    'id="cfg-vlm-model" type="text" value="gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
+    'id="cfg-vlm-model" type="text" value="Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M"',
     'id="cfg-text-llm-model" type="text" value="gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
     'id="cfg-ocr-cache"',
     "enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked",
@@ -225,7 +226,7 @@ with urllib.request.urlopen(url, timeout=10) as response:
 
 expected = {
     "analysis_mode": "full",
-    "vlm_model": "gguf/Qwen3.5-9B-GGUF:Q4_K_M",
+    "vlm_model": "Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M",
     "whisper_model": "large",
     "text_llm_enabled": True,
     "text_llm_model": "gguf/Qwen3.5-9B-GGUF:Q4_K_M",
