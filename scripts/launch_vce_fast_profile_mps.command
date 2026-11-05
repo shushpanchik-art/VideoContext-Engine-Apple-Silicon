@@ -25,9 +25,10 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
 [[ -f "$PROJECT_DIR/videocontext_web_ui.html" ]] || fail "videocontext_web_ui.html not found in $PROJECT_DIR"
 [[ -x "$PYTHON" ]] || fail "Project virtualenv Python not found: $PYTHON. Do not use a system Python for this VCE install."
 
-for tool in curl lsof ffmpeg ffprobe tesseract llama-server; do
+for tool in curl lsof ffmpeg ffprobe tesseract; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool not found. Install missing tools with Homebrew before starting VCE."
 done
+command -v llama-server >/dev/null 2>&1 || fail "llama-server not found. Install the Metal-enabled llama.cpp backend with: brew install llama.cpp"
 
 printf '[1/6] Checking PyTorch MPS, llama.cpp Metal, Whisper and Apple Vision dependencies...\n'
 "$PYTHON" - <<'PY'
@@ -108,14 +109,17 @@ curl --fail --location --silent --show-error --retry 3 "$PATCHER_URL" -o "$PATCH
 printf '[4/6] Applying the fast profile with timestamped backups...\n'
 "$PYTHON" "$PATCHER" --project-dir "$PROJECT_DIR" \
   || fail "The patcher refused the current source/settings. Inspect its error; do not start VCE with a partial profile."
-"$PYTHON" - "$PROJECT_DIR/VideoContextEngine_v3.19.py" <<'PY'
+"$PYTHON" - "$PROJECT_DIR/VideoContextEngine_v3.19.py" "$PROJECT_DIR/videocontext_web_ui.html" <<'PY'
 from pathlib import Path
 import ast
 import sys
 
-path = Path(sys.argv[1])
-source = path.read_text(encoding="utf-8")
-ast.parse(source, filename=str(path))
+engine_path = Path(sys.argv[1])
+ui_path = Path(sys.argv[2])
+source = engine_path.read_text(encoding="utf-8")
+ui = ui_path.read_text(encoding="utf-8")
+ast.parse(source, filename=str(engine_path))
+
 required = (
     "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1",
     "VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1",
@@ -133,6 +137,7 @@ required = (
 missing = [item for item in required if item not in source]
 if missing:
     raise SystemExit("Patched runtime validation failed: " + ", ".join(missing))
+
 tree = ast.parse(source)
 bad = []
 for node in ast.walk(tree):
@@ -146,17 +151,40 @@ for node in ast.walk(tree):
         bad.append(node.id)
 if bad:
     raise SystemExit("MLX runtime imports/names remain: " + ", ".join(sorted(set(bad))))
-for removed in (
+
+legacy = (
     "enable_adaptive_keyframes",
     "enable_mlx_whisper",
     "enable_fast_scene_detection",
     "_VCEWhisperMLXCPU",
     "_vce_detect_scenes_fast",
     "mlx-community/",
-):
+)
+for removed in legacy:
     if removed in source:
         raise SystemExit("Legacy runtime/model reference remains: " + removed)
+
+ui_required = (
+    "VCE_FAST_MPS_LLAMA_CPP_UI_V1",
+    "Apple Silicon / llama.cpp Metal",
+    'id="cfg-vlm-model" type="text" value="gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
+    'id="cfg-text-llm-model" type="text" value="gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
+    'id="cfg-ocr-cache"',
+    "enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked",
+    'id="cfg-apple-ocr"',
+    'id="cfg-ffmpeg-ocr"',
+    'id="cfg-whisper-acceleration"',
+)
+ui_missing = [item for item in ui_required if item not in ui]
+if ui_missing:
+    raise SystemExit("Patched UI validation failed: " + ", ".join(ui_missing))
+for removed in ("MLX", "mlx-community/", "mlx_vlm", "cfg-mlx-whisper", "enable_mlx_whisper"):
+    if removed in ui:
+        raise SystemExit("Legacy MLX control/reference remains in UI: " + removed)
+
 print("Runtime syntax, PyTorch MPS, llama.cpp Metal, and OCR markers: OK")
+print("UI llama.cpp model selectors and preserved OCR/Whisper controls: OK")
+PY
 PY
 
 printf '[5/6] Starting VCE server...\n'
