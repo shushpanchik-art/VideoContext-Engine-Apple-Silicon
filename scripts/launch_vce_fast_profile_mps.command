@@ -5,7 +5,7 @@
 set -Eeuo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
-PATCHER_REF="1c0b90f30e64170c57918b95fdf4593b1026163c"
+PATCHER_REF="e8bee98532dcd541fe5ebc3878a1276643e14b9d"
 PATCHER_PATH="patches/patch_vce_fast_profile_mps.py"
 
 PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine-Apple-Silicon}"
