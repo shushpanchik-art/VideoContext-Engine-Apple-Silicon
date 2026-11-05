@@ -64,7 +64,7 @@ gh auth setup-git >/dev/null 2>&1 || fail "Could not configure Git credential he
 git ls-remote --exit-code --heads "https://github.com/$REPOSITORY.git" "$PUBLISH_BRANCH" >/dev/null 2>&1 || fail "Cannot access publication branch $PUBLISH_BRANCH. Check GitHub write permissions."
 
 ENGINE_SOURCE="\${VCE_ENGINE_SOURCE:-$PROJECT_DIR/VideoContextEngine_v3.19.py}"
-EXPECTED_ENGINE_SHA="6a47735e6cff4ea72e66f4052c7eeb770fb32ca6"
+EXPECTED_ENGINE_SHA="6a47735e6cff4ea72e66f4052c7eeb770fb32c790504986f07967da4cd242ca6"
 [[ -f "$ENGINE_SOURCE" ]] || fail "VCE engine source not found: $ENGINE_SOURCE"
 ACTUAL_ENGINE_SHA="$(/usr/bin/shasum -a 256 "$ENGINE_SOURCE" | awk '{print $1}')"
 [[ "$ACTUAL_ENGINE_SHA" == "$EXPECTED_ENGINE_SHA" ]] || fail "Unexpected VCE runtime SHA256. Expected $EXPECTED_ENGINE_SHA, got $ACTUAL_ENGINE_SHA."
