@@ -147,6 +147,7 @@ def patch_source(source: str) -> str:
         "_vce_describe_scene_with_memory_fallback",
         "run_text_llm_postprocess",
         "analyze_video",
+        "lifespan",
     ):
         _top_level_function(tree, name)
 
@@ -223,6 +224,22 @@ def patch_source(source: str) -> str:
         "has a latched Metal failure; restart VCE to restore GPU inference.\", flush=True)\n"
         "                if run_vlm:\n                    release_accelerator_memory('before VLM load')\n",
         "analyze_video VLM load guard",
+    )
+
+    # VCE shutdown normally unloads model tensors and clears allocator caches.
+    # If Metal has failed, let process exit release those resources instead of
+    # issuing potentially synchronizing teardown operations to the poisoned queue.
+    patched = _replace_in_function(
+        patched,
+        "lifespan",
+        "    if vlm_engine:\\n        vlm_engine.unload_model()\\n        release_accelerator_memory('after VLM unload')\\n",
+        "    if vlm_engine:\\n"
+        "        if _vce_metal_runtime_failure() is not None:\\n"
+        "            print(\\"[VCE MLX] Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout; process exit will release resources.\\", flush=True)\\n"
+        "        else:\\n"
+        "            vlm_engine.unload_model()\\n"
+        "            release_accelerator_memory('after VLM unload')\\n",
+        "lifespan GPU teardown",
     )
 
     # Text LLM uses the same mlx-vlm / Metal backend. Fail before its GPU probe.
