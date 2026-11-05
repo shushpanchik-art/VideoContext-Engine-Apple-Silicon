@@ -78,6 +78,13 @@ async def analyze_video():
                     release_accelerator_memory('before VLM load')
                     await _vce_mlx_run(vlm_engine.load_model, target_vlm)
 
+async def lifespan(app):
+    """Application lifespan."""
+    yield
+    if vlm_engine:
+        vlm_engine.unload_model()
+        release_accelerator_memory('after VLM unload')
+
 def run_text_llm_postprocess(model_path, source_name, video_duration, existing_summary, segments):
     """Run the text-only MLX post-processing stage."""
     import gc
@@ -95,6 +102,7 @@ class MetalLatchPatcherTests(unittest.TestCase):
         self.assertIn('_vce_mark_metal_runtime_failed("vlm_generation", exc)', patched)
         self.assertIn('run_vlm = False', patched)
         self.assertIn('Skipping model unload and cache operations after fatal Metal timeout', patched)
+        self.assertIn('Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout', patched)
 
     def test_patch_is_idempotent(self):
         once = patch_source(FIXTURE)
