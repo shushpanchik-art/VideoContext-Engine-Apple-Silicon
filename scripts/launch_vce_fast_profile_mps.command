@@ -1,6 +1,6 @@
 #!/bin/bash
 # Safe launcher for the baseline Apple-Silicon VCE profile:
-# PyTorch Whisper/MPS -> MLX/Metal VLM -> MLX/Metal Text LLM,
+# PyTorch Whisper/MPS -> one shared llama.cpp/Metal Qwen3.5 GGUF server for VLM + Text LLM,
 # Apple Vision OCR + OCR cache + FFmpeg/Tesseract OCR.
 set -Eeuo pipefail
 
@@ -25,22 +25,20 @@ fail() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
 [[ -f "$PROJECT_DIR/videocontext_web_ui.html" ]] || fail "videocontext_web_ui.html not found in $PROJECT_DIR"
 [[ -x "$PYTHON" ]] || fail "Project virtualenv Python not found: $PYTHON. Do not use a system Python for this VCE install."
 
-for tool in curl lsof ffmpeg ffprobe tesseract; do
+for tool in curl lsof ffmpeg ffprobe tesseract llama-server; do
   command -v "$tool" >/dev/null 2>&1 || fail "$tool not found. Install missing tools with Homebrew before starting VCE."
 done
 
-printf '[1/6] Checking PyTorch MPS, MLX/Metal, Whisper and Apple Vision dependencies...\n'
+printf '[1/6] Checking PyTorch MPS, llama.cpp Metal, Whisper and Apple Vision dependencies...\n'
 "$PYTHON" - <<'PY'
 import importlib.metadata
 import importlib.util
 import platform
-import sys
+import subprocess
 
 required = {
     "torch": "torch",
     "openai-whisper": "whisper",
-    "mlx": "mlx",
-    "mlx-vlm": "mlx_vlm",
     "ocrmac": "ocrmac",
 }
 missing = [dist for dist, module in required.items() if importlib.util.find_spec(module) is None]
@@ -49,8 +47,6 @@ if missing:
 
 import torch
 import whisper
-import mlx.core as mx
-import mlx_vlm
 from ocrmac import ocrmac
 
 if platform.system() != "Darwin" or platform.machine().lower() != "arm64":
@@ -58,10 +54,23 @@ if platform.system() != "Darwin" or platform.machine().lower() != "arm64":
 mps = torch.backends.mps
 if not mps.is_built() or not mps.is_available():
     raise SystemExit("PyTorch MPS is not built/available; refusing CPU fallback.")
-if not mx.metal.is_available() or not mx.is_available(mx.gpu):
-    raise SystemExit("MLX/Metal GPU is not available; refusing to start the VLM profile.")
-if any(name == "mlx_whisper" or name.startswith("mlx_whisper.") for name in sys.modules):
-    raise SystemExit("An MLX Whisper module was imported unexpectedly.")
+
+try:
+    device_probe = subprocess.run(
+        ["llama-server", "--list-devices"],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+except Exception as exc:
+    raise SystemExit("Could not inspect llama-server Metal support: " + type(exc).__name__)
+device_output = (device_probe.stdout or "") + "\n" + (device_probe.stderr or "")
+if device_probe.returncode != 0 or "metal" not in device_output.lower():
+    raise SystemExit(
+        "llama-server does not advertise a Metal device. "
+        "Install/rebuild llama.cpp with macOS Metal support; CPU fallback is disabled."
+    )
 
 try:
     whisper_version = importlib.metadata.version("openai-whisper")
@@ -70,7 +79,7 @@ except importlib.metadata.PackageNotFoundError:
 
 print(
     f"Preflight OK: torch={torch.__version__}; openai-whisper={whisper_version}; "
-    f"MPS=available; MLX/Metal=available; Apple Vision=importable; MLX Whisper=not imported"
+    "MPS=available; llama.cpp/Metal=available; Apple Vision=importable; MLX=not used"
 )
 PY
 
@@ -109,26 +118,45 @@ source = path.read_text(encoding="utf-8")
 ast.parse(source, filename=str(path))
 required = (
     "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1",
+    "VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1",
     "backend=openai-whisper",
     'whisper.load_model(model_name, device=device)',
     "await _vce_whisper_task",
     '"whisper_backend": "openai-whisper"',
+    "class LlamaServerEngine(VLMProvider):",
+    "_vce_ensure_llama_server",
+    "_vce_llama_chat_completion",
+    'LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
     "enable_ocr_cache",
     "_vce_cached_apple_vision_ocr",
 )
 missing = [item for item in required if item not in source]
 if missing:
     raise SystemExit("Patched runtime validation failed: " + ", ".join(missing))
+tree = ast.parse(source)
+bad = []
+for node in ast.walk(tree):
+    if isinstance(node, ast.Import):
+        bad.extend(alias.name for alias in node.names if alias.name == "mlx" or alias.name.startswith(("mlx.", "mlx_vlm", "mlx_whisper")))
+    elif isinstance(node, ast.ImportFrom):
+        module = node.module or ""
+        if module == "mlx" or module.startswith(("mlx.", "mlx_vlm", "mlx_whisper")):
+            bad.append(module)
+    elif isinstance(node, ast.Name) and (node.id == "MLXEngine" or node.id.startswith("_vce_mlx")):
+        bad.append(node.id)
+if bad:
+    raise SystemExit("MLX runtime imports/names remain: " + ", ".join(sorted(set(bad))))
 for removed in (
     "enable_adaptive_keyframes",
     "enable_mlx_whisper",
     "enable_fast_scene_detection",
     "_VCEWhisperMLXCPU",
     "_vce_detect_scenes_fast",
+    "mlx-community/",
 ):
     if removed in source:
-        raise SystemExit("Experimental runtime code remains: " + removed)
-print("Runtime syntax and backend/profile markers: OK")
+        raise SystemExit("Legacy runtime/model reference remains: " + removed)
+print("Runtime syntax, PyTorch MPS, llama.cpp Metal, and OCR markers: OK")
 PY
 
 printf '[5/6] Starting VCE server...\n'
@@ -169,10 +197,10 @@ with urllib.request.urlopen(url, timeout=10) as response:
 
 expected = {
     "analysis_mode": "full",
-    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "vlm_model": "gguf/Qwen3.5-9B-GGUF:Q4_K_M",
     "whisper_model": "large",
     "text_llm_enabled": True,
-    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "text_llm_model": "gguf/Qwen3.5-9B-GGUF:Q4_K_M",
     "whisper_acceleration": True,
     "enable_apple_ocr": True,
     "enable_ocr_cache": True,
