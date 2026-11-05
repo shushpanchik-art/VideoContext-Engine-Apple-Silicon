@@ -30,7 +30,7 @@ The archive does **not** establish the initiating low-level GPU fault. It also d
 3. The VLM timeout fallback latches the process before returning its existing fallback sentinel.
 4. \`_vce_configure_mlx_metal()\`, \`_vce_prepare_mlx_vlm_runtime()\` and \`run_text_llm_postprocess()\` fail closed before starting GPU operations if the process is already latched.
 5. Later analyze requests skip VLM model loading and continue on the normal audio/OCR/report path when possible.
-6. Model unload and cache/synchronization calls are skipped in the fatal-timeout branch because their implementation may touch the failed Metal queue. GPU memory may remain occupied until process restart. The separate ordinary allocation-OOM recovery path remains unchanged.
+6. Model unload and cache/synchronization calls are skipped in the fatal-timeout branch and during application shutdown because their implementation may touch the failed Metal queue. GPU memory remains resident until the process exits; the OS then reclaims it. The separate ordinary allocation-OOM recovery path remains unchanged.
 7. The latch resets only when the VCE process is restarted. This is intentional: the patch does not try to repair a failed Metal command queue in place.
 
 This patch is **recovery hardening, not a fix for the initiating GPU timeout**. It does not suppress or reclassify Metal errors as success, alter settings, change model sizes, disable CPU Whisper, or touch \`main\`.
