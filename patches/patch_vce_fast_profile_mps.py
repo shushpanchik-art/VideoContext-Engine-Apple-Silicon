@@ -239,7 +239,7 @@ def patch_engine(source: str) -> str:
     if MARKER in source:
         ast.parse(source)
         required = (
-            'backend="openai-whisper"',
+            '"backend": "openai-whisper"',
             "await _vce_whisper_task",
             '"whisper_backend": "openai-whisper"',
             "enable_ocr_cache: bool = Form(bool(setting",
@@ -380,8 +380,8 @@ def patch_engine(source: str) -> str:
     )
     source = _replace_exact(
         source,
-        '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 2,',
-        '"analysis_mode": "full", "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 3,',
+        '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,',
+        '"analysis_mode": "full", "enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 3,',
         "Settings API OCR defaults",
     )
     source = _replace_exact(
@@ -448,7 +448,7 @@ def patch_engine(source: str) -> str:
 
     source = _replace_exact(
         source,
-        "import threading as _vce_threading\\n_VCE_MLX_WHISPER_LOCK = _vce_threading.Lock()\\n\\n",
+        "import threading as _vce_threading\n_VCE_MLX_WHISPER_LOCK = _vce_threading.Lock()\n\n",
         "",
         "Remove MLX Whisper lock",
     )
@@ -496,7 +496,7 @@ def patch_engine(source: str) -> str:
 
     source = source.replace(
         'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")',
-        'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")\\n' + MARKER,
+        'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")\n' + MARKER,
         1,
     )
     ast.parse(source)
@@ -525,26 +525,26 @@ def patch_ui(ui: str) -> str:
 
     ui = _replace_exact(
         ui,
-        "      'cfg-stage-timing':'enable_stage_timing',\\n",
+        "      'cfg-stage-timing':'enable_stage_timing',\n",
         "",
         "UI stage timing control mapping",
     )
     ui = _replace_exact(
         ui,
-        "      'cfg-adaptive-keyframes':'enable_adaptive_keyframes',\\n",
+        "      'cfg-adaptive-keyframes':'enable_adaptive_keyframes',\n",
         "",
         "UI adaptive keyframe control mapping",
     )
     ui = _replace_exact(
         ui,
-        "      'cfg-mlx-whisper':'enable_mlx_whisper',\\n",
+        "      'cfg-mlx-whisper':'enable_mlx_whisper',\n",
         "",
         "UI MLX Whisper control mapping",
     )
     ui = _replace_exact(
         ui,
-        "      'cfg-fast-scene-detection':'enable_fast_scene_detection','cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\\n",
-        "      'cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\\n",
+        "      'cfg-fast-scene-detection':'enable_fast_scene_detection','cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\n",
+        "      'cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',\n",
         "UI fast scene detection control mapping",
     )
 
@@ -555,7 +555,7 @@ def patch_ui(ui: str) -> str:
         "cfg-fast-scene-detection",
     ):
         pattern = re.compile(
-            r'(?m)^[ \t]*<label[^\\n]*id="' + re.escape(control_id) + r'"[^\\n]*\\n'
+            r'(?m)^[ \t]*<label[^\n]*id="' + re.escape(control_id) + r'"[^\n]*\n'
         )
         ui, count = pattern.subn("", ui)
         if count != 1:
@@ -595,7 +595,7 @@ def patch_ui(ui: str) -> str:
     ):
         if forbidden in ui:
             raise ValueError("Experimental UI reference remains after patch: " + forbidden)
-    ui = ui.replace("</body>", f"<!-- {UI_MARKER} -->\\n</body>", 1)
+    ui = ui.replace("</body>", f"<!-- {UI_MARKER} -->\n</body>", 1)
     return ui
 
 
@@ -632,7 +632,7 @@ def apply_project(project: Path) -> list[Path]:
     engine_old = engine.read_text(encoding="utf-8")
     ui_old = ui_file.read_text(encoding="utf-8")
     try:
-        settings_old = settings_file.read_text(encoding="utf-8") if settings_file.is_file() else "{}\\n"
+        settings_old = settings_file.read_text(encoding="utf-8") if settings_file.is_file() else "{}\n"
         settings_data = json.loads(settings_old)
         if not isinstance(settings_data, dict):
             raise ValueError("videocontext_settings.json must contain a JSON object.")
@@ -642,7 +642,7 @@ def apply_project(project: Path) -> list[Path]:
     engine_new = patch_engine(engine_old)
     ui_new = patch_ui(ui_old)
     settings_new_data = migrate_settings(settings_data)
-    settings_new = json.dumps(settings_new_data, ensure_ascii=False, indent=2) + "\\n"
+    settings_new = json.dumps(settings_new_data, ensure_ascii=False, indent=2) + "\n"
     ast.parse(engine_new, filename=str(engine))
 
     changed = []
