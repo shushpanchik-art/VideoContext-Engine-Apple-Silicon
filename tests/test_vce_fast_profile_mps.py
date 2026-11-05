@@ -43,9 +43,9 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
     def test_engine_removes_optional_local_mlx_whisper_language_helper(self):
         helper = (
-            "\\ndef _vce_whisper_supported_languages():\\n"
-            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
-            "    return LANGUAGES\\n"
+            "\ndef _vce_whisper_supported_languages():\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\n"
+            "    return LANGUAGES\n"
         )
         variant = self.engine + helper
 
@@ -56,10 +56,10 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
     def test_optional_local_mlx_helper_rejects_duplicate_definitions(self):
         duplicate = (
-            "def _vce_whisper_supported_languages():\\n"
-            "    return {}\\n\\n"
-            "def _vce_whisper_supported_languages():\\n"
-            "    return {}\\n"
+            "def _vce_whisper_supported_languages():\n"
+            "    return {}\n\n"
+            "def _vce_whisper_supported_languages():\n"
+            "    return {}\n"
         )
         with self.assertRaisesRegex(ValueError, "ambiguous"):
             self.patcher._remove_optional_ast_nodes(
