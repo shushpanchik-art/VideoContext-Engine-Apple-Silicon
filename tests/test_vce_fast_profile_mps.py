@@ -43,24 +43,29 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
     def test_local_mlx_language_helper_is_preserved_with_openai_whisper_tokenizer(self):
         helper = (
-            "\ndef _vce_whisper_supported_languages():\n"
-            "    from mlx_whisper.tokenizer import LANGUAGES\n"
-            "    return LANGUAGES\n"
-            "\ndef _vce_language_picker():\n"
-            "    return _vce_whisper_supported_languages()\n"
-            "\ndef _vce_language_validator():\n"
-            "    return _vce_whisper_supported_languages()\n"
+            "\\ndef _vce_whisper_supported_languages():\\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
+            "    return LANGUAGES\\n"
+            "\\ndef _vce_language_picker():\\n"
+            "    return _vce_whisper_supported_languages()\\n"
+            "\\ndef _vce_language_validator():\\n"
+            "    return _vce_whisper_supported_languages()\\n"
         )
         variant = self.engine + helper
 
         patched = self.patcher.patch_engine(variant)
-        ast.parse(patched)
-        self.assertIn("def _vce_openai_whisper_supported_languages():", patched)
+        tree = ast.parse(patched)
+        self.assertIn("def _vce_whisper_supported_languages():", patched)
         self.assertIn("from whisper.tokenizer import LANGUAGES", patched)
-        self.assertIn("return _vce_openai_whisper_supported_languages()", patched)
-        self.assertEqual(patched.count("_vce_openai_whisper_supported_languages"), 3)
-        self.assertNotIn("_vce_whisper_supported_languages", patched)
-        self.assertNotIn("mlx_whisper", patched)
+        self.assertEqual(patched.count("_vce_whisper_supported_languages"), 3)
+        self.assertNotIn("from mlx_whisper", patched)
+        self.assertFalse(
+            any(
+                isinstance(node, ast.ImportFrom)
+                and (node.module or "").startswith("mlx_whisper")
+                for node in ast.walk(tree)
+            )
+        )
 
     def test_local_mlx_tokenizer_import_without_helper_fails_closed(self):
         variant = self.engine + "\nfrom mlx_whisper.tokenizer import LANGUAGES\n"
