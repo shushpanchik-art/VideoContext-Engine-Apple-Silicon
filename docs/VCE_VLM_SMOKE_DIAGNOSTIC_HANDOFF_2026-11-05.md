@@ -155,3 +155,62 @@ PR #34 remains Draft; no merge and no changes to main.
 The first v5 CI attempt caught an idempotency-marker mismatch: the wrapper marker was bumped to v3 but the marker argument remained v2, so a second patch pass attempted to wrap run_one() twice. The marker argument was corrected in commit 10f8c706e9aae494f6d6a092db7ba7d34a21897a, and the smoke launcher was repinned to that immutable helper commit. The corresponding speed-profile workflow run is queued; do not treat v5 as CI-validated until its result is successful.
 
 The smoke launcher now explicitly supplies --out-root "$RUN_OUTPUT"; the collector's recursive search remains rooted at RUN_DIR/runner-output. This supersedes the earlier unused VCE_BENCH_RESULT_ROOT environment variable.
+
+
+---
+
+## Follow-up — 2026-11-05 16:57 UTC — clean VLM smoke + v5 diagnostic classification verified
+
+A second short smoke request was run locally with the updated launcher and patch helper v5. The run used the same listener PID `47366`; the PID and server-log byte window remained stable.
+
+### Sanitized run evidence
+
+- Run interval: `2026-11-05T16:57:00Z` to `2026-11-05T16:57:21Z`.
+- Runner exit code: `0`; HTTP `200`; runner stage status: `completed`.
+- `runtime_error_count=0`; `response_found=true`; `vlm_positive_completion=true`.
+- `report_params_run_vlm=true`; no run_vlm metadata contradiction.
+- VLM inference: `16.225 s`; visual descriptions: `2`.
+- Listener PID stable; server log window stable; 65 new server-log lines, 6 explicitly containing PID 47366.
+- No Metal signature lines were found in the new server-log delta.
+- Raw response, local errors and server logs remained local. No GitHub upload, commit, full-video analysis, Text LLM, Whisper, concurrent request or benchmark matrix was performed.
+
+The request guard recorded:
+
+```json
+{
+  "analysis_mode": "full",
+  "skip_audio": true,
+  "skip_visual": false,
+  "enable_apple_ocr": false,
+  "enable_ffmpeg_ocr": false,
+  "text_llm_enabled": false,
+  "generate_summary": false
+}
+```
+
+Interpretation: the tested path is the short visual/VLM path with audio, both explicit OCR request flags, Text LLM and summary disabled. The API request still reports `analysis_mode=full`; do not describe this as proof that every possible internal stage or alternate OCR implementation is disabled without checking the request builder/runtime semantics.
+
+### Patch v5 false-positive classification verified locally
+
+The user inspected the local result bundle under the smoke archive. Sanitized findings:
+
+- `01_baseline/errors.json`: `error_count=0`, `errors=[]`, `transport_error=null`, `http_status=200`, `text_llm_error=null`.
+- The known positive FFmpeg/Tesseract availability banner is stored in `informational_diagnostics` and `diagnostics.log`, with classification note that it is informational.
+- The same banner is present in `summary.json`, `run_summary.json`, and the manifest as an availability reason; this is expected metadata, not a runtime error.
+- `stage_rows.json` reports FFmpeg/Tesseract OCR `requested=false`, `sample_count=0`, `inference_time=0.0`. This supports that the OCR worker did not process samples in this request.
+- The local `errors.log` contains no FFmpeg OCR/Tesseract error line. The banner remains in the separate diagnostics channel.
+- The v5 allowlist therefore removed the exact positive availability banner from the runtime error list while preserving it as informational evidence. The previously added fail-closed counter checks and mixed-real-error regression coverage remain relevant: do not broaden the allowlist or suppress unrelated messages.
+
+### Acceptance
+
+**Accepted as a clean short visual/VLM smoke diagnostic only.** This validates the launcher/collector path, successful Qwen3-VL response metadata and the v5 informational-diagnostic classification for this one 20-second excerpt. It is not a full-video result, performance benchmark, OCR validation, audio/Whisper validation, Text LLM validation, or explanation/fix for the previously observed Metal timeout/submission failures.
+
+### Next-agent actions
+
+1. Confirm latest PR head and all required CI checks are complete on that exact SHA; do not infer green from runs on an earlier commit. At handoff time, all latest-head workflows except `Full distribution installer validation` had completed successfully; that workflow was still queued.
+2. Review the v5 classifier and its tests, especially the exact positive-banner allowlist, fail-closed counter matching and mixed informational + real-error preservation. Do not widen the matcher.
+3. Review smoke launcher request construction and collector output-directory contract. Preserve the explicit `--out-root "$RUN_OUTPUT"` handoff and immutable patch-helper pin.
+4. Keep the PR Draft. Do not merge, alter `main`, or run another test unless a specific remaining question requires it.
+5. If further validation is authorized, begin with static inspection and a short isolated test only. No full video, Text LLM, Whisper, concurrent request or profile matrix based solely on this smoke result.
+
+Privacy: the local archive path, source video path/name, raw response, errors CSV, transcripts, model output and full server logs are intentionally omitted from this public handoff.
