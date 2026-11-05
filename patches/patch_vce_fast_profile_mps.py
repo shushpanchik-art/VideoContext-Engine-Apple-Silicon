@@ -408,11 +408,14 @@ def _insert_after_top_level_definition(source: str, name: str, addition: str) ->
 LLAMA_SERVER_RUNTIME = r'''
 # VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1
 VCE_BACKEND_DIAGNOSTICS: Dict[str, Dict[str, Any]] = globals().get("VCE_BACKEND_DIAGNOSTICS", {})
-_VCE_LLAMA_SERVER_MODEL = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"
+_VCE_LLAMA_VLM_MODEL = LLAMA_VLM_MODEL_ID
+_VCE_LLAMA_TEXT_MODEL = LLAMA_TEXT_MODEL_ID
+_VCE_LLAMA_ALLOWED_MODELS = {_VCE_LLAMA_VLM_MODEL, _VCE_LLAMA_TEXT_MODEL}
 _VCE_LLAMA_SERVER_HOST = "127.0.0.1"
 _VCE_LLAMA_SERVER_PORT = int(os.environ.get("VCE_LLAMA_SERVER_PORT", "7556"))
 _VCE_LLAMA_SERVER_URL = f"http://{_VCE_LLAMA_SERVER_HOST}:{_VCE_LLAMA_SERVER_PORT}"
 _VCE_LLAMA_SERVER_PROCESS = None
+_VCE_LLAMA_SERVER_ACTIVE_MODEL: Optional[str] = None
 _VCE_LLAMA_SERVER_LOCK = threading.RLock()
 
 
@@ -425,30 +428,71 @@ def _vce_llama_server_health(timeout: float = 2.0) -> bool:
         return False
 
 
+def _vce_stop_llama_server_locked() -> None:
+    """Stop the managed model process while the re-entrant server lock is held."""
+    global _VCE_LLAMA_SERVER_PROCESS, _VCE_LLAMA_SERVER_ACTIVE_MODEL
+    process = _VCE_LLAMA_SERVER_PROCESS
+    model = _VCE_LLAMA_SERVER_ACTIVE_MODEL
+    _VCE_LLAMA_SERVER_PROCESS = None
+    _VCE_LLAMA_SERVER_ACTIVE_MODEL = None
+    if process is None or process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=20)
+    except Exception:
+        process.kill()
+        try:
+            process.wait(timeout=5)
+        except Exception:
+            pass
+    print(
+        "[VCE backend] llama.cpp Metal server stopped; model memory released"
+        + (": " + str(model) if model else ""),
+        flush=True,
+    )
+
+
+def _vce_stop_llama_server() -> None:
+    with _VCE_LLAMA_SERVER_LOCK:
+        _vce_stop_llama_server_locked()
+
+
 def _vce_ensure_llama_server(model_path: str) -> None:
-    """Start one local llama.cpp Metal server for both multimodal VLM and text LLM."""
-    global _VCE_LLAMA_SERVER_PROCESS
-    if str(model_path) != _VCE_LLAMA_SERVER_MODEL:
+    """Start/switch one local llama.cpp Metal server between the preserved VLM and Text LLM GGUFs."""
+    global _VCE_LLAMA_SERVER_PROCESS, _VCE_LLAMA_SERVER_ACTIVE_MODEL
+    model_path = str(model_path)
+    if model_path not in _VCE_LLAMA_ALLOWED_MODELS:
         raise ValueError(
-            "This VCE profile is pinned to " + _VCE_LLAMA_SERVER_MODEL
+            "This VCE profile only permits the reviewed VLM/Text GGUFs: "
+            + ", ".join(sorted(_VCE_LLAMA_ALLOWED_MODELS))
             + "; refusing to start an unreviewed model."
         )
+
     with _VCE_LLAMA_SERVER_LOCK:
         if _VCE_LLAMA_SERVER_PROCESS is not None:
             if _VCE_LLAMA_SERVER_PROCESS.poll() is not None:
                 code = _VCE_LLAMA_SERVER_PROCESS.returncode
                 _VCE_LLAMA_SERVER_PROCESS = None
+                _VCE_LLAMA_SERVER_ACTIVE_MODEL = None
                 raise RuntimeError(f"llama-server exited unexpectedly with code {code}.")
-            deadline = time.monotonic() + 30.0
-            while time.monotonic() < deadline:
-                if _vce_llama_server_health():
-                    return
-                if _VCE_LLAMA_SERVER_PROCESS.poll() is not None:
-                    code = _VCE_LLAMA_SERVER_PROCESS.returncode
-                    _VCE_LLAMA_SERVER_PROCESS = None
-                    raise RuntimeError(f"llama-server exited during startup with code {code}.")
-                time.sleep(0.25)
-            raise RuntimeError("The managed llama-server process is alive but its health endpoint is not ready.")
+
+            if _VCE_LLAMA_SERVER_ACTIVE_MODEL == model_path:
+                deadline = time.monotonic() + 900.0
+                while time.monotonic() < deadline:
+                    if _vce_llama_server_health():
+                        return
+                    if _VCE_LLAMA_SERVER_PROCESS.poll() is not None:
+                        code = _VCE_LLAMA_SERVER_PROCESS.returncode
+                        _VCE_LLAMA_SERVER_PROCESS = None
+                        _VCE_LLAMA_SERVER_ACTIVE_MODEL = None
+                        raise RuntimeError(f"llama-server exited during startup with code {code}.")
+                    time.sleep(0.25)
+                raise RuntimeError("The managed llama-server process is alive but its health endpoint is not ready.")
+
+            # VLM and Text LLM remain their original model families. They share
+            # the Metal server binary, but are loaded one at a time to limit memory.
+            _vce_stop_llama_server_locked()
 
         if _vce_llama_server_health():
             raise RuntimeError(
@@ -481,7 +525,7 @@ def _vce_ensure_llama_server(model_path: str) -> None:
 
         command = [
             executable,
-            "-hf", _VCE_LLAMA_SERVER_MODEL,
+            "-hf", model_path,
             "--host", _VCE_LLAMA_SERVER_HOST,
             "--port", str(_VCE_LLAMA_SERVER_PORT),
             "--n-gpu-layers", "all",
@@ -496,31 +540,35 @@ def _vce_ensure_llama_server(model_path: str) -> None:
             stdout=None,
             stderr=None,
         )
+        _VCE_LLAMA_SERVER_ACTIVE_MODEL = model_path
         deadline = time.monotonic() + 900.0
         while time.monotonic() < deadline:
             if _vce_llama_server_health():
-                VCE_BACKEND_DIAGNOSTICS["llama_cpp"] = {
+                stage = "vlm" if model_path == _VCE_LLAMA_VLM_MODEL else "text_llm"
+                VCE_BACKEND_DIAGNOSTICS["llama_cpp_" + stage] = {
                     "backend": "llama.cpp",
                     "device": "Metal",
-                    "model": _VCE_LLAMA_SERVER_MODEL,
+                    "model": model_path,
                     "server_url": _VCE_LLAMA_SERVER_URL,
                     "vision_projector": "auto",
                     "thinking": False,
                 }
                 print(
                     "[VCE backend] llama.cpp server ready; backend=llama.cpp; device=Metal; "
-                    "shared VLM/Text LLM model=" + _VCE_LLAMA_SERVER_MODEL,
+                    "stage=" + stage + "; model=" + model_path,
                     flush=True,
                 )
                 return
             if _VCE_LLAMA_SERVER_PROCESS.poll() is not None:
                 code = _VCE_LLAMA_SERVER_PROCESS.returncode
                 _VCE_LLAMA_SERVER_PROCESS = None
+                _VCE_LLAMA_SERVER_ACTIVE_MODEL = None
                 raise RuntimeError(f"llama-server failed during model/vision-projector loading (exit {code}).")
             time.sleep(1.0)
 
         process = _VCE_LLAMA_SERVER_PROCESS
         _VCE_LLAMA_SERVER_PROCESS = None
+        _VCE_LLAMA_SERVER_ACTIVE_MODEL = None
         if process is not None:
             process.terminate()
             try:
@@ -533,26 +581,8 @@ def _vce_ensure_llama_server(model_path: str) -> None:
         )
 
 
-def _vce_stop_llama_server() -> None:
-    global _VCE_LLAMA_SERVER_PROCESS
-    with _VCE_LLAMA_SERVER_LOCK:
-        process = _VCE_LLAMA_SERVER_PROCESS
-        _VCE_LLAMA_SERVER_PROCESS = None
-        if process is None or process.poll() is not None:
-            return
-        process.terminate()
-        try:
-            process.wait(timeout=20)
-        except Exception:
-            process.kill()
-            try:
-                process.wait(timeout=5)
-            except Exception:
-                pass
-        print("[VCE backend] llama.cpp Metal server stopped; model memory released.", flush=True)
-
-
 def _vce_llama_chat_completion(
+    model_path: str,
     messages: list[dict[str, Any]],
     *,
     max_tokens: int,
@@ -560,13 +590,13 @@ def _vce_llama_chat_completion(
     stream: bool = False,
     progress_callback: Optional[Any] = None,
 ) -> str:
-    """Call llama-server's local OpenAI-compatible multimodal chat endpoint."""
+    """Call llama-server's local OpenAI-compatible chat endpoint for the requested stage model."""
     import urllib.error
     import urllib.request
 
-    _vce_ensure_llama_server(_VCE_LLAMA_SERVER_MODEL)
+    _vce_ensure_llama_server(model_path)
     payload = {
-        "model": _VCE_LLAMA_SERVER_MODEL,
+        "model": str(model_path),
         "messages": messages,
         "max_tokens": int(max_tokens),
         "temperature": float(temperature),
@@ -635,9 +665,11 @@ def _vce_llama_chat_completion(
 
 
 class LlamaServerEngine(VLMProvider):
-    """One shared Qwen3.5 GGUF server for image+text and text-only inference."""
+    """Original Qwen3-VL GGUF model served through llama.cpp Metal."""
     def load_model(self, model_path: str):
-        if self.current_model_path == model_path and _vce_llama_server_health():
+        if str(model_path) != _VCE_LLAMA_VLM_MODEL:
+            raise ValueError("VLM stage is pinned to " + _VCE_LLAMA_VLM_MODEL)
+        if self.current_model_path == model_path and _VCE_LLAMA_SERVER_ACTIVE_MODEL == model_path and _vce_llama_server_health():
             self.last_load_time = 0.0
             return
         started = time.time()
@@ -651,8 +683,8 @@ class LlamaServerEngine(VLMProvider):
         )
 
     def describe_scene(self, images: List[Image.Image], prompt: str, max_tokens: int) -> str:
-        if self.current_model_path != _VCE_LLAMA_SERVER_MODEL:
-            self.load_model(_VCE_LLAMA_SERVER_MODEL)
+        if self.current_model_path != _VCE_LLAMA_VLM_MODEL:
+            self.load_model(_VCE_LLAMA_VLM_MODEL)
         content: list[dict[str, Any]] = []
         for image in images:
             buffered = BytesIO()
@@ -664,6 +696,7 @@ class LlamaServerEngine(VLMProvider):
             })
         content.append({"type": "text", "text": prompt})
         return _vce_llama_chat_completion(
+            _VCE_LLAMA_VLM_MODEL,
             [{"role": "user", "content": content}],
             max_tokens=max_tokens,
             temperature=0.0,
@@ -671,9 +704,9 @@ class LlamaServerEngine(VLMProvider):
         )
 
     def unload_model(self):
-        # Keep the shared server loaded until the Text LLM stage has completed.
-        # The endpoint stops it in its finally block for the RAM- profile.
+        # Release the VLM checkpoint before the distinct Text LLM checkpoint is loaded.
         self.current_model_path = None
+        _vce_stop_llama_server()
         gc.collect()
 
 
