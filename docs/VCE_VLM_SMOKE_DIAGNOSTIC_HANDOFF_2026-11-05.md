@@ -144,8 +144,14 @@ This explains the single count in this run. It does not establish that OCR infer
 - Filtering is fail-closed: both recorded counters must equal the length of the exact local error list. Other messages remain runtime errors; mixed informational + real-error cases retain the real error.
 - Regression tests cover the exact Russian informational banner, a mixed real-error case, and counter mismatch.
 - The smoke launcher now passes --out-root "$RUN_OUTPUT" explicitly. VCE_BENCH_RESULT_ROOT was not honored by the pinned runner; the explicit CLI option directs its response.json and run_summary.json below the collector's searched output tree.
-- Smoke launcher is pinned to patch helper commit 16655e86ba48b5fe16cb8b759a8d7a1dbc2de9f4.
+- Smoke launcher is pinned to patch helper commit 10f8c706e9aae494f6d6a092db7ba7d34a21897a.
 
 The historical 12:35 run remains recorded as DEGRADED because it was executed with the old runner/patcher and its original artifacts must not be silently rewritten. It is now understood to have a false-positive count from the informational banner. Do not launch a new test until the patcher's CI passes and the updated launcher/collector is reviewed. Any later short test remains limited to a single visual path; no full video, Text LLM, Whisper, concurrent workload, or matrix.
 
 PR #34 remains Draft; no merge and no changes to main.
+
+### CI follow-up for patch helper v5
+
+The first v5 CI attempt caught an idempotency-marker mismatch: the wrapper marker was bumped to v3 but the marker argument remained v2, so a second patch pass attempted to wrap run_one() twice. The marker argument was corrected in commit 10f8c706e9aae494f6d6a092db7ba7d34a21897a, and the smoke launcher was repinned to that immutable helper commit. The corresponding speed-profile workflow run is queued; do not treat v5 as CI-validated until its result is successful.
+
+The smoke launcher now explicitly supplies --out-root "$RUN_OUTPUT"; the collector's recursive search remains rooted at RUN_DIR/runner-output. This supersedes the earlier unused VCE_BENCH_RESULT_ROOT environment variable.
