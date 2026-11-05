@@ -25,14 +25,15 @@ MARKER = "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1"
 UI_MARKER = "VCE_FAST_MPS_PROFILE_UI_V1"
 LLAMA_UI_MARKER = "VCE_FAST_MPS_LLAMA_CPP_UI_V1"
 LLAMA_MARKER = "VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1"
-LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"
+LLAMA_VLM_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M"
+LLAMA_TEXT_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"
 
 PROFILE: dict[str, Any] = {
     "analysis_mode": "full",
-    "vlm_model": LLAMA_MODEL_ID,
+    "vlm_model": LLAMA_VLM_MODEL_ID,
     "whisper_model": "large",
     "text_llm_enabled": True,
-    "text_llm_model": LLAMA_MODEL_ID,
+    "text_llm_model": LLAMA_TEXT_MODEL_ID,
     "text_llm_max_tokens": 4096,
     "vlm_resolution": 1280,
     "scene_threshold": 0.15,
