@@ -134,6 +134,10 @@ def patch_source(source: str) -> str:
             "_vce_assert_metal_runtime_healthy(\"text_llm\")",
             "Skipping model unload and cache operations after fatal Metal timeout",
             "Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout",
+            '_vce_mark_metal_runtime_failed("text_llm_stream_fallback", fallback_stream_error)',
+            '_vce_mark_metal_runtime_failed("text_llm_stream_generate", stream_error)',
+            '_vce_mark_metal_runtime_failed("text_llm_generation", _vce_text_llm_active_error)',
+            "Skipping Text LLM cache cleanup after fatal Metal timeout",
         )
         missing = [item for item in required if item not in source]
         if missing:
