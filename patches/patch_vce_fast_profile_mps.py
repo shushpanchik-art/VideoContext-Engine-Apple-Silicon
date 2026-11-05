@@ -178,12 +178,12 @@ def _ensure_threading_alias_for_local_runtime(source: str) -> str:
     alias_import = "import threading as _vce_threading"
     if alias_import in source:
         return source
-    if not re.search(r"\\b_vce_threading\\b", source):
+    if not re.search(r"\b_vce_threading\b", source):
         return source
     return _replace_exact(
         source,
-        "import threading\\n",
-        "import threading\\nimport threading as _vce_threading\\n",
+        "import threading\n",
+        "import threading\nimport threading as _vce_threading\n",
         "Restore threading alias for local runtime lock",
     )
 
@@ -526,14 +526,14 @@ def patch_engine(source: str) -> str:
 
     source = _replace_exact(
         source,
-        "import threading as _vce_threading\\n_VCE_MLX_WHISPER_LOCK = _vce_threading.Lock()\\n\\n",
-        "import threading as _vce_threading\\n\\n",
+        "import threading as _vce_threading\n_VCE_MLX_WHISPER_LOCK = _vce_threading.Lock()\n\n",
+        "import threading as _vce_threading\n\n",
         "Remove MLX Whisper lock but retain shared threading import",
     )
     if source.count("_vce_threading") == 1:
         source = _replace_exact(
             source,
-            "import threading as _vce_threading\\n",
+            "import threading as _vce_threading\n",
             "",
             "Remove unused threading alias",
         )
