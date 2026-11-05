@@ -173,6 +173,15 @@ NEW_WHISPER_CLEANUP = '''                        # MPS and MLX/Metal share Apple
                                     flush=True,
                                 )'''
 
+def _line_numbers_containing(source: str, token: str) -> list[int]:
+    """Return 1-based source line numbers containing a token, without echoing source text."""
+    return [
+        line_number
+        for line_number, line in enumerate(source.splitlines(), start=1)
+        if token in line
+    ]
+
+
 def _replace_exact(source: str, old: str, new: str, label: str, expected: int = 1) -> str:
     count = source.count(old)
     if count != expected:
@@ -545,7 +554,14 @@ def patch_engine(source: str) -> str:
         "_vce_adaptive_keyframe_limit",
     ):
         if forbidden in source:
-            raise ValueError("Experimental runtime reference remains after patch: " + forbidden)
+            locations = _line_numbers_containing(source, forbidden)
+            where = ", ".join(str(number) for number in locations)
+            raise ValueError(
+                "Experimental runtime reference remains after patch: "
+                + forbidden
+                + (f" (line(s): {where})" if where else "")
+                + "; refusing to write any project files."
+            )
 
     source = source.replace(
         'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")',
