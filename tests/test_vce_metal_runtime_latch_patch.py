@@ -94,7 +94,7 @@ class MetalLatchPatcherTests(unittest.TestCase):
         self.assertIn('_vce_assert_metal_runtime_healthy("text_llm")', patched)
         self.assertIn('_vce_mark_metal_runtime_failed("vlm_generation", exc)', patched)
         self.assertIn('run_vlm = False', patched)
-        self.assertIn('Skipping post-timeout Metal cache synchronization', patched)
+        self.assertIn('Skipping model unload and cache operations after fatal Metal timeout', patched)
 
     def test_patch_is_idempotent(self):
         once = patch_source(FIXTURE)
