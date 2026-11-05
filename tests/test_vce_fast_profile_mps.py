@@ -42,14 +42,14 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn('"gpu_stages_serialized": True', patched)
 
     def test_settings_api_ocr_defaults_preserve_recognition_languages_layout(self):
-        compact = '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 2,'
-        with_languages = '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 2,'
+        compact = '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
+        with_languages = '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
         self.assertIn(compact, self.engine)
         variant = self.engine.replace(compact, with_languages, 1)
 
         patched = self.patcher.patch_engine(variant)
         self.assertIn('"recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"]))', patched)
-        self.assertIn('"enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\\n        "ffmpeg_ocr_workers": 3,', patched)
+        self.assertIn('"enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 3,', patched)
 
     def test_settings_api_ocr_anchor_rejects_zero_matches(self):
         variants = (("compact-anchor", "replacement"), ("language-anchor", "replacement"))
