@@ -546,10 +546,6 @@ def patch_engine(source: str) -> str:
             "from whisper.tokenizer import LANGUAGES",
             1,
         )
-        source = source.replace(
-            legacy_language_helper,
-            "_vce_openai_whisper_supported_languages",
-        )
     elif language_imports:
         raise ValueError(
             "MLX tokenizer import exists without its expected local helper; "
@@ -569,6 +565,24 @@ def patch_engine(source: str) -> str:
         'print("[VCE stage order] PyTorch Whisper completed before MLX/Metal VLM; GPU inference stages are serialized.")',
     )
 
+    # Reject actual MLX Whisper imports/usages. The legacy helper's name is
+    # retained for compatibility with local callers, but its import is redirected
+    # to the installed openai-whisper tokenizer above.
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            modules = [node.module or ""]
+        elif isinstance(node, ast.Name) and node.id == "mlx_whisper":
+            modules = ["mlx_whisper"]
+        else:
+            modules = []
+        if any(name == "mlx_whisper" or name.startswith("mlx_whisper.") for name in modules):
+            raise ValueError(
+                "Experimental MLX Whisper import/reference remains after patch; "
+                "refusing to write any project files."
+            )
+
     # The new runtime intentionally has no active MLX Whisper implementation or
     # switches. Keep the cache, Apple Vision, and FFmpeg/Tesseract stages intact.
     for forbidden in (
@@ -577,7 +591,6 @@ def patch_engine(source: str) -> str:
         "enable_fast_scene_detection",
         "_VCEWhisperMLXCPU",
         "_vce_validate_mlx_whisper_model",
-        "mlx_whisper",
         "_vce_detect_scenes_fast",
         "_vce_adaptive_keyframe_limit",
     ):
