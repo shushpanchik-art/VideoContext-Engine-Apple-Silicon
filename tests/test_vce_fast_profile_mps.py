@@ -83,6 +83,30 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "expected exactly one MLX tokenizer import"):
             self.patcher.patch_engine(self.engine + helper)
 
+    def test_engine_preserves_threading_alias_for_local_metal_runtime_lock(self):
+        local_engine = (
+            self.engine
+            + "\\n_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()\\n"
+        )
+        patched = self.patcher.patch_engine(local_engine)
+        ast.parse(patched)
+        self.assertIn("import threading as _vce_threading", patched)
+        self.assertIn("_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()", patched)
+        self.assertNotIn("_VCE_MLX_WHISPER_LOCK", patched)
+
+    def test_already_patched_engine_restores_missing_threading_alias_for_local_lock(self):
+        patched_baseline = self.patcher.patch_engine(self.engine)
+        self.assertNotIn("import threading as _vce_threading", patched_baseline)
+
+        local_patched = (
+            patched_baseline
+            + "\\n_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()\\n"
+        )
+        upgraded = self.patcher.patch_engine(local_patched)
+        ast.parse(upgraded)
+        self.assertIn("import threading as _vce_threading", upgraded)
+        self.assertIn("_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()", upgraded)
+
     def test_settings_api_ocr_defaults_preserve_recognition_languages_layout(self):
         compact = '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
         with_languages = '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
