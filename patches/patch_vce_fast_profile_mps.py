@@ -1018,14 +1018,14 @@ def patch_engine(source: str) -> str:
     source = source.replace("_vce_run_whisper_cpu_stage", "_vce_run_whisper_mps_stage")
     source = _replace_exact(
         source,
-        "Whisper CPU: распознаём речь параллельно с llama.cpp/Metal VLM",
+        "Whisper CPU: распознаём речь параллельно с MLX/Metal VLM",
         "Whisper PyTorch: отдельный MPS-этап перед llama.cpp/Metal VLM",
         "Whisper progress label",
     )
     source = _replace_exact(
         source,
         'print("[VCE Whisper] Starting CPU ASR in parallel with the GPU stage.")',
-        'print(f"[VCE Whisper] Starting openai-whisper on {whisper_device} before the MLX/Metal VLM stage.")',
+        'print(f"[VCE Whisper] Starting openai-whisper on {whisper_device} before the llama.cpp Metal VLM stage.")',
         "Whisper start log",
     )
     source = _replace_exact(
