@@ -79,6 +79,38 @@ STAMP="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="$RESULT_ROOT/$STAMP"
 RUN_OUTPUT="$RUN_DIR/runner-output"
 mkdir -p "$RUN_OUTPUT"
+
+# Static, read-only index of the request/report/latch code paths for this exact source.
+"$PYTHON" - "$ENGINE_SOURCE" "$RUN_DIR/static_source_index.txt" <<'PY'
+from pathlib import Path
+import re, sys
+source_path, output_path = map(Path, sys.argv[1:])
+lines = source_path.read_text(encoding="utf-8").splitlines()
+pattern = re.compile(
+    r"run_vlm|skip_visual|vlm_generation|_vce_metal_runtime_failure|"
+    r"_vce_assert_metal_runtime_healthy|inference_time|vlm.*timing|timing.*vlm|"
+    r"meta.*params|params.*meta",
+    re.I,
+)
+hits = [i for i, line in enumerate(lines) if pattern.search(line)]
+chosen = set()
+for i in hits[:100]:
+    chosen.update(range(max(0, i - 2), min(len(lines), i + 3)))
+output = [
+    f"Source: {source_path}",
+    f"Total source lines: {len(lines)}",
+    f"Matching lines: {len(hits)} (showing up to first 100 match windows)",
+    "",
+]
+last = -2
+for i in sorted(chosen):
+    if i > last + 1:
+        output.append("...")
+    output.append(f"{i + 1}: {lines[i]}")
+    last = i
+output_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+PY
+
 TMP_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/vce_vlm_diag.XXXXXX")"
 cleanup() { /bin/rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
@@ -203,6 +235,7 @@ export VCE_BENCH_RESULT_ROOT="$RUN_OUTPUT"
 export VCE_VLM_DIAG_REQUEST_MANIFEST="$RUN_DIR/request_flags.json"
 
 LOG_OFFSET="$(wc -c < "$SERVER_LOG" | tr -d '[:space:]')"
+LOG_INODE_BEFORE="$(stat -f '%i' "$SERVER_LOG")"
 RUN_STARTED_UTC="$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
 printf 'server_pid=%s\nsource_sha256=%s\nbackup_exists=true\nrun_started_utc=%s\nserver_log_offset_bytes=%s\nvideo_duration_seconds=%s\n' \
   "$SERVER_PID" "$ACTUAL_ENGINE_SHA" "$RUN_STARTED_UTC" "$LOG_OFFSET" "$DURATION" > "$RUN_DIR/preflight.txt"
@@ -217,11 +250,14 @@ RUN_FINISHED_UTC="$(/bin/date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # Snapshot only bytes appended during this request window, not historical server.log.
 LOG_SIZE_NOW="$(wc -c < "$SERVER_LOG" | tr -d '[:space:]')"
-if [[ "$LOG_SIZE_NOW" -ge "$LOG_OFFSET" ]]; then
+LOG_INODE_NOW="$(stat -f '%i' "$SERVER_LOG")"
+LOG_WINDOW_STABLE="false"
+if [[ "$LOG_INODE_NOW" == "$LOG_INODE_BEFORE" && "$LOG_SIZE_NOW" -ge "$LOG_OFFSET" ]]; then
   /usr/bin/tail -c "+$((LOG_OFFSET + 1))" "$SERVER_LOG" > "$RUN_DIR/server_log_delta.log"
+  LOG_WINDOW_STABLE="true"
 else
   : > "$RUN_DIR/server_log_delta.log"
-  note "WARNING: server.log was truncated/rotated during the request; byte-window capture is incomplete."
+  note "WARNING: server.log was rotated, replaced or truncated during the request; no log delta will be attributed."
 fi
 
 AFTER_PIDS="$(/usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 {print $2}' | sort -u || true)"
@@ -230,12 +266,12 @@ if [[ "$AFTER_PIDS" == "$SERVER_PID" ]]; then PID_STABLE="true"; fi
 
 # Filter log lines that explicitly carry the serving PID. Keep the complete
 # byte-window delta locally as well, because some log formats omit PID tokens.
-"$PYTHON" - "$RUN_DIR" "$SERVER_PID" "$RUN_EXIT" "$RUN_STARTED_UTC" "$RUN_FINISHED_UTC" "$PID_STABLE" <<'PY'
+"$PYTHON" - "$RUN_DIR" "$SERVER_PID" "$RUN_EXIT" "$RUN_STARTED_UTC" "$RUN_FINISHED_UTC" "$PID_STABLE" "$LOG_WINDOW_STABLE" <<'PY'
 from pathlib import Path
 import csv, json, re, sys
 
 run_dir = Path(sys.argv[1])
-pid, exit_code, started, finished, pid_stable = sys.argv[2:]
+pid, exit_code, started, finished, pid_stable, log_window_stable = sys.argv[2:]
 manifest_path = run_dir / "request_flags.json"
 manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else None
 
@@ -306,6 +342,7 @@ contradiction = run_vlm is False and (inference_number > 0 or description_count 
 report = {
     "server_pid_before": int(pid),
     "server_pid_stable_after_run": pid_stable == "true",
+    "server_log_window_stable": log_window_stable == "true",
     "run_started_utc": started,
     "run_finished_utc": finished,
     "runner_exit_code": int(exit_code),
@@ -372,6 +409,8 @@ if data.get("metal_signature_lines_in_new_log_delta", 0) != 0:
     problems.append("new server.log window contains a Metal failure signature")
 if not data.get("server_pid_stable_after_run"):
     problems.append("listener PID changed during the request")
+if not data.get("server_log_window_stable"):
+    problems.append("server.log was rotated/replaced/truncated during the request")
 if problems:
     print("Acceptance failed: " + "; ".join(problems), file=sys.stderr)
     raise SystemExit(1)
