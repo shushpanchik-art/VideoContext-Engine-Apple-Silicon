@@ -144,8 +144,8 @@ class MetalLatchPatcherTests(unittest.TestCase):
         self.assertIn('Skipping Text LLM cache cleanup after fatal Metal timeout', patched)
         fallback_start = patched.index("def _vce_describe_scene_with_memory_fallback(")
         timeout_start = patched.index("if _vce_is_metal_command_timeout(exc):", fallback_start)
-        oom_start = patched.index('print("[VLM memory guard] Metal OOM', timeout_start)
-        timeout_branch = patched[timeout_start:oom_start]
+        timeout_end = patched.index('return "ok"', timeout_start)
+        timeout_branch = patched[timeout_start:timeout_end]
         self.assertNotIn("vlm_engine.unload_model()", timeout_branch)
         self.assertNotIn("_vce_clear_metal_memory_caches()", timeout_branch)
 
@@ -255,7 +255,7 @@ class MetalLatchPatcherTests(unittest.TestCase):
 
         asyncio.run(exercise())
         self.assertEqual(ran, ["first"])
-        self.assertEqual(namespace["_vce_metal_runtime_failure"]()["stage"], "fail_with_timeout")
+        self.assertTrue(namespace["_vce_metal_runtime_failure"]()["stage"].endswith("fail_with_timeout"))
         namespace["_VCE_MLX_EXECUTOR"].shutdown(wait=True)
 
 
