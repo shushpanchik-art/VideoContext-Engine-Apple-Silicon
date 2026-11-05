@@ -234,13 +234,13 @@ def patch_source(source: str) -> str:
     patched = _replace_in_function(
         patched,
         "lifespan",
-        "    if vlm_engine:\\n        vlm_engine.unload_model()\\n        release_accelerator_memory('after VLM unload')\\n",
-        "    if vlm_engine:\\n"
-        "        if _vce_metal_runtime_failure() is not None:\\n"
-        "            print(\\"[VCE MLX] Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout; process exit will release resources.\\", flush=True)\\n"
-        "        else:\\n"
-        "            vlm_engine.unload_model()\\n"
-        "            release_accelerator_memory('after VLM unload')\\n",
+        "    if vlm_engine:\n        vlm_engine.unload_model()\n        release_accelerator_memory('after VLM unload')\n",
+        "    if vlm_engine:\n"
+        "        if _vce_metal_runtime_failure() is not None:\n"
+        "            print(\"[VCE MLX] Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout; process exit will release resources.\", flush=True)\n"
+        "        else:\n"
+        "            vlm_engine.unload_model()\n"
+        "            release_accelerator_memory('after VLM unload')\n",
         "lifespan GPU teardown",
     )
 
