@@ -1,0 +1,11 @@
+diagnostic_timestamp_utc=20261105T173809Z
+runner_exit_code=0
+runner_revision=650f3a1437ee0cdcab1c3ea41005a599a373d578
+patch_helper_revision=10f8c706e9aae494f6d6a092db7ba7d34a21897a
+profiles=baseline_only
+enable_mlx_whisper=false
+error_observations=3
+first_error_category=PYTHON_OR_OTHER
+first_error_stage=UNKNOWN
+input_video=<redacted>
+raw_logs_and_full_response=local_only
