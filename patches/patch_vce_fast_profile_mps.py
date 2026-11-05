@@ -775,6 +775,7 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
     if stream_start < 0 or parse_start < 0 or parse_start <= stream_start:
         raise ValueError("Text LLM generation block no longer matches the reviewed MLX source layout.")
     stream_replacement = '''        raw = _vce_llama_chat_completion(
+            model_path,
             [{"role": "user", "content": instruction}],
             max_tokens=generation_limit,
             temperature=0.1,
@@ -789,6 +790,7 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
     if repair_start < 0 or repair_end < 0 or repair_end <= repair_start:
         raise ValueError("Text LLM repair block no longer matches the reviewed MLX source layout.")
     repair_replacement = '''                repaired_raw = _vce_llama_chat_completion(
+                    model_path,
                     [{"role": "user", "content": repair_instruction}],
                     max_tokens=4096,
                     temperature=0.0,
@@ -859,6 +861,8 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
             "class LlamaServerEngine(VLMProvider):",
             "_vce_ensure_llama_server",
             "_vce_llama_chat_completion",
+            'LLAMA_VLM_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M"',
+            'LLAMA_TEXT_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"',
             "VCE_BACKEND_DIAGNOSTICS",
         )
         missing = [item for item in required if item not in source]
@@ -964,7 +968,7 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
 
     source = source.replace(
         'DEFAULT_VLM_MODEL_MLX = "mlx-community/Qwen3-VL-8B-Instruct-4bit"',
-        "DEFAULT_VLM_MODEL_LLAMA = LLAMA_MODEL_ID",
+        "DEFAULT_VLM_MODEL_LLAMA = LLAMA_VLM_MODEL_ID",
     )
     source = source.replace(
         'if platform.system() == "Darwin":\n    ACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_MLX\nelse:\n    ACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_GGUF',
@@ -972,14 +976,14 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
     )
     source = source.replace(
         'TEXT_LLM_DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"',
-        "TEXT_LLM_DEFAULT_MODEL = LLAMA_MODEL_ID",
+        "TEXT_LLM_DEFAULT_MODEL = LLAMA_TEXT_MODEL_ID",
     )
-    source = source.replace("mlx-community/Qwen3-VL-8B-Instruct-4bit", LLAMA_MODEL_ID)
-    source = source.replace("mlx-community/Qwen3-VL-4B-Instruct-4bit", LLAMA_MODEL_ID)
-    source = source.replace("mlx-community/Qwen3.5-9B-MLX-4bit", LLAMA_MODEL_ID)
+    source = source.replace("mlx-community/Qwen3-VL-8B-Instruct-4bit", LLAMA_VLM_MODEL_ID)
+    source = source.replace("mlx-community/Qwen3-VL-4B-Instruct-4bit", LLAMA_VLM_MODEL_ID)
+    source = source.replace("mlx-community/Qwen3.5-9B-MLX-4bit", LLAMA_TEXT_MODEL_ID)
     source, allowed_count = re.subn(
         r"(?m)^[ \t]*allowed_vlm = \{[^\n]*\}$",
-        '    allowed_vlm = {"' + LLAMA_MODEL_ID + '"}',
+        '    allowed_vlm = {"' + LLAMA_VLM_MODEL_ID + '"}',
         source,
     )
     if allowed_count != 1:
@@ -1001,15 +1005,15 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
         '        _vce_stop_llama_server()\n        if owns_temp_path and temp_path and os.path.exists(temp_path):\n            os.remove(temp_path)',
         1,
     )
-    if "LLAMA_MODEL_ID = \"gguf/Qwen3.5-9B-GGUF:Q4_K_M\"" not in source:
+    if "LLAMA_VLM_MODEL_ID = \"Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M\"" not in source:
         source = source.replace(
             'DEFAULT_WHISPER_MODEL = "large"',
-            'LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"\nDEFAULT_VLM_MODEL_LLAMA = LLAMA_MODEL_ID\nACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_LLAMA\nDEFAULT_WHISPER_MODEL = "large"',
+            'LLAMA_VLM_MODEL_ID = "Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M"\nLLAMA_TEXT_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"\nDEFAULT_VLM_MODEL_LLAMA = LLAMA_VLM_MODEL_ID\nACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_LLAMA\nDEFAULT_WHISPER_MODEL = "large"',
             1,
         )
     source = source.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B-GGUF Q4_K_M")
     source = source.replace("VCE_MLX", "VCE_LLAMA_CPP")
-    source = source.replace("Qwen3-VL-8B-Instruct-4bit", "Qwen3.5-9B GGUF Q4_K_M")
+    source = source.replace("Qwen3-VL-8B-Instruct-4bit", "Qwen3-VL-8B GGUF Q4_K_M")
     source = source.replace("CPU Whisper / MLX VLM", "PyTorch Whisper MPS / llama.cpp Metal")
     source = source.replace("before the llama.cpp Metal VLM stage", "before the llama.cpp Metal VLM stage")
     source = source.replace("PyTorch MPS -> MLX VLM", "PyTorch MPS -> llama.cpp Metal VLM + Text LLM")
@@ -1345,7 +1349,7 @@ def patch_engine(source: str) -> str:
 
 
 def _upgrade_ui_to_llama_cpp(ui: str) -> str:
-    """Change VLM and Text LLM controls to the same reviewed llama.cpp GGUF model."""
+    """Change VLM and Text LLM controls to their original GGUF models under llama.cpp Metal."""
     ui = ui.replace("локальная обработка · Apple Silicon / MLX", "локальная обработка · Apple Silicon / llama.cpp Metal")
     ui = ui.replace("Qwen3-VL", "Qwen3.5 GGUF")
     ui = ui.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B GGUF Q4_K_M")
@@ -1358,7 +1362,7 @@ def _upgrade_ui_to_llama_cpp(ui: str) -> str:
     # The VLM and text stages intentionally share one multimodal GGUF model.
     vlm_pattern = re.compile(r'(?m)^(?P<indent>[ \t]*)<select id="cfg-vlm-model">.*?</select>[ \t]*$')
     vlm_matches = list(vlm_pattern.finditer(ui))
-    fixed_vlm = '<input id="cfg-vlm-model" type="text" value="' + LLAMA_MODEL_ID + '" readonly>'
+    fixed_vlm = '<input id="cfg-vlm-model" type="text" value="' + LLAMA_VLM_MODEL_ID + '" readonly>'
     if len(vlm_matches) == 1:
         match = vlm_matches[0]
         ui = ui[:match.start()] + match.group("indent") + fixed_vlm + ui[match.end():]
@@ -1369,7 +1373,7 @@ def _upgrade_ui_to_llama_cpp(ui: str) -> str:
 
     text_pattern = re.compile(r'(<input id="cfg-text-llm-model" type="text" value=")[^"]+(" readonly>)')
     ui, count = text_pattern.subn(
-        lambda match: match.group(1) + LLAMA_MODEL_ID + match.group(2),
+        lambda match: match.group(1) + LLAMA_TEXT_MODEL_ID + match.group(2),
         ui,
     )
     if count != 1:
@@ -1387,7 +1391,8 @@ def _validate_llama_ui(ui: str) -> None:
     required = (
         LLAMA_UI_MARKER,
         "Apple Silicon / llama.cpp Metal",
-        LLAMA_MODEL_ID,
+        LLAMA_VLM_MODEL_ID,
+        LLAMA_TEXT_MODEL_ID,
         "cfg-vlm-model",
         "cfg-text-llm-model",
         "cfg-ocr-cache",
