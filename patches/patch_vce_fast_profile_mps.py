@@ -781,21 +781,40 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
 def _assert_no_mlx_runtime(source: str) -> None:
     tree = ast.parse(source)
     bad_imports = []
+    bad_names = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             bad_imports.extend(
                 alias.name for alias in node.names
                 if alias.name == "mlx" or alias.name.startswith("mlx.")
+                or alias.name == "mlx_vlm" or alias.name.startswith("mlx_vlm.")
+                or alias.name == "mlx_whisper" or alias.name.startswith("mlx_whisper.")
             )
         elif isinstance(node, ast.ImportFrom):
             module = node.module or ""
-            if module == "mlx" or module.startswith("mlx.") or module == "mlx_vlm" or module.startswith("mlx_vlm."):
+            if (
+                module == "mlx" or module.startswith("mlx.")
+                or module == "mlx_vlm" or module.startswith("mlx_vlm.")
+                or module == "mlx_whisper" or module.startswith("mlx_whisper.")
+            ):
                 bad_imports.append(module)
-        elif isinstance(node, ast.Name) and node.id in {"MLXEngine", "_vce_mlx_run"}:
-            bad_imports.append(node.id)
-    if bad_imports:
-        raise ValueError("MLX runtime remains after backend migration: " + ", ".join(sorted(set(bad_imports))))
-    for forbidden in ("mlx-community/", "MLXEngine", "_vce_mlx_run", "mlx_vlm", "import mlx"):
+        elif isinstance(node, ast.Name) and (
+            node.id == "MLXEngine" or node.id == "LlamaCppEngine"
+            or node.id.startswith("_vce_mlx")
+        ):
+            bad_names.append(node.id)
+    if bad_imports or bad_names:
+        details = sorted(set(bad_imports + bad_names))
+        raise ValueError("MLX runtime remains after backend migration: " + ", ".join(details))
+    for forbidden in (
+        "mlx-community/",
+        "MLXEngine",
+        "LlamaCppEngine",
+        "_vce_mlx_run",
+        "mlx_vlm",
+        "mlx_whisper",
+        "import mlx",
+    ):
         if forbidden in source:
             raise ValueError("MLX runtime/model reference remains after backend migration: " + forbidden)
 
@@ -956,8 +975,6 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
         )
     source = source.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B-GGUF Q4_K_M")
     source = source.replace("VCE_MLX", "VCE_LLAMA_CPP")
-    source = source.replace("MLX", "llama.cpp")
-    source = source.replace("mlx", "llama.cpp")
     source = source.replace("Qwen3-VL-8B-Instruct-4bit", "Qwen3.5-9B GGUF Q4_K_M")
     source = source.replace("CPU Whisper / MLX VLM", "PyTorch Whisper MPS / llama.cpp Metal")
     source = source.replace("before the llama.cpp Metal VLM stage", "before the llama.cpp Metal VLM stage")
