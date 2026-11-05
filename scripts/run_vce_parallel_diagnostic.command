@@ -63,7 +63,7 @@ gh auth status >/dev/null 2>&1 || fail "GitHub CLI is not authenticated. Run gh 
 gh auth setup-git >/dev/null 2>&1 || fail "Could not configure Git credential helper."
 git ls-remote --exit-code --heads "https://github.com/$REPOSITORY.git" "$PUBLISH_BRANCH" >/dev/null 2>&1 || fail "Cannot access publication branch $PUBLISH_BRANCH. Check GitHub write permissions."
 
-ENGINE_SOURCE="\${VCE_ENGINE_SOURCE:-$PROJECT_DIR/VideoContextEngine_v3.19.py}"
+ENGINE_SOURCE="${VCE_ENGINE_SOURCE:-$PROJECT_DIR/VideoContextEngine_v3.19.py}"
 EXPECTED_ENGINE_SHA="6a47735e6cff4ea72e66f4052c7eeb770fb32c790504986f07967da4cd242ca6"
 [[ -f "$ENGINE_SOURCE" ]] || fail "VCE engine source not found: $ENGINE_SOURCE"
 ACTUAL_ENGINE_SHA="$(/usr/bin/shasum -a 256 "$ENGINE_SOURCE" | awk '{print $1}')"
@@ -110,7 +110,7 @@ if [[ -n "$ACTIVE_CONNECTIONS" ]]; then
 fi
 
 mkdir -p "$RESULT_ROOT"
-printf '%s\n' "Video: <local input; redacted from publication>" "Project: $PROJECT_DIR" "Runner revision: $RUNNER_REF" "Patch helper revision: $PATCHER_REF" "Plan: one full end-to-end baseline request" "enable_mlx_whisper=false; full VLM/Whisper/Text LLM/Apple OCR" ""
+printf '%s\n' "Video: <local input; redacted from publication>" "Project: $PROJECT_DIR" "VCE listener PID: $SERVER_PID" "Engine SHA256: $ACTUAL_ENGINE_SHA" "Runner revision: $RUNNER_REF" "Patch helper revision: $PATCHER_REF" "Plan: one full end-to-end baseline request" "enable_mlx_whisper=false; full VLM/Whisper/Text LLM/Apple OCR" ""
 echo "Downloading the pinned diagnostic runner..."
 RAW_BASE="https://raw.githubusercontent.com/$REPOSITORY/$RUNNER_REF"
 /usr/bin/curl --fail --location --silent --show-error --retry 3 "$RAW_BASE/scripts/vce_full_profile_benchmark.py.gz" --output "$TMP_GZIP" || fail "Could not download the pinned benchmark runner."
