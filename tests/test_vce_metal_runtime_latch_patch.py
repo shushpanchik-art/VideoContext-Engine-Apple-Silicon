@@ -107,7 +107,7 @@ def run_text_llm_postprocess(model_path, source_name, video_duration, existing_s
                         print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}")
                         raw = ""
             except Exception as stream_error:
-                print(f"stream failed: {stream_error}")
+                print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}")
                 raw = ""
         if not raw.strip():
             try:
