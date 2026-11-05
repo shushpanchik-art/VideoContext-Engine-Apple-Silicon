@@ -111,3 +111,19 @@ Existing Draft PR #34:
 https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/34
 
 This handoff supplements, and does not replace, the earlier fast-profile/MPS handoff and the broader Metal investigation handoff.
+
+
+---
+
+## Follow-up — guarded scheduler patcher update
+
+A feature-branch patcher update was committed after reviewing the exact target-Mac scheduling shape.
+
+- Patcher commit: `c8368888225f463a7b4aa76fe2eb66dbaad58ae5`
+- Launcher pin update: `f93cadac83de0a2a1c65250fd250fe18652e44f0`
+- Regression test: `tests/test_vce_fast_profile_mps_scheduler.py`
+- PR #34 remains open and Draft; `main` is unchanged.
+
+The scheduler transformation no longer replaces the complete task/guard/VLM block. It finds exactly one PyTorch Whisper task-creation line and inserts `await _vce_whisper_task` immediately after it. This preserves any intervening local Metal-failure guard byte-for-byte and ensures the VLM branch occurs after Whisper completion. Missing or duplicate task anchors fail closed. The regression fixture models the reported CPU-stage source name after the patcher's existing explicit CPU-to-MPS rename and includes the intervening Metal guard.
+
+**Validation status:** repository files and the new test were committed, but this handoff does not claim that target-Mac patch application, Python test execution, or current-head CI has passed. No local engine, settings, profile, VCE process, or video was touched by this repository update. Do not run the full launcher until the patcher tests and CI pass; then rerun the launcher only after reviewing a fresh local backup and the resulting diff.
