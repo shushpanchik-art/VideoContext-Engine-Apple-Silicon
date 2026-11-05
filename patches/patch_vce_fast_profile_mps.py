@@ -254,13 +254,8 @@ def patch_engine(source: str) -> str:
         source,
         "load_whisper_model, target_whisper, acceleration_enabled=False",
         "load_whisper_model, target_whisper, acceleration_enabled=whisper_acceleration",
-        "Whisper loader acceleration (RAM+)",
-    )
-    source = _replace_exact(
-        source,
-        "load_whisper_model, target_whisper, acceleration_enabled=False",
-        "load_whisper_model, target_whisper, acceleration_enabled=whisper_acceleration",
-        "Whisper loader acceleration (RAM-)",
+        "Whisper loader acceleration (RAM+ / RAM-)",
+        expected=2,
     )
 
     source = source.replace("_vce_run_whisper_cpu_stage", "_vce_run_whisper_mps_stage")
