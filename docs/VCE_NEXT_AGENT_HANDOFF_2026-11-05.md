@@ -121,3 +121,23 @@ The supplied local helper `run_remaining_vce_profiles.command` was attempted aft
 - Do not publish video, source identity, transcripts, OCR text, prompts, model output, full API responses, `errors.csv`, raw logs or local paths.
 - Work only on `feat/experimental-benchmark-launcher`. Never modify `main`.
 - Keep PR #34 open and Draft. No merge, no close, no Ready-for-review transition.
+
+
+## New target-Mac server.log evidence supplied after 22:58 (2026-11-05)
+
+A later terminal capture showed the current `~/Library/Logs/VideoContext Engine/server.log` is 18 MiB and begins with Uvicorn PID `41359`. The prior failing benchmark process PID `8742` is not present in this current log search. The current server process is therefore distinct from the process in the 22:13 / 22:45 traceback evidence; do not conflate their process lifetimes.
+
+The user's search found these earlier log entries in the current file:
+
+- Lines 16,720, 41,998, 81,176 and 81,200: explicit `[METAL] Command buffer execution failed: Insufficient Memory (00000008:kIOGPUCommandBufferCallbackErrorOutOfMemory)`.
+- Line 81,222: VCE reports its Metal-memory fallback/error after resolution reduction.
+- Lines 159,309 onward, 193,818 onward and 205,403 onward: VLM memory guard attempts cache clearing and lower resolutions (384/320/256 px), then skips visual descriptions.
+- Lines 215,487 onward: runtime telemetry includes passing `metal_smoke_test` and, later, passing `gpu_stream_smoke_test`; MLX version 0.32.4, Apple M1 Max, architecture `applegpu_g13s`, reported unified memory 32 GiB and recommended working-set size about 26.8 GB.
+- Lines 217,774 onward: explicit GPU target and GPU probe stream are logged, but `default_device_observed` alternates between `Device(cpu, 0)` and `Device(gpu, 0)`. The log itself explains that `mx.default_device()` is process-global and may temporarily reflect a concurrent `mx.stream(mx.cpu)` context. This observation alone does not prove incorrect GPU routing or that each operator executed on GPU.
+- The search output did not include reliable timestamps around these line numbers and was capped at 60 matches. The final eight lines were routine `GET /ui` requests only.
+
+### Interpretation / next discriminator
+
+This is additional evidence that the VCE runtime has encountered genuine Metal out-of-memory errors in its history, followed by repeated VLM memory-guard fallback behavior. It does **not** establish that the first error in the 22:13 / 22:45 `SubmissionsIgnored` traceback was caused by OOM: those earlier tracebacks failed in `_vce_configure_mlx_metal("vlm") -> mx.eval(probe)` with `SubmissionsIgnored`, and the current log excerpt does not tie the OOM entries to those request IDs/timestamps. Nor do later passing smoke tests rule out a failure during real model allocation or inference.
+
+Do not implement cache, stream, model-size or concurrency changes from this excerpt alone. First recover exact timestamps and request/job context for the OOM and memory-guard entries (small, redacted windows around lines 16,720; 41,998; 81,176–81,222; 159,309; 193,818; 205,403; 215,487; and 217,774). Then correlate the earliest relevant Metal event with macOS unified logs. If those timestamps cannot be recovered, explicitly record that chronology is unresolved. Current server PID 41359 should be used for any future process attribution, after read-only confirmation that it is still the serving process.
