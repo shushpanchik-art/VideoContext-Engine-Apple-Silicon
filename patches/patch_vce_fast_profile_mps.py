@@ -263,52 +263,6 @@ def _remove_ast_nodes(source: str, names: set[str]) -> str:
 
 
 
-def _remove_optional_ast_nodes(source: str, names: set[str]) -> str:
-    """Remove optional top-level obsolete definitions, rejecting duplicate/ambiguous names."""
-    tree = ast.parse(source)
-    lines = source.splitlines(keepends=True)
-    offsets = [0]
-    for line in lines:
-        offsets.append(offsets[-1] + len(line))
-
-    matches: dict[str, list[ast.AST]] = {name: [] for name in names}
-    for node in tree.body:
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if node.name in matches:
-                matches[node.name].append(node)
-        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            for target in targets:
-                if isinstance(target, ast.Name) and target.id in matches:
-                    matches[target.id].append(node)
-                    break
-
-    ambiguous = sorted(name for name, nodes in matches.items() if len(nodes) > 1)
-    if ambiguous:
-        raise ValueError(
-            "Optional obsolete runtime definition is ambiguous: "
-            + ", ".join(ambiguous)
-            + "; no files were written."
-        )
-
-    spans: list[tuple[int, int]] = []
-    for nodes in matches.values():
-        if not nodes:
-            continue
-        node = nodes[0]
-        start_line = node.lineno
-        end_line = getattr(node, "end_lineno", node.lineno)
-        start = offsets[start_line - 1]
-        end = offsets[end_line]
-        while end < len(source) and source[end] in "\r\n":
-            end += 1
-        spans.append((start, end))
-
-    for start, end in sorted(spans, reverse=True):
-        source = source[:start] + source[end:]
-    return source
-
-
 def _serialize_whisper_before_vlm(source: str) -> str:
     """Await the single Whisper task at its creation site, preserving intervening guards."""
     pattern = re.compile(
@@ -574,9 +528,33 @@ def patch_engine(source: str) -> str:
         },
     )
 
-    # Some user installations carry this additional optional MLX tokenizer helper.
-    # Remove it when present, but do not require the upstream baseline to define it.
-    source = _remove_optional_ast_nodes(source, {"_vce_whisper_supported_languages"})
+    # Some local engine variants expose the Whisper language catalog through
+    # an extra helper. Preserve its call sites, but source the catalog from the
+    # installed openai-whisper package instead of the removed MLX Whisper backend.
+    legacy_language_helper = "_vce_whisper_supported_languages"
+    legacy_language_import = "from mlx_whisper.tokenizer import LANGUAGES"
+    helper_references = source.count(legacy_language_helper)
+    language_imports = source.count(legacy_language_import)
+    if helper_references:
+        if language_imports != 1:
+            raise ValueError(
+                "Local Whisper language helper: expected exactly one MLX tokenizer import, "
+                f"found {language_imports}; no files were written."
+            )
+        source = source.replace(
+            legacy_language_import,
+            "from whisper.tokenizer import LANGUAGES",
+            1,
+        )
+        source = source.replace(
+            legacy_language_helper,
+            "_vce_openai_whisper_supported_languages",
+        )
+    elif language_imports:
+        raise ValueError(
+            "MLX tokenizer import exists without its expected local helper; "
+            "no files were written."
+        )
 
     source = source.replace(
         "# VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1",
