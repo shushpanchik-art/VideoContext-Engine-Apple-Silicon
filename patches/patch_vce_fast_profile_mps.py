@@ -235,6 +235,50 @@ def _remove_ast_nodes(source: str, names: set[str]) -> str:
     return source
 
 
+
+def _serialize_whisper_before_vlm(source: str) -> str:
+    """Await the single Whisper task at its creation site, preserving intervening guards.
+
+    The insertion-only edit supports the target runtime shape where a Metal
+    failure latch sits between Whisper task creation and the VLM branch. It
+    intentionally fails closed on missing/duplicate task sites or ambiguous
+    indentation and never replaces the guard or VLM block.
+    """
+    pattern = re.compile(
+        r"(?m)^(?P<indent>[ \\t]+)_vce_whisper_task = "
+        r"asyncio\\.create_task\\(_vce_run_whisper_mps_stage\\(\\)\\)[ \\t]*$"
+    )
+    matches = list(pattern.finditer(source))
+    if len(matches) != 1:
+        raise ValueError(
+            "Sequential Whisper-before-VLM scheduling: expected exactly one "
+            f"Whisper task creation, found {len(matches)}; no files were written."
+        )
+    match = matches[0]
+    indent = match.group("indent")
+    line_start = source.rfind("\\n", 0, match.start()) + 1
+    prefix = source[:line_start]
+    if not re.search(r"(?m)^" + re.escape(indent[:-4]) + r"if not skip_audio:\\s*$", prefix):
+        raise ValueError(
+            "Whisper task creation is not directly governed by the expected "
+            "'if not skip_audio' block; refusing to patch."
+        )
+    insertion = (
+        "\\n" + indent
+        + "# Await ASR before loading Qwen: MPS Whisper and MLX/Metal VLM\\n"
+        + indent + "# are intentionally serialized on the shared Apple GPU.\\n"
+        + indent + "whisper_segments = await _vce_whisper_task"
+    )
+    result = source[:match.end()] + insertion + source[match.end():]
+    # Verify the await precedes the next VLM branch and that any intervening
+    # Metal failure guard remains byte-for-byte present.
+    await_pos = result.find("whisper_segments = await _vce_whisper_task", match.start())
+    vlm_pos = result.find("if run_vlm:", await_pos)
+    if await_pos < 0 or vlm_pos < 0 or await_pos >= vlm_pos:
+        raise ValueError("Whisper await/VLM ordering postcondition failed.")
+    ast.parse(result)
+    return result
+
 def patch_engine(source: str) -> str:
     if MARKER in source:
         ast.parse(source)
@@ -290,18 +334,10 @@ def patch_engine(source: str) -> str:
         "Whisper memory release",
     )
 
-    old_launch = '''                if not skip_audio:
-                    _vce_whisper_task = asyncio.create_task(_vce_run_whisper_mps_stage())
-
-                if run_vlm:'''
-    new_launch = '''                if not skip_audio:
-                    _vce_whisper_task = asyncio.create_task(_vce_run_whisper_mps_stage())
-                    # Await ASR before loading Qwen: MPS Whisper and MLX/Metal VLM
-                    # are intentionally serialized on the shared Apple GPU.
-                    whisper_segments = await _vce_whisper_task
-
-                if run_vlm:'''
-    source = _replace_exact(source, old_launch, new_launch, "Sequential Whisper-before-VLM scheduling")
+    # Insert the await immediately after task creation. This deliberately does
+    # not replace/rewrite the following VLM guard block: target Macs may carry a
+    # local Metal-failure latch between task creation and "if run_vlm".
+    source = _serialize_whisper_before_vlm(source)
 
     source = _replace_exact(
         source,
