@@ -107,6 +107,65 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn("import threading as _vce_threading", upgraded)
         self.assertIn("_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()", upgraded)
 
+    def test_vlm_and_text_llm_use_one_shared_llama_cpp_metal_backend(self):
+        patched = self.patcher.patch_engine(self.engine)
+        tree = ast.parse(patched)
+
+        self.assertIn("VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1", patched)
+        self.assertIn("class LlamaServerEngine(VLMProvider):", patched)
+        self.assertIn("_vce_llama_chat_completion", patched)
+        self.assertIn("_vce_ensure_llama_server(model_path)", patched)
+        self.assertIn('LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"', patched)
+        self.assertIn('TEXT_LLM_DEFAULT_MODEL = LLAMA_MODEL_ID', patched)
+        self.assertIn('allowed_vlm = {"gguf/Qwen3.5-9B-GGUF:Q4_K_M"}', patched)
+        self.assertIn("await asyncio.to_thread(", patched)
+        self.assertIn("backend=llama.cpp device=Metal", patched)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    self.assertFalse(alias.name == "mlx" or alias.name.startswith(("mlx.", "mlx_vlm", "mlx_whisper")))
+            elif isinstance(node, ast.ImportFrom):
+                module = node.module or ""
+                self.assertFalse(module == "mlx" or module.startswith(("mlx.", "mlx_vlm", "mlx_whisper")))
+
+        for forbidden in (
+            "mlx-community/",
+            "class MLXEngine",
+            "from mlx_vlm",
+            "import mlx.core",
+            "_vce_mlx_run",
+        ):
+            self.assertNotIn(forbidden, patched)
+
+    def test_mps_whisper_and_ocr_profile_survive_llama_cpp_migration(self):
+        patched = self.patcher.patch_engine(self.engine)
+        self.assertIn("VCE_PYTORCH_WHISPER_MPS_SERIAL_V1", patched)
+        self.assertIn('return "mps"', patched)
+        self.assertIn('whisper.load_model(model_name, device=device)', patched)
+        self.assertIn('"backend": "openai-whisper"', patched)
+        self.assertIn("enable_ocr_cache: bool = Form(bool(setting", patched)
+        self.assertIn("_vce_cached_apple_vision_ocr", patched)
+        self.assertIn("enable_ffmpeg_ocr: bool = Form(bool(setting", patched)
+        self.assertIn("ffmpeg_ocr_workers: int = Form(int(setting", patched)
+        self.assertIn("await torch.mps.empty_cache()", patched)
+
+    def test_ui_uses_shared_llama_cpp_model_and_keeps_ocr_and_mps_controls(self):
+        patched = self.patcher.patch_ui(self.ui)
+        self.assertIn("VCE_FAST_MPS_LLAMA_CPP_UI_V1", patched)
+        self.assertIn("Apple Silicon / llama.cpp Metal", patched)
+        self.assertIn('id="cfg-vlm-model" type="text" value="gguf/Qwen3.5-9B-GGUF:Q4_K_M"', patched)
+        self.assertIn('id="cfg-text-llm-model" type="text" value="gguf/Qwen3.5-9B-GGUF:Q4_K_M"', patched)
+        self.assertIn('id="cfg-ocr-cache"', patched)
+        self.assertIn("enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked", patched)
+        self.assertIn('id="cfg-apple-ocr"', patched)
+        self.assertIn('id="cfg-ffmpeg-ocr"', patched)
+        self.assertIn('id="cfg-whisper-acceleration"', patched)
+        self.assertIn('id="cfg-text-llm-enabled"', patched)
+        for forbidden in ("mlx-community/", "MLX", "mlx_vlm", "cfg-mlx-whisper", "enable_mlx_whisper"):
+            self.assertNotIn(forbidden, patched)
+        self.assertEqual(self.patcher.patch_ui(patched), patched)
+
     def test_settings_api_ocr_defaults_preserve_recognition_languages_layout(self):
         compact = '"analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
         with_languages = '"analysis_mode": "full", "recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"])), "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 2,'
