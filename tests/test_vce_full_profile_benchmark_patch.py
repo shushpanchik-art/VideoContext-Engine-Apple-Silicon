@@ -376,6 +376,12 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertEqual(result["status"], "failed")
         self.assertIn("HTTP response lacks the required non-empty meta payload", result["classification_reasons"])
 
+    def test_vlm_smoke_launcher_passes_explicit_output_root(self):
+        launcher = ROOT / "scripts" / "run_vce_vlm_smoke_diagnostic.command"
+        source = launcher.read_text(encoding="utf-8")
+        self.assertIn('--out-root "$RUN_OUTPUT"', source)
+        self.assertNotIn('export VCE_BENCH_RESULT_ROOT=', source)
+
     def test_patch_is_idempotent(self):
         once = PATCHER.patch_source(STUB_RUNNER)
         self.assertEqual(PATCHER.patch_source(once), once)
