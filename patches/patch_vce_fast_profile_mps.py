@@ -263,6 +263,52 @@ def _remove_ast_nodes(source: str, names: set[str]) -> str:
 
 
 
+def _remove_optional_ast_nodes(source: str, names: set[str]) -> str:
+    """Remove optional top-level obsolete definitions, rejecting duplicate/ambiguous names."""
+    tree = ast.parse(source)
+    lines = source.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+
+    matches: dict[str, list[ast.AST]] = {name: [] for name in names}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name in matches:
+                matches[node.name].append(node)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in matches:
+                    matches[target.id].append(node)
+                    break
+
+    ambiguous = sorted(name for name, nodes in matches.items() if len(nodes) > 1)
+    if ambiguous:
+        raise ValueError(
+            "Optional obsolete runtime definition is ambiguous: "
+            + ", ".join(ambiguous)
+            + "; no files were written."
+        )
+
+    spans: list[tuple[int, int]] = []
+    for nodes in matches.values():
+        if not nodes:
+            continue
+        node = nodes[0]
+        start_line = node.lineno
+        end_line = getattr(node, "end_lineno", node.lineno)
+        start = offsets[start_line - 1]
+        end = offsets[end_line]
+        while end < len(source) and source[end] in "\\r\\n":
+            end += 1
+        spans.append((start, end))
+
+    for start, end in sorted(spans, reverse=True):
+        source = source[:start] + source[end:]
+    return source
+
+
 def _serialize_whisper_before_vlm(source: str) -> str:
     """Await the single Whisper task at its creation site, preserving intervening guards."""
     pattern = re.compile(
@@ -528,6 +574,10 @@ def patch_engine(source: str) -> str:
         },
     )
 
+    # Some user installations carry this additional optional MLX tokenizer helper.
+    # Remove it when present, but do not require the upstream baseline to define it.
+    source = _remove_optional_ast_nodes(source, {"_vce_whisper_supported_languages"})
+
     source = source.replace(
         "# VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1",
         "# VCE_FAST_PROFILE_BASELINE_OCR_CACHE_V1",
@@ -549,6 +599,7 @@ def patch_engine(source: str) -> str:
         "enable_fast_scene_detection",
         "_VCEWhisperMLXCPU",
         "_vce_validate_mlx_whisper_model",
+        "_vce_whisper_supported_languages",
         "mlx_whisper",
         "_vce_detect_scenes_fast",
         "_vce_adaptive_keyframe_limit",
