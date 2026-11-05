@@ -74,6 +74,14 @@ print("Listener start time is newer than the patched source file.")
 PY
 
 /usr/bin/curl --fail --silent --show-error "http://127.0.0.1:7555/openapi.json" -o /dev/null || fail "VCE API health check failed on port 7555."
+
+# Do not overlap this diagnostic with another request already using the VCE API.
+ACTIVE_CONNECTIONS="$(/usr/sbin/lsof -nP -iTCP:7555 -sTCP:ESTABLISHED 2>/dev/null | awk 'NR > 1 {print}' || true)"
+if [[ -n "$ACTIVE_CONNECTIONS" ]]; then
+  printf '%s\n' "$ACTIVE_CONNECTIONS" >&2
+  fail "An established client connection already exists on port 7555. Wait until the prior VCE request has ended, then rerun."
+fi
+
 [[ -r "$SERVER_LOG" ]] || fail "Cannot read the configured VCE server log: $SERVER_LOG"
 
 STAMP="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
