@@ -21,6 +21,7 @@ import json
 import os
 import threading as _vce_threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 _VCE_MLX_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
