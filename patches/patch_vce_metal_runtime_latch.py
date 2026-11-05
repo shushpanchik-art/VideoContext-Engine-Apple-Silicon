@@ -199,11 +199,16 @@ def patch_source(source: str) -> str:
     patched = _replace_in_function(
         patched,
         "_vce_describe_scene_with_memory_fallback",
-        "            _vce_clear_metal_memory_caches()\n            message = (\n",
-        "            print(\"[VCE MLX] Skipping post-timeout Metal cache synchronization; "
-        "the queue is in a failed state.\", flush=True)\n"
+        "            try:\n"
+        "                vlm_engine.unload_model()\n"
+        "            except Exception:\n"
+        "                pass\n"
+        "            _vce_clear_metal_memory_caches()\n"
         "            message = (\n",
-        "post-timeout cache cleanup",
+        "            print(\"[VCE MLX] Skipping model unload and cache operations after fatal Metal timeout; "
+        "restart the VCE process to release GPU resources.\", flush=True)\n"
+        "            message = (\n",
+        "post-timeout model unload and cache cleanup",
     )
 
     # If a prior request failed in this process, keep subsequent requests on
