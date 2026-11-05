@@ -237,16 +237,10 @@ def _remove_ast_nodes(source: str, names: set[str]) -> str:
 
 
 def _serialize_whisper_before_vlm(source: str) -> str:
-    """Await the single Whisper task at its creation site, preserving intervening guards.
-
-    The insertion-only edit supports the target runtime shape where a Metal
-    failure latch sits between Whisper task creation and the VLM branch. It
-    intentionally fails closed on missing/duplicate task sites or ambiguous
-    indentation and never replaces the guard or VLM block.
-    """
+    """Await the single Whisper task at its creation site, preserving intervening guards."""
     pattern = re.compile(
-        r"(?m)^(?P<indent>[ \\t]+)_vce_whisper_task = "
-        r"asyncio\\.create_task\\(_vce_run_whisper_mps_stage\\(\\)\\)[ \\t]*$"
+        r"(?m)^(?P<indent>[ \t]+)_vce_whisper_task = "
+        r"asyncio\.create_task\(_vce_run_whisper_mps_stage\(\)\)[ \t]*$"
     )
     matches = list(pattern.finditer(source))
     if len(matches) != 1:
@@ -256,22 +250,24 @@ def _serialize_whisper_before_vlm(source: str) -> str:
         )
     match = matches[0]
     indent = match.group("indent")
-    line_start = source.rfind("\\n", 0, match.start()) + 1
+    line_start = source.rfind("\n", 0, match.start()) + 1
     prefix = source[:line_start]
-    if not re.search(r"(?m)^" + re.escape(indent[:-4]) + r"if not skip_audio:\\s*$", prefix):
+    parent_indent = indent[:-4]
+    if not re.search(
+        r"(?m)^" + re.escape(parent_indent) + r"if not skip_audio:\s*$",
+        prefix,
+    ):
         raise ValueError(
             "Whisper task creation is not directly governed by the expected "
             "'if not skip_audio' block; refusing to patch."
         )
     insertion = (
-        "\\n" + indent
-        + "# Await ASR before loading Qwen: MPS Whisper and MLX/Metal VLM\\n"
-        + indent + "# are intentionally serialized on the shared Apple GPU.\\n"
+        "\n" + indent
+        + "# Await ASR before loading Qwen: MPS Whisper and MLX/Metal VLM\n"
+        + indent + "# are intentionally serialized on the shared Apple GPU.\n"
         + indent + "whisper_segments = await _vce_whisper_task"
     )
     result = source[:match.end()] + insertion + source[match.end():]
-    # Verify the await precedes the next VLM branch and that any intervening
-    # Metal failure guard remains byte-for-byte present.
     await_pos = result.find("whisper_segments = await _vce_whisper_task", match.start())
     vlm_pos = result.find("if run_vlm:", await_pos)
     if await_pos < 0 or vlm_pos < 0 or await_pos >= vlm_pos:
