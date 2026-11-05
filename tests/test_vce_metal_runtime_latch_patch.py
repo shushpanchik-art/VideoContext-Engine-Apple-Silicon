@@ -103,6 +103,12 @@ class MetalLatchPatcherTests(unittest.TestCase):
         self.assertIn('run_vlm = False', patched)
         self.assertIn('Skipping model unload and cache operations after fatal Metal timeout', patched)
         self.assertIn('Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout', patched)
+        fallback_start = patched.index("def _vce_describe_scene_with_memory_fallback(")
+        timeout_start = patched.index("if _vce_is_metal_command_timeout(exc):", fallback_start)
+        oom_start = patched.index('print("[VLM memory guard] Metal OOM', timeout_start)
+        timeout_branch = patched[timeout_start:oom_start]
+        self.assertNotIn("vlm_engine.unload_model()", timeout_branch)
+        self.assertNotIn("_vce_clear_metal_memory_caches()", timeout_branch)
 
     def test_patch_is_idempotent(self):
         once = patch_source(FIXTURE)
