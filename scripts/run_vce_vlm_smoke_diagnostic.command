@@ -8,12 +8,12 @@ PATCHER_REF="db54501d459569eaa3e75a8e22ef1385ecee68f9"
 EXPECTED_ENGINE_SHA="eacd4eecfda2cc8a2c71203bf5ae3589611f5fd8d0405ded747146a78f147055"
 EXPECTED_BACKUP_SUFFIX=".backup-20261105T000114"
 
-PROJECT_DIR="\${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine-Apple-Silicon}"
-ENGINE_SOURCE="\${VCE_ENGINE_SOURCE:-$PROJECT_DIR/VideoContextEngine_v3.19.py}"
-SERVER_LOG="\${VCE_SERVER_LOG:-$HOME/Library/Logs/VideoContext Engine/server.log}"
-RESULT_ROOT="\${VCE_VLM_DIAG_RESULT_ROOT:-$HOME/Downloads/VCE_VLM_Diagnostic}"
-SOURCE_VIDEO="\${VCE_VIDEO_PATH:-}"
-EXPLICIT_TEST_VIDEO="\${VCE_VLM_TEST_VIDEO:-}"
+PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine-Apple-Silicon}"
+ENGINE_SOURCE="${VCE_ENGINE_SOURCE:-$PROJECT_DIR/VideoContextEngine_v3.19.py}"
+SERVER_LOG="${VCE_SERVER_LOG:-$HOME/Library/Logs/VideoContext Engine/server.log}"
+RESULT_ROOT="${VCE_VLM_DIAG_RESULT_ROOT:-$HOME/Downloads/VCE_VLM_Diagnostic}"
+SOURCE_VIDEO="${VCE_VIDEO_PATH:-}"
+EXPLICIT_TEST_VIDEO="${VCE_VLM_TEST_VIDEO:-}"
 
 fail() { printf 'ERROR: %s\n' "$*" >&2; exit 2; }
 note() { printf '[VCE VLM diagnostic] %s\n' "$*"; }
@@ -54,7 +54,7 @@ PROC_CMD="$(ps -p "$SERVER_PID" -o command= | sed 's/^[[:space:]]*//')"
 PROC_CWD="$(/usr/sbin/lsof -a -p "$SERVER_PID" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -n 1 || true)"
 note "VCE listener PID: $SERVER_PID"
 note "Listener command: $PROC_CMD"
-note "Listener working directory: \${PROC_CWD:-unavailable}"
+note "Listener working directory: ${PROC_CWD:-unavailable}"
 
 # A server older than the patched source may still have the pre-patch code in memory.
 "$PYTHON" - "$SERVER_PID" "$ENGINE_SOURCE" <<'PY'
@@ -79,7 +79,7 @@ STAMP="$(/bin/date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="$RESULT_ROOT/$STAMP"
 RUN_OUTPUT="$RUN_DIR/runner-output"
 mkdir -p "$RUN_OUTPUT"
-TMP_DIR="$(/usr/bin/mktemp -d "\${TMPDIR:-/tmp}/vce_vlm_diag.XXXXXX")"
+TMP_DIR="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/vce_vlm_diag.XXXXXX")"
 cleanup() { /bin/rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
 
@@ -108,7 +108,7 @@ raise SystemExit(0 if 0.5 <= value <= 30.0 else 1)
 PY
 )" || {
   if [[ -n "$EXPLICIT_TEST_VIDEO" ]]; then
-    fail "VCE_VLM_TEST_VIDEO must be between 0.5 and 30 seconds; found duration: \${DURATION:-unknown}"
+    fail "VCE_VLM_TEST_VIDEO must be between 0.5 and 30 seconds; found duration: ${DURATION:-unknown}"
   fi
   command -v ffmpeg >/dev/null 2>&1 || fail "Source video exceeds 30 seconds and ffmpeg is unavailable. Provide VCE_VLM_TEST_VIDEO instead."
   VIDEO_PATH="$RUN_DIR/vlm-smoke-input.mp4"
@@ -356,10 +356,10 @@ CONTRADICTION="$("$PYTHON" - "$RUN_DIR/diagnostic_summary.json" <<'PY'
 import json, sys
 from pathlib import Path
 data = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
-raise SystemExit(0 if data.get("run_vlm_metadata_contradiction") else 1)
+print("true" if data.get("run_vlm_metadata_contradiction") else "false")
 PY
-)" || CONTRADICTION="false"
-if [[ "$CONTRADICTION" == "0" ]]; then
+)"
+if [[ "$CONTRADICTION" == "true" ]]; then
   fail "Detected run_vlm=False together with positive VLM evidence. The report/request metadata contradiction is reproduced."
 fi
 if [[ "$RUN_EXIT" -ne 0 ]]; then
