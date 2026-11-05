@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import ast
+import asyncio
 import json
 import os
 import sys
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 import unittest
 from pathlib import Path
 
@@ -20,7 +22,7 @@ import os
 import threading as _vce_threading
 import time
 
-_VCE_MLX_EXECUTOR = object()
+_VCE_MLX_EXECUTOR = ThreadPoolExecutor(max_workers=1)
 
 def _vce_exception_chain_text(exc):
     return str(exc)
@@ -120,6 +122,33 @@ class MetalLatchPatcherTests(unittest.TestCase):
         damaged = FIXTURE.replace("release_accelerator_memory('before VLM load')", "release_memory()")
         with self.assertRaisesRegex(ValueError, "analyze_video VLM load guard"):
             patch_source(damaged)
+
+    def test_executor_latches_uncaught_timeout_and_blocks_next_submission(self):
+        patched = patch_source(FIXTURE)
+        namespace = {
+            "_vce_threading": threading,
+            "_vce_exception_chain_text": lambda exc: str(exc),
+            "os": os,
+            "time": time,
+            "json": json,
+        }
+        exec(compile(patched, "fixture.py", "exec"), namespace)
+        ran = []
+
+        def fail_with_timeout():
+            ran.append("first")
+            raise RuntimeError("[METAL] GPU Timeout Error (kIOGPUCommandBufferCallbackErrorTimeout)")
+
+        async def exercise():
+            with self.assertRaisesRegex(RuntimeError, "GPU Timeout Error"):
+                await namespace["_vce_mlx_run"](fail_with_timeout)
+            with self.assertRaisesRegex(RuntimeError, "Restart VideoContext Engine"):
+                await namespace["_vce_mlx_run"](lambda: ran.append("second"))
+
+        asyncio.run(exercise())
+        self.assertEqual(ran, ["first"])
+        self.assertEqual(namespace["_vce_metal_runtime_failure"]()["stage"], "fail_with_timeout")
+        namespace["_VCE_MLX_EXECUTOR"].shutdown(wait=True)
 
 
 if __name__ == "__main__":
