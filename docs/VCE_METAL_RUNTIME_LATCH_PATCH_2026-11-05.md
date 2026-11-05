@@ -19,7 +19,7 @@ The archive does **not** establish the initiating low-level GPU fault. It also d
 - \`analyze_video()\` starts CPU Whisper asynchronously before VLM model loading. Whisper runs on the CPU stream while VLM work uses the GPU stream.
 - The timeout fallback currently disables VLM only for that request. It does not record a process-wide failed Metal state, so later Text LLM / VLM calls can still reach MLX/Metal.
 - \`run_text_llm_postprocess()\` independently configures Metal and loads an mlx-vlm model. Therefore it can submit more work after the earlier VLM timeout.
-- The timeout branch also calls the shared Metal cache cleanup helper. That helper attempts \`mx.synchronize()\` before \`mx.clear_cache()\`. The new patch skips this explicit synchronization/cache-clear step on the fatal-timeout branch; the ordinary OOM recovery branch is unchanged.
+- The timeout branch previously called \`vlm_engine.unload_model()\` and the shared cache cleanup helper; the latter calls \`mx.synchronize()\` before \`mx.clear_cache()\`. Because the unload implementation was not available in the diagnostic excerpt and could itself synchronize or release MLX arrays, the patch now skips both unload and cache operations after a fatal timeout. GPU resources remain resident until the required process restart. The ordinary allocation-OOM recovery branch is unchanged.
 
 ## Proposed defensive change
 
@@ -30,7 +30,7 @@ The archive does **not** establish the initiating low-level GPU fault. It also d
 3. The VLM timeout fallback latches the process before returning its existing fallback sentinel.
 4. \`_vce_configure_mlx_metal()\`, \`_vce_prepare_mlx_vlm_runtime()\` and \`run_text_llm_postprocess()\` fail closed before starting GPU operations if the process is already latched.
 5. Later analyze requests skip VLM model loading and continue on the normal audio/OCR/report path when possible.
-6. The explicit MLX synchronize/cache-clear call is skipped in the fatal-timeout branch only. The separate ordinary allocation-OOM recovery path remains unchanged.
+6. Model unload and cache/synchronization calls are skipped in the fatal-timeout branch because their implementation may touch the failed Metal queue. GPU memory may remain occupied until process restart. The separate ordinary allocation-OOM recovery path remains unchanged.
 7. The latch resets only when the VCE process is restarted. This is intentional: the patch does not try to repair a failed Metal command queue in place.
 
 This patch is **recovery hardening, not a fix for the initiating GPU timeout**. It does not suppress or reclassify Metal errors as success, alter settings, change model sizes, disable CPU Whisper, or touch \`main\`.
