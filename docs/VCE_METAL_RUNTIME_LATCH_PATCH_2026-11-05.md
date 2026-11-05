@@ -28,7 +28,7 @@ The archive does **not** establish the initiating low-level GPU fault. It also d
 1. Adds a process-local, thread-safe \`FAILED\` latch that records only the first fatal Metal timeout / \`SubmissionsIgnored\` event (stage, PID, thread, timestamp and bounded exception text).
 2. The central \`_vce_mlx_run()\` executor refuses new GPU work once latched and latches uncaught timeout errors, including those raised from Text LLM.
 3. The VLM timeout fallback latches the process before returning its existing fallback sentinel.
-4. \`_vce_configure_mlx_metal()\`, \`_vce_prepare_mlx_vlm_runtime()\` and \`run_text_llm_postprocess()\` fail closed before starting GPU operations if the process is already latched.
+4. \`_vce_configure_mlx_metal()\`, \`_vce_prepare_mlx_vlm_runtime()\` and \`run_text_llm_postprocess()\` fail closed before starting GPU operations if the process is already latched. Text LLM's broad streaming-fallback handlers now re-raise Metal timeout / \`SubmissionsIgnored\` instead of retrying with another GPU generation call; its finalizer records uncaught Metal timeouts and skips explicit MLX cache cleanup once the latch is set.
 5. Later analyze requests skip VLM model loading and continue on the normal audio/OCR/report path when possible.
 6. Model unload and cache/synchronization calls are skipped in the fatal-timeout branch and during application shutdown because their implementation may touch the failed Metal queue. GPU memory remains resident until the process exits; the OS then reclaims it. The separate ordinary allocation-OOM recovery path remains unchanged.
 7. The latch resets only when the VCE process is restarted. This is intentional: the patch does not try to repair a failed Metal command queue in place.
@@ -58,7 +58,7 @@ After applying, restart VideoContext Engine once so the patched module is loaded
 ## Validation completed here
 
 - At commit `f9a02cb9d35d18801eca821707a0c2e9a1531670`, the benchmark-tests GitHub Actions job discovered and passed the initial four fixture tests (patch generation/parse, idempotence, first-failure latch semantics, and fail-closed behavior for missing anchors).
-- Subsequent revisions added an executor-level timeout/latch test, shutdown-teardown protection, and assertions that the fatal-timeout path does not call model unload or MLX cache/synchronization helpers. No CI result has been retrieved for the latest branch head, so those later changes remain unverified by GitHub Actions.
+- Subsequent revisions added an executor-level timeout/latch test, shutdown-teardown protection, and two Text LLM tests that prove streaming timeout exceptions are not swallowed into a second GPU submission. They also assert that the fatal-timeout path skips model unload and explicit MLX cache cleanup. The current fixture suite contains seven tests. No CI result has been retrieved for the latest branch head, so these later changes remain unverified by GitHub Actions.
 - All tests use a representative source fixture. They are not a substitute for running the patcher against the complete local engine file or testing on the M1 Max Metal runtime.
 
 ## Remaining unknowns
