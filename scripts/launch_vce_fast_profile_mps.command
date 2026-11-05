@@ -8,7 +8,7 @@ REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 PATCHER_REF="7d050795888cb3de1848f99d16635497bfbac4b8"
 PATCHER_PATH="patches/patch_vce_fast_profile_mps.py"
 
-PROJECT_DIR="\${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine-Apple-Silicon}"
+PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine-Apple-Silicon}"
 PYTHON="$PROJECT_DIR/.venv/bin/python"
 LOG_DIR="$HOME/Library/Logs"
 LOG_FILE="$LOG_DIR/VideoContext Engine fast MPS.log"
@@ -85,7 +85,7 @@ printf 'OCR tools OK: FFmpeg + Tesseract rus+eng.\n'
 LISTENER="$(lsof -nP -iTCP:7555 -sTCP:LISTEN 2>/dev/null | awk 'NR > 1 {print $2}' | sort -u || true)"
 [[ -z "$LISTENER" ]] || fail "Port 7555 is already occupied by PID(s): $LISTENER. Stop the existing VCE instance first; this launcher will not replace a running server."
 
-TMP_DIR="$(mktemp -d "\${TMPDIR:-/tmp}/vce_fast_mps_launcher.XXXXXX")"
+TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vce_fast_mps_launcher.XXXXXX")"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT INT TERM
 PATCHER="$TMP_DIR/patch_vce_fast_profile_mps.py"
