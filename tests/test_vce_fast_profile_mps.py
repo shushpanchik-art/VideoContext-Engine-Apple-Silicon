@@ -51,6 +51,10 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn('"recognition_languages": _vce_legacy_apple_languages(persisted.get("apple_ocr_languages", ["ru-RU", "en-US"]))', patched)
         self.assertIn('"enable_ffmpeg_ocr": True, "ffmpeg_ocr_interval": 5,\n        "ffmpeg_ocr_workers": 3,', patched)
 
+    def test_forbidden_reference_diagnostic_reports_line_numbers_only(self):
+        source = "first line\\nimport mlx_whisper\\nthird line\\nmlx_whisper.transcribe()"
+        self.assertEqual(self.patcher._line_numbers_containing(source, "mlx_whisper"), [2, 4])
+
     def test_settings_api_ocr_anchor_rejects_zero_matches(self):
         variants = (("compact-anchor", "replacement"), ("language-anchor", "replacement"))
         with self.assertRaisesRegex(ValueError, "found 0"):
