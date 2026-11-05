@@ -43,13 +43,13 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
     def test_local_mlx_language_helper_is_preserved_with_openai_whisper_tokenizer(self):
         helper = (
-            "\\ndef _vce_whisper_supported_languages():\\n"
-            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
-            "    return LANGUAGES\\n"
-            "\\ndef _vce_language_picker():\\n"
-            "    return _vce_whisper_supported_languages()\\n"
-            "\\ndef _vce_language_validator():\\n"
-            "    return _vce_whisper_supported_languages()\\n"
+            "\ndef _vce_whisper_supported_languages():\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\n"
+            "    return LANGUAGES\n"
+            "\ndef _vce_language_picker():\n"
+            "    return _vce_whisper_supported_languages()\n"
+            "\ndef _vce_language_validator():\n"
+            "    return _vce_whisper_supported_languages()\n"
         )
         variant = self.engine + helper
 
