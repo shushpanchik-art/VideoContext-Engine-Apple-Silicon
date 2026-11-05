@@ -86,7 +86,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn('id="cfg-apple-ocr"', patched)
         self.assertIn('id="cfg-ffmpeg-ocr"', patched)
         self.assertIn("enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked", patched)
-        self.assertIn("VCE_FAST_PROFILE_MPS_UI_V1", patched)
+        self.assertIn("VCE_FAST_MPS_PROFILE_UI_V1", patched)
 
     def test_settings_migration_preserves_prompts_and_removes_experimental_keys(self):
         original = {
