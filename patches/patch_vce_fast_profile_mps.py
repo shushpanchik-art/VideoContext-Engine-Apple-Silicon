@@ -718,8 +718,7 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
     )
     function_source = _replace_exact(
         function_source,
-        '''        model, processor = load(model_path)
-        config = load_config(model_path)
+        '''        _vce_ensure_llama_server(model_path)
 ''',
         "",
         "Text LLM MLX model load"
@@ -899,7 +898,13 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
     source = source.replace("mlx-community/Qwen3-VL-8B-Instruct-4bit", LLAMA_MODEL_ID)
     source = source.replace("mlx-community/Qwen3-VL-4B-Instruct-4bit", LLAMA_MODEL_ID)
     source = source.replace("mlx-community/Qwen3.5-9B-MLX-4bit", LLAMA_MODEL_ID)
-    source = source.replace('allowed_vlm = {' + repr(LLAMA_MODEL_ID) + ', ' + repr(LLAMA_MODEL_ID) + '}', 'allowed_vlm = {' + repr(LLAMA_MODEL_ID) + '}')
+    source, allowed_count = re.subn(
+        r"(?m)^[ \t]*allowed_vlm = \{[^\n]*\}$",
+        '    allowed_vlm = {"' + LLAMA_MODEL_ID + '"}',
+        source,
+    )
+    if allowed_count != 1:
+        raise ValueError(f"Expected one VLM model allow-list, found {allowed_count}.")
     source = source.replace(
         "VCE_MLX_RUNTIME_DIAGNOSTICS",
         "VCE_BACKEND_DIAGNOSTICS",
@@ -928,8 +933,7 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
     source = source.replace("CPU Whisper / MLX VLM", "PyTorch Whisper MPS / llama.cpp Metal")
     source = source.replace("before the MLX/Metal VLM stage", "before the llama.cpp Metal VLM stage")
     source = source.replace("PyTorch MPS -> MLX VLM", "PyTorch MPS -> llama.cpp Metal VLM + Text LLM")
-    source = source.replace("MLX", "llama.cpp")
-    source = source.replace("mlx", "llama.cpp")
+    source = source.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B-GGUF Q4_K_M")
     if LLAMA_MARKER not in source:
         source = source.replace(
             "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1",
