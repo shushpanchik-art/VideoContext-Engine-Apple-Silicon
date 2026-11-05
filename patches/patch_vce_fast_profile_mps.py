@@ -23,13 +23,15 @@ from typing import Any
 
 MARKER = "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1"
 UI_MARKER = "VCE_FAST_MPS_PROFILE_UI_V1"
+LLAMA_MARKER = "VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1"
+LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"
 
 PROFILE: dict[str, Any] = {
     "analysis_mode": "full",
-    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "vlm_model": LLAMA_MODEL_ID,
     "whisper_model": "large",
     "text_llm_enabled": True,
-    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "text_llm_model": LLAMA_MODEL_ID,
     "text_llm_max_tokens": 4096,
     "vlm_resolution": 1280,
     "scene_threshold": 0.15,
@@ -53,7 +55,6 @@ PROFILE: dict[str, Any] = {
     "skip_audio": False,
     "skip_visual": False,
     "ram_mode": "ram-",
-    "mlx_device": "metal",
     "response_format": "json",
 }
 
@@ -61,6 +62,7 @@ REMOVED_SETTINGS = {
     "enable_adaptive_keyframes",
     "enable_mlx_whisper",
     "enable_fast_scene_detection",
+    "mlx_device",
 }
 
 OLD_WHISPER_BLOCK = '''def resolve_whisper_device(acceleration_enabled: bool = True) -> str:
@@ -116,7 +118,7 @@ def load_whisper_model(model_name: str, acceleration_enabled: bool = True):
         raise RuntimeError(
             f"Whisper device mismatch: requested {device}, model reports {actual_type}."
         )
-    VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"] = {
+    VCE_BACKEND_DIAGNOSTICS["whisper"] = {
         "backend": "openai-whisper",
         "device": device,
         "model": model_name,
@@ -325,6 +327,623 @@ def _serialize_whisper_before_vlm(source: str) -> str:
         raise ValueError("Whisper await/VLM ordering postcondition failed.")
     ast.parse(result)
     return result
+
+def _remove_optional_ast_nodes(source: str, names: set[str]) -> str:
+    """Remove optional top-level definitions/imports, rejecting duplicate names."""
+    tree = ast.parse(source)
+    offsets = [0]
+    for line in source.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    matches: dict[str, list[ast.AST]] = {name: [] for name in names}
+    for node in tree.body:
+        node_names: set[str] = set()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            node_names.add(node.name)
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            node_names.update(t.id for t in targets if isinstance(t, ast.Name))
+        elif isinstance(node, ast.Import):
+            node_names.update(alias.asname or alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            node_names.update(alias.asname or alias.name for alias in node.names)
+        for name in node_names & names:
+            matches[name].append(node)
+    ambiguous = sorted(name for name, nodes in matches.items() if len(nodes) > 1)
+    if ambiguous:
+        raise ValueError("Optional runtime definition is ambiguous: " + ", ".join(ambiguous))
+    spans: list[tuple[int, int]] = []
+    for nodes in matches.values():
+        if not nodes:
+            continue
+        node = nodes[0]
+        start = offsets[node.lineno - 1]
+        end = offsets[getattr(node, "end_lineno", node.lineno)]
+        while end < len(source) and source[end] in "\r\n":
+            end += 1
+        spans.append((start, end))
+    for start, end in sorted(spans, reverse=True):
+        source = source[:start] + source[end:]
+    return source
+
+
+def _replace_top_level_definition(source: str, name: str, replacement: str) -> str:
+    tree = ast.parse(source)
+    matches = [
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.name == name
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"Expected one top-level definition {name}, found {len(matches)}.")
+    node = matches[0]
+    offsets = [0]
+    for line in source.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    start = offsets[node.lineno - 1]
+    end = offsets[node.end_lineno]
+    while end < len(source) and source[end] in "\r\n":
+        end += 1
+    return source[:start] + replacement.rstrip() + "\n\n" + source[end:]
+
+
+def _insert_after_top_level_definition(source: str, name: str, addition: str) -> str:
+    tree = ast.parse(source)
+    matches = [
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        and node.name == name
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"Expected one top-level definition {name}, found {len(matches)}.")
+    node = matches[0]
+    offsets = [0]
+    for line in source.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    insert_at = offsets[node.end_lineno]
+    return source[:insert_at] + "\n\n" + addition.rstrip() + "\n" + source[insert_at:]
+
+
+LLAMA_SERVER_RUNTIME = r'''
+# VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1
+VCE_BACKEND_DIAGNOSTICS: Dict[str, Dict[str, Any]] = globals().get("VCE_BACKEND_DIAGNOSTICS", {})
+_VCE_LLAMA_SERVER_MODEL = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"
+_VCE_LLAMA_SERVER_HOST = "127.0.0.1"
+_VCE_LLAMA_SERVER_PORT = int(os.environ.get("VCE_LLAMA_SERVER_PORT", "7556"))
+_VCE_LLAMA_SERVER_URL = f"http://{_VCE_LLAMA_SERVER_HOST}:{_VCE_LLAMA_SERVER_PORT}"
+_VCE_LLAMA_SERVER_PROCESS = None
+_VCE_LLAMA_SERVER_LOCK = threading.RLock()
+
+
+def _vce_llama_server_health(timeout: float = 2.0) -> bool:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(_VCE_LLAMA_SERVER_URL + "/health", timeout=timeout) as response:
+            return response.status == 200
+    except Exception:
+        return False
+
+
+def _vce_ensure_llama_server(model_path: str) -> None:
+    """Start one local llama.cpp Metal server for both multimodal VLM and text LLM."""
+    global _VCE_LLAMA_SERVER_PROCESS
+    if str(model_path) != _VCE_LLAMA_SERVER_MODEL:
+        raise ValueError(
+            "This VCE profile is pinned to " + _VCE_LLAMA_SERVER_MODEL
+            + "; refusing to start an unreviewed model."
+        )
+    with _VCE_LLAMA_SERVER_LOCK:
+        if _VCE_LLAMA_SERVER_PROCESS is not None:
+            if _VCE_LLAMA_SERVER_PROCESS.poll() is not None:
+                code = _VCE_LLAMA_SERVER_PROCESS.returncode
+                _VCE_LLAMA_SERVER_PROCESS = None
+                raise RuntimeError(f"llama-server exited unexpectedly with code {code}.")
+            deadline = time.monotonic() + 30.0
+            while time.monotonic() < deadline:
+                if _vce_llama_server_health():
+                    return
+                if _VCE_LLAMA_SERVER_PROCESS.poll() is not None:
+                    code = _VCE_LLAMA_SERVER_PROCESS.returncode
+                    _VCE_LLAMA_SERVER_PROCESS = None
+                    raise RuntimeError(f"llama-server exited during startup with code {code}.")
+                time.sleep(0.25)
+            raise RuntimeError("The managed llama-server process is alive but its health endpoint is not ready.")
+
+        if _vce_llama_server_health():
+            raise RuntimeError(
+                f"Port {_VCE_LLAMA_SERVER_PORT} is occupied by an unmanaged llama-server. "
+                "Stop that process before starting VCE; refusing to attach to an unknown model."
+            )
+
+        executable = shutil.which("llama-server")
+        if not executable:
+            raise RuntimeError(
+                "llama-server is not installed. Install the Metal-enabled llama.cpp package "
+                "with brew install llama.cpp, then restart VCE."
+            )
+        try:
+            probe = subprocess.run(
+                [executable, "--list-devices"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
+            )
+        except Exception as exc:
+            raise RuntimeError("Could not verify llama-server Metal support: " + type(exc).__name__) from exc
+        devices = (probe.stdout or "") + "\n" + (probe.stderr or "")
+        if probe.returncode != 0 or "metal" not in devices.lower():
+            raise RuntimeError(
+                "The installed llama-server does not advertise a Metal device. "
+                "Install/rebuild llama.cpp with macOS Metal support; CPU fallback is disabled."
+            )
+
+        command = [
+            executable,
+            "-hf", _VCE_LLAMA_SERVER_MODEL,
+            "--host", _VCE_LLAMA_SERVER_HOST,
+            "--port", str(_VCE_LLAMA_SERVER_PORT),
+            "--n-gpu-layers", "all",
+            "--ctx-size", "32768",
+            "--parallel", "1",
+            "--no-webui",
+            "--chat-template-kwargs", '{"enable_thinking":false}',
+        ]
+        _VCE_LLAMA_SERVER_PROCESS = subprocess.Popen(
+            command,
+            stdin=subprocess.DEVNULL,
+            stdout=None,
+            stderr=None,
+        )
+        deadline = time.monotonic() + 900.0
+        while time.monotonic() < deadline:
+            if _vce_llama_server_health():
+                VCE_BACKEND_DIAGNOSTICS["llama_cpp"] = {
+                    "backend": "llama.cpp",
+                    "device": "Metal",
+                    "model": _VCE_LLAMA_SERVER_MODEL,
+                    "server_url": _VCE_LLAMA_SERVER_URL,
+                    "vision_projector": "auto",
+                    "thinking": False,
+                }
+                print(
+                    "[VCE backend] llama.cpp server ready; backend=llama.cpp; device=Metal; "
+                    "shared VLM/Text LLM model=" + _VCE_LLAMA_SERVER_MODEL,
+                    flush=True,
+                )
+                return
+            if _VCE_LLAMA_SERVER_PROCESS.poll() is not None:
+                code = _VCE_LLAMA_SERVER_PROCESS.returncode
+                _VCE_LLAMA_SERVER_PROCESS = None
+                raise RuntimeError(f"llama-server failed during model/vision-projector loading (exit {code}).")
+            time.sleep(1.0)
+
+        process = _VCE_LLAMA_SERVER_PROCESS
+        _VCE_LLAMA_SERVER_PROCESS = None
+        if process is not None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except Exception:
+                process.kill()
+        raise RuntimeError(
+            "llama-server did not become healthy within 15 minutes while downloading/loading "
+            "the GGUF model and its vision projector."
+        )
+
+
+def _vce_stop_llama_server() -> None:
+    global _VCE_LLAMA_SERVER_PROCESS
+    with _VCE_LLAMA_SERVER_LOCK:
+        process = _VCE_LLAMA_SERVER_PROCESS
+        _VCE_LLAMA_SERVER_PROCESS = None
+        if process is None or process.poll() is not None:
+            return
+        process.terminate()
+        try:
+            process.wait(timeout=20)
+        except Exception:
+            process.kill()
+            try:
+                process.wait(timeout=5)
+            except Exception:
+                pass
+        print("[VCE backend] llama.cpp Metal server stopped; model memory released.", flush=True)
+
+
+def _vce_llama_chat_completion(
+    messages: list[dict[str, Any]],
+    *,
+    max_tokens: int,
+    temperature: float = 0.0,
+    stream: bool = False,
+    progress_callback: Optional[Any] = None,
+) -> str:
+    """Call llama-server's local OpenAI-compatible multimodal chat endpoint."""
+    import urllib.error
+    import urllib.request
+
+    _vce_ensure_llama_server(_VCE_LLAMA_SERVER_MODEL)
+    payload = {
+        "model": _VCE_LLAMA_SERVER_MODEL,
+        "messages": messages,
+        "max_tokens": int(max_tokens),
+        "temperature": float(temperature),
+        "stream": bool(stream),
+        "chat_template_kwargs": {"enable_thinking": False},
+    }
+    request = urllib.request.Request(
+        _VCE_LLAMA_SERVER_URL + "/v1/chat/completions",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=900) as response:
+            if not stream:
+                body = json.loads(response.read().decode("utf-8"))
+                content = body["choices"][0]["message"].get("content", "")
+                if isinstance(content, list):
+                    content = "".join(
+                        str(item.get("text", "")) for item in content
+                        if isinstance(item, dict) and item.get("type") in {"text", "output_text"}
+                    )
+                return str(content or "").strip()
+
+            chunks: list[str] = []
+            started = time.monotonic()
+            reported_tokens = 0
+            for raw_line in response:
+                line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    event = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choices = event.get("choices") or []
+                if not choices:
+                    continue
+                delta = (choices[0].get("delta") or {}).get("content")
+                if isinstance(delta, list):
+                    delta = "".join(
+                        str(item.get("text", "")) for item in delta
+                        if isinstance(item, dict) and item.get("type") in {"text", "output_text"}
+                    )
+                if isinstance(delta, str) and delta:
+                    chunks.append(delta)
+                    token_estimate = max(reported_tokens, max(1, sum(len(part) for part in chunks) // 4))
+                    if token_estimate > reported_tokens:
+                        reported_tokens = token_estimate
+                    elapsed = max(0.001, time.monotonic() - started)
+                    if progress_callback:
+                        progress_callback("generating", reported_tokens, reported_tokens / elapsed)
+            return "".join(chunks).strip()
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8", errors="replace")[:1200]
+        except Exception:
+            pass
+        raise RuntimeError(f"llama-server HTTP {exc.code}: {detail or exc.reason}") from exc
+    except Exception as exc:
+        raise RuntimeError("llama-server request failed: " + str(exc)[:1000]) from exc
+
+
+class LlamaServerEngine(VLMProvider):
+    """One shared Qwen3.5 GGUF server for image+text and text-only inference."""
+    def load_model(self, model_path: str):
+        if self.current_model_path == model_path and _vce_llama_server_health():
+            self.last_load_time = 0.0
+            return
+        started = time.time()
+        _vce_ensure_llama_server(model_path)
+        self.current_model_path = model_path
+        self.last_load_time = time.time() - started
+        print(
+            f"[VCE VLM] backend=llama.cpp device=Metal model={model_path} "
+            f"server_start={self.last_load_time:.2f}s",
+            flush=True,
+        )
+
+    def describe_scene(self, images: List[Image.Image], prompt: str, max_tokens: int) -> str:
+        if self.current_model_path != _VCE_LLAMA_SERVER_MODEL:
+            self.load_model(_VCE_LLAMA_SERVER_MODEL)
+        content: list[dict[str, Any]] = []
+        for image in images:
+            buffered = BytesIO()
+            image.save(buffered, format="JPEG", quality=88)
+            encoded = base64.b64encode(buffered.getvalue()).decode("ascii")
+            content.append({
+                "type": "image_url",
+                "image_url": {"url": "data:image/jpeg;base64," + encoded},
+            })
+        content.append({"type": "text", "text": prompt})
+        return _vce_llama_chat_completion(
+            [{"role": "user", "content": content}],
+            max_tokens=max_tokens,
+            temperature=0.0,
+            stream=False,
+        )
+
+    def unload_model(self):
+        # Keep the shared server loaded until the Text LLM stage has completed.
+        # The endpoint stops it in its finally block for the RAM- profile.
+        self.current_model_path = None
+        gc.collect()
+
+
+def get_vlm_engine() -> VLMProvider:
+    return LlamaServerEngine()
+'''
+
+
+def _patch_text_llm_to_llama_server(source: str) -> str:
+    tree = ast.parse(source)
+    node_matches = [
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name == "run_text_llm_postprocess"
+    ]
+    if len(node_matches) != 1:
+        raise ValueError(
+            "Text LLM backend patch: expected one run_text_llm_postprocess function, "
+            f"found {len(node_matches)}."
+        )
+    node = node_matches[0]
+    offsets = [0]
+    for line in source.splitlines(keepends=True):
+        offsets.append(offsets[-1] + len(line))
+    start, end = offsets[node.lineno - 1], offsets[node.end_lineno]
+    function_source = source[start:end]
+
+    old_head = '''    import gc
+    _vce_configure_mlx_metal("text_llm")
+    from mlx_vlm import load, generate
+    try:
+        from mlx_vlm.generate import stream_generate
+    except Exception:
+        stream_generate = None
+    from mlx_vlm.prompt_utils import apply_chat_template
+    from mlx_vlm.utils import load_config
+
+    model = processor = config = None
+'''
+    function_source = _replace_exact(
+        function_source, old_head, "    import gc\n    model = processor = config = None\n",
+        "Text LLM MLX imports"
+    )
+    function_source = _replace_exact(
+        function_source,
+        '''        model, processor = load(model_path)
+        config = load_config(model_path)
+''',
+        "",
+        "Text LLM MLX model load"
+    )
+    function_source = _replace_exact(
+        function_source,
+        '''        try:
+            # For this constrained extraction task, avoid spending time on long reasoning output.
+            formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=True)
+        except TypeError:
+            formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
+''',
+        "",
+        "Text LLM MLX prompt template"
+    )
+
+    stream_start = function_source.find('        raw = ""\n        if stream_generate is not None:')
+    parse_start = function_source.find('        try:\n            parsed = _text_llm_parse_json(raw)', stream_start)
+    if stream_start < 0 or parse_start < 0 or parse_start <= stream_start:
+        raise ValueError("Text LLM generation block no longer matches the reviewed MLX source layout.")
+    stream_replacement = '''        raw = _vce_llama_chat_completion(
+            [{"role": "user", "content": instruction}],
+            max_tokens=generation_limit,
+            temperature=0.1,
+            stream=True,
+            progress_callback=progress_callback,
+        )
+'''
+    function_source = function_source[:stream_start] + stream_replacement + function_source[parse_start:]
+
+    repair_start = function_source.find('                try:\n                    repair_prompt = apply_chat_template')
+    repair_end = function_source.find('                if not isinstance(repaired_raw, str):', repair_start)
+    if repair_start < 0 or repair_end < 0 or repair_end <= repair_start:
+        raise ValueError("Text LLM repair block no longer matches the reviewed MLX source layout.")
+    repair_replacement = '''                repaired_raw = _vce_llama_chat_completion(
+                    [{"role": "user", "content": repair_instruction}],
+                    max_tokens=4096,
+                    temperature=0.0,
+                    stream=False,
+                )
+'''
+    function_source = function_source[:repair_start] + repair_replacement + function_source[repair_end:]
+
+    function_source = _replace_exact(
+        function_source,
+        '''        try:
+            import mlx.core as mx
+            mx.clear_cache()
+        except Exception:
+            pass
+''',
+        "        gc.collect()\n",
+        "Text LLM MLX cache cleanup"
+    )
+    ast.parse(function_source)
+    return source[:start] + function_source + source[end:]
+
+
+def _assert_no_mlx_runtime(source: str) -> None:
+    tree = ast.parse(source)
+    bad_imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            bad_imports.extend(
+                alias.name for alias in node.names
+                if alias.name == "mlx" or alias.name.startswith("mlx.")
+            )
+        elif isinstance(node, ast.ImportFrom):
+            module = node.module or ""
+            if module == "mlx" or module.startswith("mlx.") or module == "mlx_vlm" or module.startswith("mlx_vlm."):
+                bad_imports.append(module)
+        elif isinstance(node, ast.Name) and node.id in {"MLXEngine", "_vce_mlx_run"}:
+            bad_imports.append(node.id)
+    if bad_imports:
+        raise ValueError("MLX runtime remains after backend migration: " + ", ".join(sorted(set(bad_imports))))
+    for forbidden in ("mlx-community/", "MLXEngine", "_vce_mlx_run", "mlx_vlm", "import mlx"):
+        if forbidden in source:
+            raise ValueError("MLX runtime/model reference remains after backend migration: " + forbidden)
+
+
+def _patch_engine_to_llama_cpp(source: str) -> str:
+    if LLAMA_MARKER in source:
+        required = (
+            "class LlamaServerEngine(VLMProvider):",
+            "_vce_ensure_llama_server",
+            "_vce_llama_chat_completion",
+            "VCE_BACKEND_DIAGNOSTICS",
+        )
+        missing = [item for item in required if item not in source]
+        if missing:
+            raise ValueError("llama.cpp marker exists but required code is incomplete: " + ", ".join(missing))
+        _assert_no_mlx_runtime(source)
+        return source
+
+    source = source.replace("VCE_MLX_RUNTIME_DIAGNOSTICS", "VCE_BACKEND_DIAGNOSTICS")
+    source = source.replace("await _vce_mlx_run(", "await asyncio.to_thread(")
+
+    source = _replace_top_level_definition(
+        source,
+        "release_accelerator_memory",
+        '''def release_accelerator_memory(stage: str = "") -> None:
+    """Release unused PyTorch MPS allocator cache between inference stages."""
+    gc.collect()
+    try:
+        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+            try:
+                torch.mps.synchronize()
+            except Exception:
+                pass
+            torch.mps.empty_cache()
+    except Exception as exc:
+        print(f"⚠️ Не удалось очистить кэш PyTorch MPS ({stage}): {exc}")
+    gc.collect()''',
+    )
+
+    source = _remove_optional_ast_nodes(
+        source,
+        {
+            "MLXEngine",
+            "LlamaCppEngine",
+            "get_vlm_engine",
+            "_vce_mlx_run",
+            "_vce_mlx_trace_stream",
+            "_vce_mlx_trace_runtime",
+            "_vce_mlx_invoke_traced",
+            "_vce_prepare_mlx_vlm_runtime",
+            "_vce_configure_mlx_metal",
+            "_vce_mlx_whisper_model_id",
+            "_VCEWhisperMLXCPU",
+            "_vce_validate_mlx_whisper_model",
+            "_vce_load_whisper_model",
+            "_VCE_MLX_EXECUTOR",
+            "_VCE_MLX_WHISPER_LOCK",
+            "DEFAULT_VLM_MODEL_MLX",
+            "DEFAULT_VLM_REPO_GGUF",
+            "DEFAULT_VLM_MODEL_GGUF",
+            "DEFAULT_MMPROJ_GGUF",
+            "_vce_mlx_concurrent_futures",
+            "_vce_mlx_functools",
+            "_vce_mlx_trace_sys",
+            "_vce_mlx_trace_threading",
+            "_vce_mlx_contextlib",
+        },
+    )
+
+    # Remove imports whose only consumer was the deleted MLX runtime.
+    tree = ast.parse(source)
+    lines = source.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+    import_spans = []
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            modules = [node.module or ""]
+        else:
+            continue
+        if any(name == "mlx" or name.startswith("mlx.") or name == "mlx_vlm" or name.startswith("mlx_vlm.") for name in modules):
+            import_spans.append((offsets[node.lineno - 1], offsets[node.end_lineno]))
+    for left, right in sorted(import_spans, reverse=True):
+        source = source[:left] + source[right:]
+
+    source = source.replace(
+        'DEFAULT_VLM_MODEL_MLX = "mlx-community/Qwen3-VL-8B-Instruct-4bit"',
+        "DEFAULT_VLM_MODEL_LLAMA = LLAMA_MODEL_ID",
+    )
+    source = source.replace(
+        'if platform.system() == "Darwin":\n    ACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_MLX\nelse:\n    ACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_GGUF',
+        "ACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_LLAMA",
+    )
+    source = source.replace(
+        'TEXT_LLM_DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"',
+        "TEXT_LLM_DEFAULT_MODEL = LLAMA_MODEL_ID",
+    )
+    source = source.replace("mlx-community/Qwen3-VL-8B-Instruct-4bit", LLAMA_MODEL_ID)
+    source = source.replace("mlx-community/Qwen3-VL-4B-Instruct-4bit", LLAMA_MODEL_ID)
+    source = source.replace("mlx-community/Qwen3.5-9B-MLX-4bit", LLAMA_MODEL_ID)
+    source = source.replace('allowed_vlm = {' + repr(LLAMA_MODEL_ID) + ', ' + repr(LLAMA_MODEL_ID) + '}', 'allowed_vlm = {' + repr(LLAMA_MODEL_ID) + '}')
+    source = source.replace(
+        "VCE_MLX_RUNTIME_DIAGNOSTICS",
+        "VCE_BACKEND_DIAGNOSTICS",
+    )
+    source = source.replace(
+        "snapshot_download(repo_id=text_llm_model, local_files_only=True)",
+        'snapshot_download(repo_id="gguf/Qwen3.5-9B-GGUF", local_files_only=True)',
+    )
+    source = source.replace(
+        "MLX",
+        "llama.cpp",
+    )
+    source = source.replace(
+        "mlx",
+        "llama.cpp",
+    )
+
+    source = _insert_after_top_level_definition(source, "VLMProvider", LLAMA_SERVER_RUNTIME)
+    source = _patch_text_llm_to_llama_server(source)
+
+    source = source.replace(
+        '        if owns_temp_path and temp_path and os.path.exists(temp_path):\n            os.remove(temp_path)',
+        '        _vce_stop_llama_server()\n        if owns_temp_path and temp_path and os.path.exists(temp_path):\n            os.remove(temp_path)',
+        1,
+    )
+    if "DEFAULT_VLM_MODEL_LLAMA" not in source:
+        source = source.replace(
+            'DEFAULT_WHISPER_MODEL = "large"',
+            'DEFAULT_VLM_MODEL_LLAMA = LLAMA_MODEL_ID\nACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_LLAMA\nDEFAULT_WHISPER_MODEL = "large"',
+            1,
+        )
+    source = source.replace(
+        "TEXT LLM (Qwen3.5-9B-GGUF Q4_K_M)",
+        "TEXT LLM (Qwen3.5-9B GGUF / llama.cpp Metal)",
+    )
+    if LLAMA_MARKER not in source:
+        source = source.replace(
+            "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1",
+            "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1\n# " + LLAMA_MARKER,
+            1,
+        )
+    ast.parse(source)
+    _assert_no_mlx_runtime(source)
+    return source
+
 
 def patch_engine(source: str) -> str:
     if MARKER in source:
