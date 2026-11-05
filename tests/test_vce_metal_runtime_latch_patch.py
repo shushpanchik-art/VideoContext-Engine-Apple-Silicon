@@ -98,13 +98,13 @@ def run_text_llm_postprocess(model_path, source_name, video_duration, existing_s
                     pass
             except TypeError as stream_error:
                 if not any(_kw in str(stream_error) for _kw in ("enable_thinking", "thinking_budget")):
-                    print(f"stream failed: {stream_error}")
+                    print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}")
                 else:
                     try:
                         for item in stream_generate():
                             pass
                     except Exception as fallback_stream_error:
-                        print(f"stream failed: {fallback_stream_error}")
+                        print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}")
                         raw = ""
             except Exception as stream_error:
                 print(f"stream failed: {stream_error}")
