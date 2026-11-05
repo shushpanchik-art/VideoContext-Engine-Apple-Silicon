@@ -132,6 +132,8 @@ def patch_source(source: str) -> str:
             "_vce_mark_metal_runtime_failed(\"vlm_generation\", exc)",
             "Restart VideoContext Engine before",
             "_vce_assert_metal_runtime_healthy(\"text_llm\")",
+            "Skipping model unload and cache operations after fatal Metal timeout",
+            "Skipping VLM unload/cache cleanup during shutdown after fatal Metal timeout",
         )
         missing = [item for item in required if item not in source]
         if missing:
@@ -195,8 +197,8 @@ def patch_source(source: str) -> str:
         "VLM timeout branch",
     )
 
-    # Do not synchronize the damaged MLX queue after a timeout. The helper's
-    # ordinary allocation-OOM path still performs cache cleanup and bounded retries.
+    # Do not unload model tensors or synchronize/cache-clear the damaged MLX queue
+    # after a timeout. Ordinary allocation-OOM recovery remains unchanged.
     patched = _replace_in_function(
         patched,
         "_vce_describe_scene_with_memory_fallback",
