@@ -259,28 +259,28 @@ def patch_source(source: str) -> str:
         patched,
         "run_text_llm_postprocess",
         "                    except Exception as fallback_stream_error:\n"
-        "                        print(f\\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}\\")\n"
-        "                        raw = \\"\\"\n",
+        "                        print(f\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}\")\n"
+        "                        raw = \"\"\n",
         "                    except Exception as fallback_stream_error:\n"
         "                        if _vce_is_metal_command_timeout(fallback_stream_error):\n"
-        "                            _vce_mark_metal_runtime_failed(\\"text_llm_stream_fallback\\", fallback_stream_error)\n"
+        "                            _vce_mark_metal_runtime_failed(\"text_llm_stream_fallback\", fallback_stream_error)\n"
         "                            raise\n"
-        "                        print(f\\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}\\")\n"
-        "                        raw = \\"\\"\n",
+        "                        print(f\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}\")\n"
+        "                        raw = \"\"\n",
         "Text LLM inner stream fallback",
     )
     patched = _replace_in_function(
         patched,
         "run_text_llm_postprocess",
         "            except Exception as stream_error:\n"
-        "                print(f\\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}\\")\n"
-        "                raw = \\"\\"\n",
+        "                print(f\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}\")\n"
+        "                raw = \"\"\n",
         "            except Exception as stream_error:\n"
         "                if _vce_is_metal_command_timeout(stream_error):\n"
-        "                    _vce_mark_metal_runtime_failed(\\"text_llm_stream_generate\\", stream_error)\n"
+        "                    _vce_mark_metal_runtime_failed(\"text_llm_stream_generate\", stream_error)\n"
         "                    raise\n"
-        "                print(f\\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}\\")\n"
-        "                raw = \\"\\"\n",
+        "                print(f\"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}\")\n"
+        "                raw = \"\"\n",
         "Text LLM outer stream fallback",
     )
     patched = _replace_in_function(
@@ -300,13 +300,13 @@ def patch_source(source: str) -> str:
         "        _vce_text_llm_active_error = _vce_mlx_trace_sys.exc_info()[1]\n"
         "        if (_vce_text_llm_active_error is not None\n"
         "                and _vce_is_metal_command_timeout(_vce_text_llm_active_error)):\n"
-        "            _vce_mark_metal_runtime_failed(\\"text_llm_generation\\", _vce_text_llm_active_error)\n"
+        "            _vce_mark_metal_runtime_failed(\"text_llm_generation\", _vce_text_llm_active_error)\n"
         "        _vce_text_llm_skip_cleanup = _vce_metal_runtime_failure() is not None\n"
         "        model = None\n"
         "        processor = None\n"
         "        config = None\n"
         "        if _vce_text_llm_skip_cleanup:\n"
-        "            print(\\"[VCE MLX] Skipping Text LLM cache cleanup after fatal Metal timeout; process restart is required.\\", flush=True)\n"
+        "            print(\"[VCE MLX] Skipping Text LLM cache cleanup after fatal Metal timeout; process restart is required.\", flush=True)\n"
         "        else:\n"
         "            gc.collect()\n"
         "            try:\n"
