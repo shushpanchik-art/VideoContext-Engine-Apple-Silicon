@@ -43,13 +43,13 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
     def test_local_mlx_language_helper_is_preserved_with_openai_whisper_tokenizer(self):
         helper = (
-            "\\ndef _vce_whisper_supported_languages():\\n"
-            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
-            "    return LANGUAGES\\n"
-            "\\ndef _vce_language_picker():\\n"
-            "    return _vce_whisper_supported_languages()\\n"
-            "\\ndef _vce_language_validator():\\n"
-            "    return _vce_whisper_supported_languages()\\n"
+            "\ndef _vce_whisper_supported_languages():\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\n"
+            "    return LANGUAGES\n"
+            "\ndef _vce_language_picker():\n"
+            "    return _vce_whisper_supported_languages()\n"
+            "\ndef _vce_language_validator():\n"
+            "    return _vce_whisper_supported_languages()\n"
         )
         variant = self.engine + helper
 
@@ -63,17 +63,17 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertNotIn("mlx_whisper", patched)
 
     def test_local_mlx_tokenizer_import_without_helper_fails_closed(self):
-        variant = self.engine + "\\nfrom mlx_whisper.tokenizer import LANGUAGES\\n"
+        variant = self.engine + "\nfrom mlx_whisper.tokenizer import LANGUAGES\n"
         with self.assertRaisesRegex(ValueError, "without its expected local helper"):
             self.patcher.patch_engine(variant)
 
     def test_local_whisper_language_helper_requires_exactly_one_tokenizer_import(self):
         helper = (
-            "\\ndef _vce_whisper_supported_languages():\\n"
-            "    from mlx_whisper.tokenizer import LANGUAGES\\n"
-            "    return LANGUAGES\\n"
-            "\\n# An unexpected second legacy import is ambiguous.\\n"
-            "from mlx_whisper.tokenizer import LANGUAGES\\n"
+            "\ndef _vce_whisper_supported_languages():\n"
+            "    from mlx_whisper.tokenizer import LANGUAGES\n"
+            "    return LANGUAGES\n"
+            "\n# An unexpected second legacy import is ambiguous.\n"
+            "from mlx_whisper.tokenizer import LANGUAGES\n"
         )
         with self.assertRaisesRegex(ValueError, "expected exactly one MLX tokenizer import"):
             self.patcher.patch_engine(self.engine + helper)
