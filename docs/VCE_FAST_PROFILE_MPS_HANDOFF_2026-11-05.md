@@ -85,3 +85,20 @@ Latest 2026-11-05 diagnostic for the same input reported:
 - Experimental-code removal: **not implemented**.
 - FFmpeg/Tesseract on the target Mac: earlier diagnostics only checked tool availability; the latest full diagnostic did not request OCR samples.
 - PR #34 should remain Draft until the implementation and validation above are complete.
+
+
+## Isolated PyTorch Whisper/MPS smoke launcher
+
+A standalone launcher is available at [scripts/run_vce_whisper_mps_smoke.command](../scripts/run_vce_whisper_mps_smoke.command). It extracts a short local audio segment with FFmpeg and runs the installed `openai-whisper` package explicitly with `device="mps"`. It verifies the model parameters actually reside on MPS and exits rather than falling back to CPU. It does not import MLX, start VCE, edit `videocontext_settings.json`, or save/publish transcript text. Only backend/device, timings, segment count and word count are written to a local `summary.json`.
+
+Example:
+
+```bash
+export VCE_VIDEO_PATH="/path/to/local-video-with-audio.mp4"
+export VCE_PROJECT_DIR="$HOME/VideoContext-Engine-Apple-Silicon"
+bash scripts/run_vce_whisper_mps_smoke.command
+```
+
+Optional controls: `VCE_WHISPER_MODEL` (default `large`), `VCE_WHISPER_SMOKE_SECONDS` (default `20`), `VCE_WHISPER_START_SECONDS` (default `0`), `VCE_WHISPER_FP16` (default `1`), and `VCE_WHISPER_RESULT_ROOT`.
+
+**Scope limitation:** this validates PyTorch/openai-whisper on MPS independently, not VCE's Whisper integration or the full fast profile. The branch runtime is still hardwired to `mlx-whisper` on `mx.cpu`; setting `enable_mlx_whisper=false` does not change that backend. Do not use a passing smoke result to claim that VCE itself has switched to MPS. The runtime MPS patch and serialized GPU-stage integration remain separate work.
