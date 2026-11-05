@@ -23,6 +23,7 @@ from typing import Any
 
 MARKER = "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1"
 UI_MARKER = "VCE_FAST_MPS_PROFILE_UI_V1"
+LLAMA_UI_MARKER = "VCE_FAST_MPS_LLAMA_CPP_UI_V1"
 LLAMA_MARKER = "VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1"
 LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"
 
@@ -907,14 +908,6 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
         "snapshot_download(repo_id=text_llm_model, local_files_only=True)",
         'snapshot_download(repo_id="gguf/Qwen3.5-9B-GGUF", local_files_only=True)',
     )
-    source = source.replace(
-        "MLX",
-        "llama.cpp",
-    )
-    source = source.replace(
-        "mlx",
-        "llama.cpp",
-    )
 
     source = _insert_after_top_level_definition(source, "VLMProvider", LLAMA_SERVER_RUNTIME)
     source = _patch_text_llm_to_llama_server(source)
@@ -924,16 +917,19 @@ def _patch_engine_to_llama_cpp(source: str) -> str:
         '        _vce_stop_llama_server()\n        if owns_temp_path and temp_path and os.path.exists(temp_path):\n            os.remove(temp_path)',
         1,
     )
-    if "DEFAULT_VLM_MODEL_LLAMA" not in source:
+    if "LLAMA_MODEL_ID = \"gguf/Qwen3.5-9B-GGUF:Q4_K_M\"" not in source:
         source = source.replace(
             'DEFAULT_WHISPER_MODEL = "large"',
-            'DEFAULT_VLM_MODEL_LLAMA = LLAMA_MODEL_ID\nACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_LLAMA\nDEFAULT_WHISPER_MODEL = "large"',
+            'LLAMA_MODEL_ID = "gguf/Qwen3.5-9B-GGUF:Q4_K_M"\nDEFAULT_VLM_MODEL_LLAMA = LLAMA_MODEL_ID\nACTIVE_DEFAULT_VLM = DEFAULT_VLM_MODEL_LLAMA\nDEFAULT_WHISPER_MODEL = "large"',
             1,
         )
-    source = source.replace(
-        "TEXT LLM (Qwen3.5-9B-GGUF Q4_K_M)",
-        "TEXT LLM (Qwen3.5-9B GGUF / llama.cpp Metal)",
-    )
+    source = source.replace("Qwen3.5-9B-MLX-4bit", "Qwen3.5-9B-GGUF Q4_K_M")
+    source = source.replace("Qwen3-VL-8B-Instruct-4bit", "Qwen3.5-9B GGUF Q4_K_M")
+    source = source.replace("CPU Whisper / MLX VLM", "PyTorch Whisper MPS / llama.cpp Metal")
+    source = source.replace("before the MLX/Metal VLM stage", "before the llama.cpp Metal VLM stage")
+    source = source.replace("PyTorch MPS -> MLX VLM", "PyTorch MPS -> llama.cpp Metal VLM + Text LLM")
+    source = source.replace("MLX", "llama.cpp")
+    source = source.replace("mlx", "llama.cpp")
     if LLAMA_MARKER not in source:
         source = source.replace(
             "VCE_PYTORCH_WHISPER_MPS_SERIAL_V1",
@@ -958,7 +954,7 @@ def patch_engine(source: str) -> str:
         missing = [item for item in required if item not in source]
         if missing:
             raise ValueError("MPS patch marker exists but required code is incomplete: " + ", ".join(missing))
-        return source
+        return _patch_engine_to_llama_cpp(source)
 
     source = _replace_exact(source, OLD_WHISPER_BLOCK, NEW_WHISPER_BLOCK, "Whisper device loader")
     source = _replace_exact(
@@ -1261,7 +1257,7 @@ def patch_engine(source: str) -> str:
         1,
     )
     ast.parse(source)
-    return source
+    return _patch_engine_to_llama_cpp(source)
 
 
 def patch_ui(ui: str) -> str:
