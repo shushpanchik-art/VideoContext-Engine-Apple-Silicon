@@ -195,6 +195,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn("VCE_VLM_DIAG_REQUEST_MANIFEST", smoke)
         self.assertIn("-t 20", smoke)
         self.assertIn("-map 0:v:0 -an", smoke)
+        self.assertIn("source_mtime = int(os.stat(source).st_mtime)", smoke)
         self.assertNotIn("git push", smoke)
 
         check = subprocess.run(
