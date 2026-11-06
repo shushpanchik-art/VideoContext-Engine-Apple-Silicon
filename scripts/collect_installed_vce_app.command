@@ -46,8 +46,11 @@ command -v gh >/dev/null 2>&1 || fail "GitHub CLI 'gh' not found. Install with: 
 
 # Confirm GitHub authentication and refuse to upload to a public repository.
 gh auth status --hostname github.com >/dev/null 2>&1 || fail "GitHub CLI is not authenticated. Run: gh auth login"
-VISIBILITY="$(gh repo view "$UPLOAD_REPO" --json visibility --jq .visibility 2>/dev/null || true)"
-[[ "$VISIBILITY" == "PRIVATE" ]] || fail "Upload destination is not confirmed PRIVATE (reported: '${VISIBILITY:-unknown}'). Nothing uploaded."
+# Query the GitHub REST API directly. It returns visibility as lowercase "private".
+# Normalize both REST and GraphQL spellings, and fail closed on any other value.
+VISIBILITY="$(gh api "repos/$UPLOAD_REPO" --jq .visibility 2>/dev/null || true)"
+VISIBILITY_NORMALIZED="$(printf '%s' "$VISIBILITY" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+[[ "$VISIBILITY_NORMALIZED" == "private" ]] || fail "Upload destination is not confirmed PRIVATE (reported: '${VISIBILITY:-unknown}'). Nothing uploaded."
 
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST" 2>/dev/null || true)"
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST" 2>/dev/null || true)"
