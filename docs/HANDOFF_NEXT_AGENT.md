@@ -1,3 +1,27 @@
+
+
+## Installed macOS application bundle snapshot (2026-11-06 17:54 UTC)
+
+The user clarified that the target of inspection is the **installed application** at:
+
+`/Applications/VideoContext Engine.app`
+
+The first collector invocation failed because the downloaded script received a literal/unexpanded default expression for `APP_PATH`; do not treat that failed attempt as an app snapshot. The user then reran it with an explicit environment variable:
+
+`VCE_APP_PATH="/Applications/VideoContext Engine.app"`
+
+The collector successfully created and verified a complete app-bundle ZIP using macOS `ditto`. The initial automated upload attempt failed with HTTP 400 (Bad Content-Length) while uploading a sidecar asset; the user then manually uploaded the ZIP with `gh release upload`. GitHub confirmed the asset is uploaded in the same private staging Release:
+
+- Release: https://github.com/shushpanchik-art/vce-local-review-20261102-170802/releases/tag/local-snapshot-20261106T173406Z
+- Asset: `VideoContext_Engine_app_20261106T175400Z.zip`
+- Download URL: https://github.com/shushpanchik-art/vce-local-review-20261102-170802/releases/download/local-snapshot-20261106T173406Z/VideoContext_Engine_app_20261106T175400Z.zip
+- Size: 1,120,068 bytes
+- SHA-256 (local `shasum -a 256`, matching GitHub Release digest): `4c40b5dc38ced43a9d715e10ceb825d1de1eb2e8de6570a6b7b7804123fc5e25`
+- Local archive: `~/Downloads/VCE_INSTALLED_APP_20261106T175400Z/VideoContext_Engine_app_20261106T175400Z.zip`
+- Collector output directory: `~/Downloads/VCE_INSTALLED_APP_20261106T175400Z/`
+
+**This is the installed .app bundle snapshot, separate from the earlier source-project snapshot.** It is now available for forensic inspection. GitHub upload state and digest are verified, but the ZIP contents have not yet been extracted or audited in this handoff. Do not claim the installed app's embedded runtime, launch scripts, resources, signatures or entitlements have been inspected until the archive is downloaded, unpacked and inventoried. Compare the installed app bundle against the source-project snapshot, especially its embedded Python/runtime payload, app launcher, Info.plist, resources, entitlements/signature, and any embedded copies of `VideoContextEngine_v3.19.py` / UI assets. Record exact paths and hashes.
+
 # Handoff: restore the proven non-MLX VLM/LLM execution path
 
 **Status:** implementation brief for the next coding agent. Do not merge or deploy until the full-video acceptance test passes on the user's Mac.
