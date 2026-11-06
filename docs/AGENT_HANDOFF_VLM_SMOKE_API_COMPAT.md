@@ -101,3 +101,20 @@ User ran the read-only comparison using the repository's immutable Metal-latch p
 Interpretation: the backup is intact and the canonical repo patcher reproduces the earlier `eacd4eec...` hash exactly. The installed `7cf4f32c...` source is syntactically valid but contains additional/different local modifications (including the RAM teardown marker) and does not satisfy the canonical patcher's complete-latch idempotence checks. Whether this represents an intentional later runtime revision or an incomplete/mixed patch is not yet known.
 
 Do not restore the backup, reapply the canonical patch, weaken the launcher SHA check, or run VCE yet. Next perform a narrow, read-only structural comparison of top-level function ASTs between the installed source and reconstructed canonical source. Report names/line ranges only for changed Metal/MLX/Text-LLM functions, plus a short excerpt around the RAM teardown marker and Text LLM fallback exception handlers. This should identify whether the two missing latch hooks were replaced by equivalent newer control flow or removed. No raw source or private logs need to be uploaded.
+
+
+## 2026-11-06 target-Mac AST comparison follow-up
+
+User ran the read-only top-level AST comparison between the official patcher reconstruction (`eacd4eec...`) and installed runtime (`7cf4f32c...`).
+
+Observed:
+- Both files compile/parse; the installed file is syntactically valid.
+- Installed source contains the latch marker, `_vce_mark_metal_runtime_failed("vlm_generation", exc)`, `_vce_mark_metal_runtime_failed("text_llm_generation", _vce_text_llm_active_error)`, and the extra `VCE_METAL_RUNTIME_LATCH_RAM_MINUS_TEARDOWN_V1` marker.
+- The installed source does not contain the canonical patcher's two explicit streaming-fallback hook calls.
+- Top-level AST comparison shows significant structural differences in `analyze_video`, `run_text_llm_postprocess`, `_vce_clear_metal_memory_caches`, `format_text_llm_report`, and `get_vlm_engine`. Several canonical MLX helper definitions are absent as top-level functions in the installed file (`_vce_mlx_run`, `_vce_mlx_invoke_traced`, `_vce_mlx_trace_runtime`, `_vce_mlx_trace_stream`, `_vce_configure_mlx_metal`, `_vce_prepare_mlx_vlm_runtime`, among others). The cause may be a different runtime architecture/revision or local patch set; not established yet.
+- The user's fallback-handler grep found no lines containing `fallback_stream_error` or an `except ... stream_error` form. This does not establish that there are no equivalent handlers; exception variable names/control flow may differ.
+- The current and canonical SHA values remain unchanged: installed `7cf4f32c...`, reconstructed `eacd4eec...`.
+
+Interpretation is deliberately limited: the installed runtime is a different structural variant with a visible latch subset and an additional teardown safeguard. Do not call it corrupt, equivalent, or safe until the actual exception-handler control flow and teardown branch have been inspected.
+
+Next read-only inspection should use AST to list every `except` handler inside installed `run_text_llm_postprocess`, its exception type/name/line range, and all calls to `_vce_mark_metal_runtime_failed`, `_vce_metal_runtime_failure`, and `_vce_assert_metal_runtime_healthy` within `run_text_llm_postprocess`, `analyze_video`, and `_vce_clear_metal_memory_caches`. Also print only a small numbered window around the RAM teardown marker. No file writes, service restart, VCE run, or checksum override.
