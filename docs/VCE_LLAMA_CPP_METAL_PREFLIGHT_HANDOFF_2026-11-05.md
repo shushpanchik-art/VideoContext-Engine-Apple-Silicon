@@ -116,3 +116,31 @@ Root cause: the launcher's `PATCHER_REF` had been set to `2677bee642a4d6d232b5bf
 Correction: the launcher now pins to commit `05ed277e0f1b0e582bc1cb65a8bb759767ce62ad`, whose tree contains `patches/patch_vce_fast_profile_mps.py`. A focused regression test computes the patcher's Git blob SHA and rejects using that blob ID as `PATCHER_REF`.
 
 Next target-Mac action: re-download the launcher from `feat/experimental-benchmark-launcher` using the same command in this handoff and rerun it. Do not reinstall llama.cpp, remove MLX packages, or run a video request before the launcher completes its profile/API verification. Keep PR #34 Draft and do not change `main`.
+
+
+## Follow-up: target runtime has an additional fatal-Metal latch in Text LLM cleanup
+
+The target Mac reported source SHA256 `812ccdd0b91215eec9b276ec11bc2fde04ba634d49bbd52a495661d6c44b93a4`. A read-only AST inspection showed that `run_text_llm_postprocess()` ends with a guarded cleanup block:
+
+- capture the active exception;
+- detect a Metal command-buffer timeout and latch the failure at `text_llm_generation`;
+- skip cache cleanup when the fatal Metal latch is set, requiring a process restart;
+- otherwise release Python objects, run `gc.collect()`, then call `mlx.core.mx.clear_cache()`.
+
+The former patch helper expected only the unguarded MLX cache-cleanup block, so its exact matcher rejected this target-local hardening before any project files were written.
+
+Correction in the current feature branch:
+
+- The patch helper now supports both the original cleanup block and this guarded Metal-latch variant.
+- For the guarded variant it preserves the timeout classifier, latch write, skip-cleanup branch and restart warning; it removes only the MLX allocator call.
+- The trace-only `_vce_mlx_trace_sys.exc_info()` access is replaced with `__import__('sys').exc_info()`, so the obsolete MLX trace alias can still be removed safely.
+- Added a regression test that builds the guarded-finally variant and asserts the Metal latch behavior survives, with no MLX cache import left in that function.
+
+Pins:
+- Patch helper commit: `ac9efc9012b33f9883210b170374b94ad1db243e`
+- Updated MPS launcher commit: `15bbe765b86392e602ce1bebceea96954f113d32`
+- Updated one-command MPS/VLM smoke runner commit: `7c39e674b902b7751db4eb972b60e64ab017ca85`
+
+The combined runner stops if port 7555 is already occupied, then downloads the pinned MPS launcher, applies the profile, creates a separate up-to-20-second video-only excerpt, and submits exactly one VLM-only request. It does not run Whisper, OCR inference, Text LLM, the six-profile matrix, or publish any artifacts. Raw request/response and logs remain local.
+
+Do not rerun on the target Mac until the current-head GitHub Actions tests for the guarded-cleanup regression have completed successfully. PR #34 remains Draft; do not merge or change `main`.
