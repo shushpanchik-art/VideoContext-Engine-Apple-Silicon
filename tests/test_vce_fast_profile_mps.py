@@ -188,7 +188,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         smoke_path = ROOT / "scripts" / "run_vce_fast_profile_mps_smoke.command"
         smoke = smoke_path.read_text(encoding="utf-8")
         self.assertIn("launch_vce_fast_profile_mps.command", smoke)
-        self.assertIn('PATCHER_REF="10f8c706e9aae494f6d6a092db7ba7d34a21897a"', smoke)
+        self.assertIn('PATCHER_REF="2abc054f8a3037391f00ee022331b3cad85082d4"', smoke)
         self.assertIn("094763c7de1a744d0ce147ac10df56f198985832/scripts/launch_vce_fast_profile_mps.command", smoke)
         self.assertIn("VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1", smoke)
         self.assertIn("VCE_BENCH_VLM_ONLY=1", smoke)
