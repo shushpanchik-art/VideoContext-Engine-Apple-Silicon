@@ -29,6 +29,8 @@ class TestNsrspecForensicRunner(unittest.TestCase):
     def test_launcher_detects_existing_dropbox_remote_and_verifies_upload(self):
         self.assertIn("vce-dropbox:", self.launcher)
         self.assertIn("dropbox:", self.launcher)
+        self.assertIn("20261104_224554_1f098d/VCE_Forensic_Runs", self.launcher)
+        self.assertNotIn("20261104_224554_1f098d/тест2", self.launcher)
         self.assertIn('rclone copyto "$ARCHIVE" "$REMOTE_FILE"', self.launcher)
         self.assertIn('rclone size "$REMOTE_FILE" --json', self.launcher)
         self.assertIn('DROPBOX_UPLOAD=SUCCESS', self.launcher)
