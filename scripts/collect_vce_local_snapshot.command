@@ -2,7 +2,13 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine}"
+if [[ -n "${VCE_PROJECT_DIR:-}" ]]; then
+  PROJECT_DIR="$VCE_PROJECT_DIR"
+elif [[ -f "$HOME/VideoContext-Engine-Apple-Silicon/VideoContextEngine_v3.19.py" ]]; then
+  PROJECT_DIR="$HOME/VideoContext-Engine-Apple-Silicon"
+else
+  PROJECT_DIR="$HOME/VideoContext-Engine"
+fi
 UPLOAD_REPO="${VCE_SNAPSHOT_REPO:-shushpanchik-art/vce-local-review-20261102-170802}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="$HOME/Downloads/VCE_LOCAL_SNAPSHOT_$STAMP"
