@@ -804,17 +804,49 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
 '''
     function_source = function_source[:repair_start] + repair_replacement + function_source[repair_end:]
 
-    function_source = _replace_exact(
-        function_source,
-        '''        try:
+    legacy_cache_cleanup = '''        try:
             import mlx.core as mx
             mx.clear_cache()
         except Exception:
             pass
-''',
-        "        gc.collect()\n",
-        "Text LLM MLX cache cleanup"
-    )
+'''
+    guarded_cache_cleanup = '''            try:
+                import mlx.core as mx
+                mx.clear_cache()
+            except Exception:
+                pass
+'''
+    if legacy_cache_cleanup in function_source:
+        function_source = _replace_exact(
+            function_source,
+            legacy_cache_cleanup,
+            "        gc.collect()\\n",
+            "Text LLM MLX cache cleanup"
+        )
+    elif (
+        "_vce_text_llm_skip_cleanup" in function_source
+        and guarded_cache_cleanup in function_source
+        and "_vce_mlx_trace_sys.exc_info()" in function_source
+    ):
+        # Target Macs may carry an additional fatal-Metal latch in this finally block.
+        # Keep its timeout classification and skip-cleanup branch, but remove only the
+        # MLX allocator call. The trace-only sys alias is removed with the MLX helpers.
+        function_source = function_source.replace(
+            "_vce_mlx_trace_sys.exc_info()",
+            "__import__('sys').exc_info()",
+            1,
+        )
+        function_source = _replace_exact(
+            function_source,
+            guarded_cache_cleanup,
+            "",
+            "Text LLM MLX cache cleanup under Metal latch"
+        )
+    else:
+        raise ValueError(
+            "Text LLM cache cleanup: expected the reviewed standard or Metal-latched "
+            "cleanup block; no files were written."
+        )
     ast.parse(function_source)
     return source[:start] + function_source + source[end:]
 
