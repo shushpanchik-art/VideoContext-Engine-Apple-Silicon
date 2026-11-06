@@ -38,7 +38,7 @@ PRE_EXISTING_LISTENER="$(/usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN 2>/dev/null 
 [[ -z "$PRE_EXISTING_LISTENER" ]] || fail "Port 7555 is already occupied by PID(s): $PRE_EXISTING_LISTENER. Stop the existing VCE instance first."
 
 PROFILE_LAUNCHER="$TMP_DIR/launch_vce_fast_profile_mps.command"
-PROFILE_LAUNCHER_URL="https://raw.githubusercontent.com/$REPOSITORY/feat/experimental-benchmark-launcher/scripts/launch_vce_fast_profile_mps.command"
+PROFILE_LAUNCHER_URL="https://raw.githubusercontent.com/$REPOSITORY/8457469d96b434141ed2b7d15ea959d22ccd04cc/scripts/launch_vce_fast_profile_mps.command"
 note "Downloading and applying the reviewed llama.cpp/Metal fast-profile launcher..."
 curl --fail --location --silent --show-error --retry 3 "$PROFILE_LAUNCHER_URL" -o "$PROFILE_LAUNCHER"
 
