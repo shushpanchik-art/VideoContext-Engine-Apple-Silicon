@@ -118,3 +118,22 @@ Observed:
 Interpretation is deliberately limited: the installed runtime is a different structural variant with a visible latch subset and an additional teardown safeguard. Do not call it corrupt, equivalent, or safe until the actual exception-handler control flow and teardown branch have been inspected.
 
 Next read-only inspection should use AST to list every `except` handler inside installed `run_text_llm_postprocess`, its exception type/name/line range, and all calls to `_vce_mark_metal_runtime_failed`, `_vce_metal_runtime_failure`, and `_vce_assert_metal_runtime_healthy` within `run_text_llm_postprocess`, `analyze_video`, and `_vce_clear_metal_memory_caches`. Also print only a small numbered window around the RAM teardown marker. No file writes, service restart, VCE run, or checksum override.
+
+
+## 2026-11-06 target-Mac exception-handler and RAM teardown audit
+
+User ran the requested read-only AST audit against installed source `7cf4f32c...`.
+
+Findings:
+- `run_text_llm_postprocess` contains JSON parse/repair exception handlers and calls `_vce_assert_metal_runtime_healthy('text_llm')`, `_vce_mark_metal_runtime_failed('text_llm_generation', _vce_text_llm_active_error)`, and `_vce_metal_runtime_failure()`. It does not show explicit streaming fallback handlers in the inspected function.
+- `analyze_video` has a broad Text LLM postprocess exception handler (lines 5363-5368 in this installed revision), which marks the Text LLM status failed and continues with the original result. It also has ordinary request/download/cleanup exception handlers.
+- `_vce_clear_metal_memory_caches` has four broad `except Exception: pass` cleanup handlers (lines 4087, 4093, 4096, 4100). Cleanup exceptions are swallowed.
+- RAM-minus teardown guard at lines 5228-5240 checks `_vce_metal_runtime_failure()`; on a latched fatal Metal timeout it skips VLM unload and accelerator-memory cleanup, logging that a process restart is required. Otherwise it unloads VLM and releases accelerator memory.
+- Within the three inspected functions, the audit found no `_vce_mark_metal_runtime_failed("vlm_generation", ...)` call. It did find failure-state getter calls in `analyze_video` and the Text LLM mark call in `run_text_llm_postprocess`. This differs from an earlier source excerpt/line map; re-check the exact current installed file before inferring a VLM failure hook exists.
+- The audit confirms a protective RAM teardown branch exists, but does not establish that VLM inference failures are latched equivalently to Metal timeouts in every inference path.
+
+Operational decision:
+- Do not run the old diagnostic launcher: its immutable engine SHA gate correctly rejects installed SHA `7cf4f32c...` (it expects `6a47735e...`).
+- Do not bypass or edit the SHA check, and do not start an inference request through a hand-crafted API call yet.
+- A real VLM-only test can proceed only after identifying the installed app's exact VLM inference call path and verifying the relevant Metal failure latch around that path, or after preparing a reviewed diagnostic adapter that explicitly targets this installed source hash and architecture.
+- Next safe action is a read-only inspection of the exact VLM call site and its surrounding `try/except` and failure-latch calls, then a normal app launch/health check without submitting a video request. Only after those checks should the single 20-second VLM-only request be issued.
