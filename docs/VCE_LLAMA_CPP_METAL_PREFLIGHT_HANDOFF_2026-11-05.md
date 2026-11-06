@@ -139,7 +139,7 @@ Correction in the current feature branch:
 Pins:
 - Patch helper commit: `3b52388c16eb65c248d117dd2b3feb6aab2c72e`
 - Updated MPS launcher commit: `fa0bf91596b30f76548464cfcfd52bf637b590f5`
-- Updated one-command MPS/VLM smoke runner commit: `1c0a9d5325af1085df9addb86e6233e24e202c67`
+- Updated one-command MPS/VLM smoke runner commit: `c905566545c1a2f97d8cfbfe88e7f3ab070cf0a7`
 
 The combined runner stops if port 7555 is already occupied, then downloads the pinned MPS launcher, applies the profile, creates a separate up-to-20-second video-only excerpt, and submits exactly one VLM-only request. It does not run Whisper, OCR inference, Text LLM, the six-profile matrix, or publish any artifacts. Raw request/response and logs remain local.
 
@@ -147,3 +147,6 @@ Do not rerun on the target Mac until the current-head GitHub Actions tests for t
 
 
 The first regression run on the initial adapter revision caught a literal escaped newline in the legacy cleanup replacement. That was corrected in patch helper commit `3b52388c16eb65c248d117dd2b3feb6aab2c72e4`; the launcher and smoke-runner pins above point to this corrected revision. Do not use the earlier runner commit `7c39e674b902b7751db4eb972b60e64ab017ca85`.
+
+
+The combined smoke runner also compares process start time with the runtime file timestamp at whole-second precision, matching macOS `ps -o lstart` output. This avoids a false stale-process rejection when the launcher writes the source and starts VCE within the same second; the behavior has a regression assertion and shell syntax check.
