@@ -44,6 +44,47 @@ The public repo's `docs/VCE_PARAMETER_BENCHMARK_2026-10-25.md` records a 108.23 
 
 **Important distinction / do not silently resolve the apparent conflict:** the published 25 October *benchmark profile* itself records MLX for Qwen3-VL and Qwen3.5, while Whisper was MPS. The user's requested *target architecture* is explicitly different: no MLX/Metal for VLM or Text LLM, Whisper on PyTorch MPS. Therefore use the 25 October run/output as the quality-and-coverage reference, but do not assume that the exact backend in that benchmark is the desired final backend. Identify the exact local 25 October source build and its backend dispatch from the Mac snapshot/backups. If the public history has no exact non-MLX VLM/LLM implementation, locate it in local backups or upstream history before choosing a replacement. Do not claim the benchmark document proves a non-MLX backend was used.
 
+## Local source snapshot uploaded (2026-11-06 17:34 UTC)
+
+The user ran the collector successfully from `~/VideoContext-Engine-Apple-Silicon`. The uploaded Release asset was verified against the terminal receipt:
+
+- Private Release: https://github.com/shushpanchik-art/vce-local-review-20261102-170802/releases/tag/local-snapshot-20261106T173406Z
+- Asset: `VCE_LOCAL_SNAPSHOT_20261106T173406Z.tar.gz`
+- Size: 2,342,649 bytes
+- SHA-256: `b8a324aff4c2dc2698dc86141580dbbc9bb7c21c7d4232b7960d48ae7a3c8872`
+- Local source root recorded by the collector: `/Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon`
+- Archive excludes original media, model weights/caches, virtualenvs, raw settings and credentials. Redacted settings and evidence metadata are included.
+
+The public GitHub connector verified the Release object, uploaded asset state, size and digest. Treat this digest as the snapshot identity; do not ask the user to re-upload it unless an extraction/integrity failure is later proven.
+
+## Dropbox forensic evidence folder supplied by the user
+
+The user also supplied a Dropbox folder link. The link resolves to:
+
+`/20261104_224554_1f098d/VCE_FULL_FORENSIC_20261106T171521Z`
+
+Shared link: https://www.dropbox.com/scl/fo/kdo9664eyzui3tuhu1ywz/AEjfgECc9E08vSX2AUbOTzU?rlkey=3ldjuchwv6j0pnq5yh9bn7agl&st=1dqqd252&dl=0
+
+Its direct children were enumerated; `has_more=false`. It contains `diagnostic_summary.json`, `response.json`, `request_config.txt`, `process_monitor.log`, `server_log_delta.log`, `server_log_key_events.txt`, `server_log_snapshot_after.log` (~19.3 MB), `console.log`, `system_before.txt`, `system_after.txt`, `source_probe.json`, `normalized_probe.json`, `ffmpeg_remux.log` and `full_video_normalized.mp4` (~17.4 MB).
+
+**The Dropbox link's effective settings are audience=`public`, access_level=`edit`, allow_download=true.** This is sensitive diagnostic material and a source-video-derived artifact. Do not broaden its use; recommend that the user switch it to restricted/view-only or revoke the public edit link after the agent has retrieved needed evidence. Do not change sharing settings without user instruction.
+
+## Critical correction: the 6 November request was VLM-only, not a full-profile acceptance run
+
+Although the entire 108.233 s source was uploaded and visual inference completed, `request_config.txt`, `diagnostic_summary.json` and `response.json` show:
+
+- `skip_audio=true`; thus Whisper was intentionally skipped. Whisper inference was 0.0 s.
+- `whisper_acceleration=false`, reported Whisper device `cpu`; this run does **not** demonstrate Whisper/MPS operation.
+- `enable_apple_ocr=false`; Apple Vision OCR was not exercised (0.0 s).
+- `enable_ffmpeg_ocr=false`; FFmpeg/Tesseract OCR was not exercised (0 samples).
+- `enable_ocr_cache=true`, but OCR was disabled, so the Apple Vision cache was not exercised.
+- `text_llm_enabled=false`; Text LLM was not exercised.
+- `generate_summary=false`; global summary was not exercised.
+- VLM was enabled and ran via `llama.cpp` on `Metal`, with `Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M`; model startup 289.443 s and inference 108.857 s; 14 scenes / 14 descriptions.
+- HTTP 200, one POST, full video duration 108.233333 s, stable server PID; no OOM, swap use or cancellation signature in this run.
+
+Consequently, call this result **full-length VLM-only forensic run**, never “full-profile acceptance”. It proves the video-container remux/decode and VLM-only API path, but does not validate the requested target feature set. The next acceptance test must enable Whisper with PyTorch MPS, Apple Vision OCR/cache, selected recognition languages, the required Tesseract OCR configuration, Text LLM on the selected non-Metal backend, and summary/report generation. Capture each backend/device and nonzero stage execution explicitly. Do not infer a stage ran merely because a setting appears in the response.
+
 ## Latest full-length forensic run (2026-11-06)
 
 User's required source:
