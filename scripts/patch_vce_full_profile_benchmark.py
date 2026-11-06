@@ -88,12 +88,12 @@ def jsonl_append(path, *args, **kwargs):
         r'''# VCE_BENCH_DIAGNOSTIC_BASELINE_WRAPPER_V2
 _vce_original_build_plan = build_plan
 def build_plan(*args, **kwargs):
-    _vce_plan = _vce_original_build_plan(*args, **kwargs)
+    # A baseline-only smoke run must not invoke the legacy experiment planner:
+    # it validates every experimental API field before returning even baseline.
+    # The MPS profile intentionally removes some of those fields.
     if __import__('os').environ.get('VCE_BENCH_ONLY_BASELINE') == '1':
-        if not isinstance(_vce_plan, (list, tuple)) or not _vce_plan:
-            raise RuntimeError("build_plan() returned an unexpected value; cannot select baseline")
-        return _vce_plan[:1]
-    return _vce_plan''',
+        return [("baseline", "Оптимальный базовый профиль", {})]
+    return _vce_original_build_plan(*args, **kwargs)''',
         "# VCE_BENCH_DIAGNOSTIC_BASELINE_WRAPPER_V2",
     )
 
