@@ -63,7 +63,7 @@ The user also supplied a Dropbox folder link. The link resolves to:
 
 `/20261104_224554_1f098d/VCE_FULL_FORENSIC_20261106T171521Z`
 
-Shared link: https://www.dropbox.com/scl/fo/kdo9664eyzui3tuhu1ywz/AEjfgECc9E08vSX2AUbOTzU?rlkey=3ldjuchwv6j0pnq5yh9bn7agl&st=1dqqd252&dl=0
+The original shared URL and its access token are intentionally not copied into this public repository; use the link supplied by the user in the conversation when needed.
 
 Its direct children were enumerated; `has_more=false`. It contains `diagnostic_summary.json`, `response.json`, `request_config.txt`, `process_monitor.log`, `server_log_delta.log`, `server_log_key_events.txt`, `server_log_snapshot_after.log` (~19.3 MB), `console.log`, `system_before.txt`, `system_after.txt`, `source_probe.json`, `normalized_probe.json`, `ffmpeg_remux.log` and `full_video_normalized.mp4` (~17.4 MB).
 
