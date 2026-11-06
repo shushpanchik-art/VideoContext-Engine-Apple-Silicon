@@ -136,6 +136,54 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
             "PATCHER_REF must identify a commit, not the patcher's blob object.",
         )
 
+    def test_text_llm_patch_preserves_fatal_metal_latch_without_mlx_cache(self):
+        legacy_cleanup = """        gc.collect()
+        try:
+            import mlx.core as mx
+            mx.clear_cache()
+        except Exception:
+            pass
+"""
+        guarded_cleanup = """        _vce_text_llm_active_error = _vce_mlx_trace_sys.exc_info()[1]
+        if (_vce_text_llm_active_error is not None
+                and _vce_is_metal_command_timeout(_vce_text_llm_active_error)):
+            _vce_mark_metal_runtime_failed("text_llm_generation", _vce_text_llm_active_error)
+        _vce_text_llm_skip_cleanup = _vce_metal_runtime_failure() is not None
+        model = None
+        processor = None
+        config = None
+        if _vce_text_llm_skip_cleanup:
+            print("[VCE MLX] Skipping Text LLM cache cleanup after fatal Metal timeout; process restart is required.", flush=True)
+        else:
+            gc.collect()
+            try:
+                import mlx.core as mx
+                mx.clear_cache()
+            except Exception:
+                pass
+"""
+        self.assertEqual(self.engine.count(legacy_cleanup), 1)
+        variant = self.engine.replace(legacy_cleanup, guarded_cleanup, 1)
+
+        patched = self.patcher.patch_engine(variant)
+        start = patched.index("def run_text_llm_postprocess(")
+        end = patched.index("\\ndef format_text_llm_report", start)
+        function_source = patched[start:end]
+        ast.parse(function_source)
+
+        self.assertIn("_vce_is_metal_command_timeout(_vce_text_llm_active_error)", function_source)
+        self.assertIn(
+            '_vce_mark_metal_runtime_failed("text_llm_generation", _vce_text_llm_active_error)',
+            function_source,
+        )
+        self.assertIn("_vce_metal_runtime_failure() is not None", function_source)
+        self.assertIn("__import__('sys').exc_info()", function_source)
+        self.assertIn("Skipping Text LLM cache cleanup after fatal Metal timeout", function_source)
+        self.assertIn("gc.collect()", function_source)
+        self.assertNotIn("_vce_mlx_trace_sys", function_source)
+        self.assertNotIn("mlx.core", function_source)
+        self.assertNotIn("mx.clear_cache()", function_source)
+
     def test_mps_vlm_smoke_launcher_is_pinned_guarded_and_shell_valid(self):
         smoke_path = ROOT / "scripts" / "run_vce_fast_profile_mps_smoke.command"
         smoke = smoke_path.read_text(encoding="utf-8")
