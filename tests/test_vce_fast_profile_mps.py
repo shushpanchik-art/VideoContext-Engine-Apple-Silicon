@@ -123,7 +123,19 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
     def test_launcher_patcher_ref_is_not_the_patchers_git_blob_sha(self):
         launcher = LAUNCHER_PATH.read_text(encoding="utf-8")
-        match = re.search(r'^PATCHER_REF="([0-9a-f]{40})"(self):
+        match = re.search(r'^PATCHER_REF="([0-9a-f]{40})"$', launcher, re.MULTILINE)
+        self.assertIsNotNone(match, "Launcher must pin the patcher to a full Git object ID.")
+
+        source = PATCHER_PATH.read_bytes()
+        git_blob_header = f"blob {len(source)}\\0".encode("ascii")
+        patcher_blob_sha = hashlib.sha1(git_blob_header + source).hexdigest()
+        self.assertNotEqual(
+            match.group(1),
+            patcher_blob_sha,
+            "PATCHER_REF must identify a commit, not the patcher's blob object.",
+        )
+
+    def test_original_vlm_and_text_llm_models_use_separate_llama_cpp_metal_stages(self):
         patched = self.patcher.patch_engine(self.engine)
         tree = ast.parse(patched)
 
