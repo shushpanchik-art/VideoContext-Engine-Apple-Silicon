@@ -1,0 +1,7 @@
+benchmark_timestamp_utc=20261105T011752Z
+runner_exit_code=2
+source_revision=650f3a1437ee0cdcab1c3ea41005a599a373d578
+patcher_revision=db54501d459569eaa3e75a8e22ef1385ecee68f9
+profiles=fast_scene_detection,all_experimental
+input_video=<redacted>
+publication_scope=summary.md,stage_comparison.csv,launcher_status.txt only

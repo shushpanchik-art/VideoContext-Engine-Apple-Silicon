@@ -1,0 +1,5 @@
+benchmark_timestamp_utc=20261105T001125Z
+runner_exit_code=1
+source_revision=650f3a1437ee0cdcab1c3ea41005a599a373d578
+profiles=baseline,adaptive_keyframes,ocr_cache,mlx_whisper,fast_scene_detection,all_experimental
+input_video=<redacted>

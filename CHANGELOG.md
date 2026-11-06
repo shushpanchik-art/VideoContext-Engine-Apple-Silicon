@@ -1,10 +1,13 @@
 ## Unreleased — local full-profile performance benchmark
 
+- Updated the one-command Apple Silicon launcher to use the requested NSR video path by default, pin runner/helper downloads to the regression-fixed source commit, run the baseline plus isolated and combined experimental profiles, retain console/error diagnostics, and publish only sanitized aggregate benchmark tables and error excerpts to the feature branch. Full video-derived artifacts and raw logs remain local.
+
 - Fixed the one-command launcher by normalizing `jsonl_append()` paths and routing accidental `/api/v1/progress/...` endpoint strings to the per-profile local JSONL trace. Confirmed Whisper-only run completed (185.99 s, Russian, HTTP 200); added regression tests and retained immutable source pins.
 
 - Added a one-command macOS Apple Silicon benchmark for a baseline full-analysis profile, each experimental optimization independently, and a combined experiment run.
 - Added local-only per-stage timing, VCE process/resource sampling, optional system-wide powermetrics GPU telemetry, CPU/GPU/overlap classification, and error capture.
 - Added regression tests and documentation; source video, transcripts, responses, settings and runtime telemetry are never uploaded to GitHub.
+- Added a target-Mac diagnostic handoff for the 2026-11-04 run: MLX GPU detection/stream smoke tests passed, but Metal command-buffer submissions were ignored, VLM was disabled by its guard, and Text LLM post-processing fell back. The supplied memory snapshot showed 87% free RAM and no swap activity; Whisper was explicitly CPU-streamed. These runs are degraded diagnostics, not valid comparative benchmark results. See `docs/VCE_METAL_FAILURE_HANDOFF_2026-11-04.md`.
 
 # Changelog
 
@@ -34,11 +37,11 @@
 - Updated benchmark documentation and removed links to deleted feature branches.
 - Added ignore rules for per-video benchmark folders and generated model-output files.
 
-## 0.2.2 — Local benchmark safety and final repository tidy (2026-11-02)
+## 0.2.2 — Benchmark safety and repository cleanup (2026-11-02)
 
 - Removed the retired unattended-benchmark dependency on a deleted feature branch; input video is now required explicitly and all reports stay local.
 - Removed the legacy publication helper and upstream overlay installer, superseded by the full-runtime installation path.
-- Removed redundant root-level copies of utilities; canonical scripts, patches and macOS tools remain in their dedicated directories.
+- Removed redundant root-level copies of utilities; canonical scripts, tests and macOS tools remain in their dedicated directories.
 - Fixed the native-app repair utility to fetch its Swift source from `main`.
 
 ## 0.2.1 — Quality audit, diagnostics and repository cleanup (2026-11-02)
@@ -59,7 +62,6 @@
 - Included Apple Silicon/macOS patchers, native AppKit/WebKit app sources and a clean-install path for Python 3.11.
 - Added dependency manifests, sanitized settings examples, publication/privacy manifest, and third-party MIT attribution.
 - Removed local backup files, private benchmark logs, and other non-distribution artifacts from the published source tree.
-- Merged as PR #15 into `main` using squash commit `549186bbf9c4653955cb8d8f4d1e967055e80b55`.
 
 ## Earlier development
 

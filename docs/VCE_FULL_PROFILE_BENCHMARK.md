@@ -2,13 +2,13 @@
 
 ## Запуск одной командой
 
-После установки проекта в `~/VideoContext-Engine` и первого открытия приложения укажите путь к видео через `VCE_VIDEO_PATH` и скопируйте команду в Terminal. Launcher загружает с GitHub сжатый Python runner, распаковывает его во временный файл и удаляет после выполнения:
+После установки проекта в `~/VideoContext-Engine` и авторизации GitHub CLI (`gh auth login`) укажите локальный путь к входному видео через `VCE_VIDEO_PATH`, затем запустите команду в Terminal. Приватный путь и имя видео намеренно не хранятся в репозитории. Launcher загружает с GitHub сжатый Python runner, распаковывает его во временный файл и удаляет после выполнения:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/main/scripts/run_vce_full_profile_benchmark.command | VCE_VIDEO_PATH="$HOME/Downloads/video.mp4" /bin/bash
+curl -fsSL https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command | /bin/bash
 ```
 
-Путь к исходному файлу можно изменить, не редактируя скрипт. Если `VCE_VIDEO_PATH` не задан, используется `~/Downloads/video.mp4`.
+Перед запуском задайте `export VCE_VIDEO_PATH="/path/to/private-input.mp4"`. Каталог проекта задаётся через `VCE_PROJECT_DIR` (по умолчанию `~/VideoContext-Engine`). Для автоматической публикации безопасной агрегированной сводки нужен установленный и авторизованный GitHub CLI: `brew install gh && gh auth login` (один раз).
 
 Скрипт сам пытается открыть `/Applications/VideoContext Engine.app`, если API `127.0.0.1:7555` ещё не запущен. При нестандартном каталоге установки можно задать `VCE_PROJECT_DIR`; дополнительные аргументы передаются runner, например `--dry-run` или `--no-combined`.
 
@@ -53,14 +53,14 @@ VLM resolution выбирается по объёму unified memory: 1280 px п
 - `errors.csv` и per-run `errors.log`;
 - per-run `response.json`, `stage_timings.json/csv`, `progress_trace.jsonl`, `process_samples.jsonl`, `powermetrics_gpu_power.jsonl`, `server_log_delta.log`.
 
-Полные ответы могут содержать исходный транскрипт, OCR и содержимое видео. Скрипт не меняет `videocontext_settings.json`, не перезаписывает пользовательские TXT/JSON и не загружает видео, ответы, логи или результаты в GitHub. Не добавляйте папку результатов в Git.
+Полные ответы могут содержать исходный транскрипт, OCR и содержимое видео. Скрипт не меняет `videocontext_settings.json` и не перезаписывает пользовательские TXT/JSON. После завершения он автоматически создаёт commit в ветке `feat/experimental-benchmark-launcher` и отправляет только `summary.md`, `stage_comparison.csv` и `launcher_status.txt` в `benchmark-results/<UTC timestamp>/`. Путь и basename видео удаляются из сводки. `run_summary.csv`, `errors.csv`, per-run `errors.log`, filtered error excerpts, полный API response, транскрипт, OCR-текст, модельные ответы и все сырые process/server logs остаются локально и не публикуются. Локальная полная диагностика хранится в `$HOME/Downloads/VCE_Full_Profile_Benchmark/<run_id>/`.
 
 Без размеченного эталонного транскрипта нельзя вычислить WER/CER. Количество распознанных слов и сцен показываются только как coverage proxies, а не оценка точности.
 
 
 ## Launcher compatibility guard (2026-11-04)
 
-The one-command launcher now downloads a small patch helper alongside the compressed runner. It normalizes the argument passed to `jsonl_append()` with `pathlib.Path` before the JSONL writer calls `.open()`. This addresses the observed runner-side `AttributeError: 'str' object has no attribute 'open'` and restores progress/error telemetry collection. The patch is applied only to the temporary unpacked runner; it does not edit the installed VCE runtime or user settings.
+The one-command launcher downloads a small patch helper alongside the compressed runner. The helper fixes the JSONL path argument, adds baseline-only/VLM-only/Whisper-only diagnostic modes, and classifies API, Metal, VLM, Whisper and Text LLM outcomes independently from HTTP status. It treats Metal submission failures, missing metadata and requested stages without positive completion evidence as FAILED or DEGRADED. It also rejects a Whisper-only profile as completed when the input has no audio track. The patch is applied only to the temporary unpacked runner; it does not edit the installed VCE runtime or user settings.
 
 This is deliberately separate from engine-native crashes. A Python `SIGSEGV` in Apple `libBNNS.dylib` is outside Python exception handling and cannot be repaired by the benchmark launcher. Treat a runner error and a VCE process crash as distinct events; use the macOS crash report and server log to isolate the native backend.
 
@@ -82,7 +82,7 @@ Use `VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1` for a single baseline r
 
 ### Immutable source pin
 
-The one-command launcher pins the runner and patch-helper downloads to commit `9579f659d7543dadcb795dd82187d4ab5573608c` rather than the mutable `main` branch. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing an old helper with a new launcher. It also prints the pinned source revision and helper URL before applying the patch.
+The one-command launcher pins the compressed runner to `650f3a1437ee0cdcab1c3ea41005a599a373d578` and the stage-aware patch helper to `f3d9592f704881819f416d3e1d0c18348888c16f`, each by immutable commit rather than mutable `main`. This prevents a cached `raw.githubusercontent.com/.../main` response from silently mixing runner/helper versions. It prints both pinned revisions before applying the patch.
 
 
 ### Progress-trace routing fix (2026-11-04)
@@ -90,3 +90,55 @@ The one-command launcher pins the runner and patch-helper downloads to commit `9
 The second diagnostic run proved that Whisper completed successfully: four MLX Whisper chunks were transcribed, the detected language was Russian, total Whisper inference was 185.99 seconds, and the VCE analyze endpoint returned HTTP 200. The benchmark runner then failed when it passed the API endpoint string `/api/v1/progress/<job_id>` into the local JSONL writer.
 
 Patch v2 now detects that API-route value at the JSONL writer boundary and writes the snapshot to the per-profile local file `<run_root>/<index>_<profile>/progress_trace.jsonl`. It uses the active `run_root`, profile key, and index from the caller frame. This does not modify the endpoint used for network polling. Regression tests cover the API-route collision, ordinary string paths, baseline-only mode, Whisper-preserving mode, and patch idempotence.
+
+
+### Automatic report publication
+
+The launcher writes the full diagnostic bundle locally and, after the run (including a failed run), publishes only `summary.md`, `stage_comparison.csv`, and `launcher_status.txt` to the benchmark feature branch. It does not publish `run_summary.csv`, `errors.csv`, any error excerpts, full API responses, video-derived text, or raw logs. The input video path and basename are redacted from the published summary. It requires an authenticated GitHub CLI session with push access to the repository. A non-zero runner exit code is preserved after publication so failures remain visible to the terminal caller. If GitHub publication is unavailable, the local report is retained and the launcher explains the missing prerequisite.
+
+
+### Reading the CPU/GPU execution table
+
+The stage table distinguishes:
+- `CPU`: stage execution is evidenced on CPU;
+- `GPU`: GPU/Metal execution is evidenced for the stage;
+- `CPU+GPU`: the same stage has evidenced CPU and GPU work;
+- `CPU||GPU`: separate CPU and GPU work overlaps in time;
+- `unknown`: available telemetry cannot attribute the hardware path safely.
+
+MLX and Metal are reported where the VCE runtime exposes them. MPS is not inferred from Apple Silicon presence: it is reported only if the actual execution path exposes evidence for it. System-wide `powermetrics` is corroborating telemetry, not per-process or per-kernel attribution. Apple Vision's internal CPU/GPU/ANE choice remains unknown unless the OS/runtime exposes direct evidence.
+
+### Stage-aware profile acceptance (2026-11-04)
+
+The pinned runner's original status rule treated HTTP 200 plus a non-empty `meta` object as `completed`, even when its own error collection contained MLX/Metal failures or Text LLM fallback. The launcher now keeps the runner pinned to its immutable source revision and downloads the stage-classification patch helper from a separate immutable commit.
+
+The patched runner records `http_status` / `api_status` separately from `status` and emits a local `stage_status.json` for API, Metal, VLM, Text LLM and Whisper:
+
+- `completed`: every stage requested by the profile has positive completion evidence and the runner reports `error_count=0`; Text LLM additionally requires the runtime's explicit `success` status and returned enhanced analysis.
+- `degraded`: HTTP completed, but a requested optional/fallback-capable stage failed or lacks completion evidence, or the runner reports any non-zero `error_count`. A Text LLM fallback is not a successful full profile; runtime errors must be reviewed from the local `errors.csv` before acceptance.
+- `failed`: HTTP/transport failure, a Metal command-buffer submission error, a VLM memory-guard shutdown, or an explicitly skipped/failed requested VLM stage.
+
+A profile is not comparable unless `status=completed`. A baseline that is failed or degraded stops the sequential matrix. The HTTP 200 value remains visible but cannot promote a profile to success.
+
+### Controlled single-profile isolation switches
+
+First set `VCE_VIDEO_PATH` locally to the private input file. These isolation variables are applied to the in-memory request only; they do not change persisted VCE settings:
+
+- VLM-only, with audio/Whisper, both OCR paths and Text LLM disabled:
+  ```bash
+  export VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_VLM_ONLY=1
+  curl -fsSL "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command" | /bin/bash
+  ```
+- Whisper-only, retaining CPU Whisper/audio features and disabling VLM, OCR and Text LLM:
+  ```bash
+  export VCE_BENCH_ONLY_BASELINE=1 VCE_BENCH_WHISPER_ONLY=1
+  curl -fsSL "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command" | /bin/bash
+  ```
+- Concurrent baseline (CPU Whisper + VLM + Text LLM):
+  ```bash
+  export VCE_BENCH_ONLY_BASELINE=1
+  curl -fsSL "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/experimental-benchmark-launcher/scripts/run_vce_full_profile_benchmark.command" | /bin/bash
+  ```
+
+Run each isolation profile only after confirming the previous launcher/request has ended and restarting the VCE process cleanly. Do not run the concurrent profile until VLM-only and Whisper-only have been independently checked. These are diagnostic isolation runs, not a performance comparison.
+
