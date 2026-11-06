@@ -43,3 +43,18 @@ Smoke runner and static pin test now point to adapter commit `2a8869450ad5224cf1
 
 ## Important distinction
 The current issue is still a runner preflight/planning bug. Do not diagnose llama.cpp/Metal, Qwen model loading, GPU memory or video decoding until a real POST request is observed and its local response/logs show a runtime failure.
+
+
+## 2026-11-06 follow-up: VLM diagnostic runner pin consistency
+
+A follow-up inspection found that the dedicated VLM diagnostic launcher still pinned the adapter to `10f8c706e9aae494f6d6a092db7ba7d34a21897a`, which predates the baseline planner bypass. The fast-profile smoke launcher already used the corrected adapter, but that did not update the separate VLM diagnostic launcher.
+
+Corrected in the existing PR #34:
+- `scripts/run_vce_vlm_smoke_diagnostic.command`: `PATCHER_REF` now points to `2a8869450ad5224cf13a34f41282379385f3f5d4` (commit `f55e01d508b9bfabb9ad2b728a7026abc832296e`).
+- `tests/test_vce_full_profile_benchmark_patch.py`: added `test_vlm_smoke_launcher_pins_baseline_planner_compat_adapter`, which asserts that exact immutable adapter pin (commit `2a5036489cdd5a380d554a6408bd956d25aed428`).
+
+The PR head is now `2a5036489cdd5a380d554a6408bd956d25aed428`. CI for this head was triggered: OCR workers, Audio resilience, Quality benchmark, Optimization patch and Metal runtime latch were in progress; Distribution was queued; Speed profile/menu bar was cancelled. Re-check all runs against the latest PR head before a Mac smoke.
+
+No Mac smoke was run by this follow-up agent. Before running, inspect the actual current listener on port 7555 and confirm no active request; PID 53188 is only the last recorded PID and must not be killed blindly. The launcher itself requires exactly one listener and refuses an established connection. It also verifies the listener started after the expected patched engine source.
+
+For a video longer than 30 seconds, the launcher creates a separate 20-second video-only excerpt at the beginning of the source and leaves the original unchanged. Keep the local source path in the shell environment only; do not write it into this public handoff or commit local diagnostic output.
