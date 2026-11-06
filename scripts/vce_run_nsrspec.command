@@ -20,7 +20,7 @@ RUN_EXIT=0
 
 # Dropbox upload configuration. Set VCE_DROPBOX_REMOTE if your rclone alias differs.
 DROPBOX_REMOTE="${VCE_DROPBOX_REMOTE:-}"
-DROPBOX_BASE="${VCE_DROPBOX_BASE:-20261104_224554_1f098d/тест2}"
+DROPBOX_BASE="${VCE_DROPBOX_BASE:-20261104_224554_1f098d/VCE_Forensic_Runs}"
 
 fail() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 2; }
 note() { printf '\n[VCE forensic] %s\n' "$*"; }
