@@ -71,3 +71,14 @@ echo "=== 8. OUTPUT FILES ==="
 find "$OUT" -maxdepth 1 -type f -exec ls -lh {} \;
 echo
 echo "RECON_COMPLETE=$OUT"
+
+# Upload the metadata-only report to the configured private review repository.
+REPO="${VCE_APP_UPLOAD_REPO:-shushpanchik-art/vce-local-review-20261102-170802}"
+command -v gh >/dev/null 2>&1 || { echo "UPLOAD_SKIPPED: gh CLI unavailable"; exit 0; }
+gh auth status --hostname github.com >/dev/null 2>&1 || { echo "UPLOAD_SKIPPED: gh not authenticated"; exit 0; }
+VIS="$(gh api "repos/$REPO" --jq .visibility 2>/dev/null || true)"
+[[ "$VIS" == "private" ]] || { echo "UPLOAD_REFUSED: repository is not confirmed private ($VIS)"; exit 0; }
+TAG="mac-recon-$STAMP"
+gh release create "$TAG" "$OUT/RECON_REPORT.txt" --repo "$REPO" --title "VCE Mac read-only reconnaissance $STAMP" --notes "Metadata/path inventory only. No app data or credentials intentionally collected."
+echo "PRIVATE_RELEASE=https://github.com/$REPO/releases/tag/$TAG"
+echo "LOCAL_REPORT=$OUT/RECON_REPORT.txt"
