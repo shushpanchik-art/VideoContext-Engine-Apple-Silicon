@@ -102,7 +102,8 @@ except ValueError:
     raise SystemExit(
         "Cannot parse VCE listener start time even with LC_ALL=C: " + repr(started)
     )
-source_mtime = os.stat(source).st_mtime
+# ps reports process start time to whole-second precision on macOS.
+source_mtime = int(os.stat(source).st_mtime)
 if process_epoch < source_mtime:
     raise SystemExit("VCE listener started before the patched source was written. Restart VCE normally, then rerun this script.")
 print("Listener start time is newer than the patched source file.")
