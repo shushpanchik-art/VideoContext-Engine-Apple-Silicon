@@ -517,7 +517,12 @@ def _vce_ensure_llama_server(model_path: str) -> None:
         except Exception as exc:
             raise RuntimeError("Could not verify llama-server Metal support: " + type(exc).__name__) from exc
         devices = (probe.stdout or "") + "\n" + (probe.stderr or "")
-        if probe.returncode != 0 or "metal" not in devices.lower():
+        # llama.cpp 0.7.0 reports Apple Metal as MTL0/MTL1, not necessarily "Metal".
+        has_metal_device = any(
+            re.search(r"(?i)(?:\bmetal\b|\bMTL\d+\s*:)", line)
+            for line in devices.splitlines()
+        )
+        if probe.returncode != 0 or not has_metal_device:
             raise RuntimeError(
                 "The installed llama-server does not advertise a Metal device. "
                 "Install/rebuild llama.cpp with macOS Metal support; CPU fallback is disabled."
