@@ -41,6 +41,15 @@ FORM_EXCLUDE = {"video_file", "local_video_token", "video_url", "job_id"}
 PERSISTED_PROMPT_FIELDS = {"visual_user_prompt", "summary_user_prompt"}
 SAFETY_OVERRIDES = {
     "analysis_mode": "full",
+    "runtime_profile": "baseline_mps_sequential",
+    "enable_mlx_whisper": False,  # legacy compatibility; canonical profile above is authoritative
+    "whisper_model": "large",
+    "whisper_acceleration": True,
+    "word_timestamps": True,
+    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "vlm_resolution": 1280,
+    "text_llm_enabled": True,
+    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
     "skip_audio": False,
     "skip_visual": False,
     "generate_summary": True,
@@ -48,8 +57,6 @@ SAFETY_OVERRIDES = {
     "generate_json": False,
     "response_format": "json",
     "enable_stage_timing": True,
-    "enable_mlx_whisper": True,
-    "text_llm_enabled": True,
 }
 
 
@@ -137,6 +144,11 @@ def get_form_schema(openapi: dict[str, Any]) -> tuple[dict[str, Any], str]:
     properties = schema.get("properties", {})
     if "video_file" not in properties:
         raise RuntimeError("В OpenAPI не найдено поле video_file.")
+    if "runtime_profile" not in properties:
+        raise RuntimeError(
+            "Локальный VCE API не поддерживает runtime_profile; "
+            "прогон baseline отменён, чтобы не измерять другую архитектуру."
+        )
     progress_path = next(
         (p for p in openapi.get("paths", {}) if "/progress/" in p and "{" in p),
         "",
