@@ -6,7 +6,7 @@
 
 Rework the local VideoContext Engine v3.19 runtime so that its inference architecture returns to the best-quality/best-measured behavior the user observed around **25 October 2026**, while retaining the later useful product features:
 
-1. Remove **MLX/Metal as the inference backend for both VLM and Text LLM**. Restore a stable non-MLX backend for those two stages. Do not merely hide the UI options or disable VLM/LLM; keep both stages functional.
+1. Remove **MLX and Metal inference for both VLM and Text LLM**. Restore the stable non-Metal backend that matches the historical working source (likely a CPU execution path, but verify before deciding). Do not merely hide UI options or disable VLM/LLM; keep both stages functional. A non-MLX backend that still executes on Metal does not satisfy the requirement.
 2. Keep **Whisper on PyTorch MPS** (not mlx-whisper and not MLX CPU stream). Preserve acceleration controls and verify the effective device in logs and JSON.
 3. Preserve Apple Vision OCR and its bounded image-result cache.
 4. Preserve multi-language recognition selection / whitelist behavior across ASR, Apple Vision OCR, Tesseract OCR, VLM and Text LLM.
@@ -25,10 +25,10 @@ Important source areas:
 - Runtime: `VideoContextEngine_v3.19.py`, matching `videocontext_web_ui.html`.
 - Installer / distribution: `scripts/install_video_context_engine.command`, `macos/install_video_context_mac.command`, `macos/VideoContext Engine.app/`.
 - Recognition languages: PR #16, `patches/vce-recognition-languages-patcher.tar.gz`, `docs/RECOGNITION_LANGUAGES.md`, `tests/test_vce_recognition_languages_patch.py`.
-- OCR cache / opt-in performance controls: PR #10, patcher in `patches/`, `tests/test_vce_optimization_checkboxes.py`.
+- OCR cache / opt-in performance controls: PR #10, `patches/patch_vce_optimization_checkboxes.py` (bounded `_VCE_OCR_CACHE_MAX = 256`), `tests/test_vce_optimization_checkboxes.py`. Keep the Apple Vision cache behavior even if its opt-in setting remains off by default.
 - Whisper MPS recovery / device handling: `patches/patch_vce_stop_and_mps.py`, `tests/test_vce_stop_mps_patch.py`.
 - Orphan process lifecycle: PR #27, `macos/VideoContext Engine.app/`, `macos/repair_installed_native_app.command`, `tests/test_vce_native_app_lifecycle.py`.
-- MLX/Metal architecture: PR #11 and its branch history, plus `docs/MLX_METAL_DIAGNOSTICS.md`; do not retain the PR #11 switch to mlx-whisper CPU stream as the desired Whisper implementation.
+- MLX/Metal architecture: PR #11 and its branch history, plus `docs/MLX_METAL_DIAGNOSTICS.md`; do not retain the PR #11 switch to mlx-whisper CPU stream as the desired Whisper implementation. The 6 November local run also used llama.cpp on Metal for VLM, so inspect this separate backend path too.
 - Benchmarks: `docs/VCE_PARAMETER_BENCHMARK_2026-10-25.md`, `docs/APPLE_SILICON_BENCHMARKS.md`, `docs/VCE_FULL_PROFILE_BENCHMARK.md`, `scripts/vce_benchmark.py`, `scripts/vce_compare_runs.py`, `scripts/vce_runtime_watchdog.py`.
 
 Relevant PR history:
@@ -56,7 +56,7 @@ Source facts:
 - Server PID 7624 remained stable; RAM free 82% before / 73% after; no swap; no OOM signature.
 - Response: VLM enabled, 108.857 s VLM inference, 14 scenes and 14 descriptions; Whisper inference 0; Apple OCR 0; FFmpeg OCR 0; audio skipped true; visual skipped false; Text LLM disabled.
 - llama.cpp/Metal model startup took 289.443 s. This is a measured load-time concern, not proof of inference failure.
-- This run demonstrates the full-video VLM path can complete successfully. It does **not** validate the proposed non-MLX replacement or compare output quality.
+- The attributable log delta also reports `llama.cpp` with `device=Metal` for the VLM model; do not mislabel this specific run as mlx-vlm. The user's requested end state is no MLX **and no Metal** inference for VLM/Text LLM, while Whisper remains PyTorch MPS. This run demonstrates the current full-video VLM path can complete successfully; it does **not** validate the proposed CPU/non-Metal replacement or compare output quality.
 
 Earlier failed test logs showed model download connection failures, an explicit cancel request, `Shutting down` and `exit -15`. The logs mixed UI polling and multiple requests; do not attribute every event to one request without timestamp/PID/request correlation. Current full-length run did not reproduce those failures.
 
