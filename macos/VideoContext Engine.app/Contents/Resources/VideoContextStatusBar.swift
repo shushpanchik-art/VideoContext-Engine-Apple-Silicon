@@ -4,6 +4,7 @@ import Foundation
 import WebKit
 
 // VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1
+// VCE_REUSE_HEALTHY_ENGINE_V1
 
 /// Standalone VideoContext Engine window plus a persistent menu-bar companion.
 /// The Python/FastAPI server runs without Terminal, with stdout/stderr appended to a log file.
@@ -33,10 +34,16 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // A previous app instance may have been force-quit or crashed, leaving
-        // its Python engine orphaned. Purge only this project's runtime before
-        // checking port 7555, so the new app never attaches to an old server.
-        _ = terminateProjectEngineProcesses(reason: "application launch")
+        // Reuse an already responsive engine. The previous unconditional sweep
+        // could kill a valid server (and an in-flight analysis) when the user
+        // opened the native app after starting the server from Terminal.
+        // Only reap project-scoped orphan processes when the UI endpoint is not
+        // responding; a healthy server is attached to instead of restarted.
+        if serverAvailable() {
+            NSLog("[VCE lifecycle] Reusing responsive engine; skipping launch cleanup.")
+        } else {
+            _ = terminateProjectEngineProcesses(reason: "application launch")
+        }
 
         // This must be a regular app so it has a real window and Dock presence.
         NSApp.setActivationPolicy(.regular)
