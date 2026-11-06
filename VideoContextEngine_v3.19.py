@@ -422,7 +422,14 @@ VCE_RUNTIME_PROFILES = {
 
 
 def _vce_normalize_runtime_profile(value: Optional[str] = None) -> str:
-    profile = str(value or setting("runtime_profile", VCE_RUNTIME_PROFILE_BASELINE)).strip().lower()
+    if value is None or not str(value).strip():
+        stored_profile = USER_SETTINGS.get("runtime_profile") if isinstance(USER_SETTINGS, dict) else None
+        if stored_profile is None and bool(setting("enable_mlx_whisper", False)):
+            # Migrate legacy settings created before runtime_profile existed.
+            stored_profile = VCE_RUNTIME_PROFILE_MLX_PARALLEL
+        profile = str(stored_profile or VCE_RUNTIME_PROFILE_BASELINE).strip().lower()
+    else:
+        profile = str(value).strip().lower()
     if profile not in VCE_RUNTIME_PROFILES:
         raise ValueError(
             f"Unsupported runtime_profile {profile!r}; expected one of {sorted(VCE_RUNTIME_PROFILES)}"
@@ -3400,15 +3407,18 @@ async def lifespan(app: FastAPI):
     vlm_engine = get_vlm_engine()
 
     if RAM_MODE == "ram+":
-        print("🚀 RAM+ mode: préchargement des modèles...")
-        try:
-            vlm_engine.load_model(str(setting("vlm_model", ACTIVE_DEFAULT_VLM)))
-        except Exception as e:
-            print(f"⚠️ Impossible de précharger le VLM par défaut: {e}")
+        startup_runtime_profile = _vce_normalize_runtime_profile()
+        print(f"🚀 RAM+ mode: préchargement des modèles; profile={startup_runtime_profile}...")
+        if startup_runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
+            try:
+                vlm_engine.load_model(str(setting("vlm_model", ACTIVE_DEFAULT_VLM)))
+            except Exception as e:
+                print(f"⚠️ Impossible de précharger le VLM par défaut: {e}")
+        else:
+            print("[VCE execution] baseline_mps_sequential: пропускаем preload VLM, чтобы не держать MLX/Metal модель в памяти до завершения Whisper/MPS.")
         try:
             t0 = time.time()
             startup_whisper_model = str(setting("whisper_model", DEFAULT_WHISPER_MODEL))
-            startup_runtime_profile = _vce_normalize_runtime_profile()
             startup_whisper_acceleration = bool(setting("whisper_acceleration", True))
             startup_cache_key = _vce_whisper_cache_key(
                 startup_whisper_model,
@@ -3602,6 +3612,8 @@ async def get_ui_settings():
     defaults.setdefault("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)
     defaults.setdefault("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)
     result = {key: persisted.get(key, defaults[key]) for key in defaults}
+    if "runtime_profile" not in persisted and bool(persisted.get("enable_mlx_whisper", False)):
+        result["runtime_profile"] = VCE_RUNTIME_PROFILE_MLX_PARALLEL
     result["ffmpeg_ocr_available"], result["ffmpeg_ocr_reason"] = _vce_ffmpeg_ocr_capability()
     result["qwen35_text_stage_note"] = "Режим анализа не отключает Qwen3.5 текстовую постобработку."
     return result
@@ -5851,6 +5863,8 @@ async def analyze_video(
             OUTPUT_FILE_REGISTRY[json_download_id] = (Path(json_path), json_output_name)
 
         timings["text_llm"] = {
+            "backend": "mlx-vlm" if text_llm_enabled else None,
+            "device_target": "Metal" if text_llm_enabled else None,
             "enabled": bool(text_llm_enabled),
             "model": text_llm_model if text_llm_enabled else None,
             "status": text_llm_status,
