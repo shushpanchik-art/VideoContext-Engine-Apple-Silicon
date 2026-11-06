@@ -106,6 +106,28 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertEqual(len(plan), 1)
         self.assertEqual(plan[0][0], "baseline")
 
+    def test_baseline_only_mode_bypasses_legacy_experiment_field_validation(self):
+        namespace = self._load()
+
+        def legacy_planner_must_not_run(*args, **kwargs):
+            raise RuntimeError(
+                "Локальный API не подтверждает поля ['enable_adaptive_keyframes']"
+            )
+
+        namespace["_vce_original_build_plan"] = legacy_planner_must_not_run
+        with patch.dict(os.environ, {"VCE_BENCH_ONLY_BASELINE": "1"}):
+            plan = namespace["build_plan"](
+                {},
+                {
+                    "enable_ocr_cache": {},
+                    # Deliberately absent: removed by the stable MPS profile.
+                },
+            )
+        self.assertEqual(
+            plan,
+            [("baseline", "Оптимальный базовый профиль", {})],
+        )
+
     def test_fast_profile_removed_experimental_fields_are_filtered_in_baseline_mode(self):
         namespace = self._load()
         fields, missing = namespace["build_base_fields"]()
