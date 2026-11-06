@@ -3652,11 +3652,11 @@ async def save_ui_settings(payload: Dict[str, Any]):
     allowed_whisper = {"tiny", "base", "small", "medium", "large"}
     merged = dict(current)
     for key, value in payload.items():
-        if key == "runtime_profile":
+        if key == "analysis_mode":
+            if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
+        elif key == "runtime_profile":
             if value not in VCE_RUNTIME_PROFILES:
                 raise HTTPException(422, "Недопустимый профиль выполнения")
-        elif key == "analysis_mode":
-            if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
         elif key == "vlm_model":
             if value not in allowed_vlm: raise HTTPException(422, "Недопустимая VLM-модель")
         elif key == "whisper_model":
