@@ -66,6 +66,18 @@ class TestRuntimeProfiles(unittest.TestCase):
         config = json.loads((ROOT / "config/videocontext_settings.apple_silicon.example.json").read_text())
         self.assertEqual(config["vlm_resolution"], 1280)
 
+    def test_optional_form_defaults_are_loaded_from_settings(self):
+        for key in (
+            "analysis_mode", "enable_ffmpeg_ocr", "ffmpeg_ocr_interval",
+            "enable_stage_timing", "enable_adaptive_keyframes", "enable_ocr_cache",
+            "runtime_profile", "enable_mlx_whisper", "enable_fast_scene_detection",
+        ):
+            self.assertIn(f'setting("{key}",', self.source)
+
+    def test_obsolete_default_constants_are_removed(self):
+        for name in ("DEFAULT_MAX_DURATION", "DEFAULT_RESOLUTION", "DEFAULT_KEYFRAMES_PER_SCENE"):
+            self.assertNotIn(name, self.source)
+
     def test_ui_has_one_authoritative_runtime_selector(self):
         self.assertIn('id="cfg-runtime-profile"', self.ui)
         self.assertIn('value="baseline_mps_sequential"', self.ui)
