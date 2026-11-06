@@ -40,6 +40,8 @@ Relevant PR history:
 
 The public repo's `docs/VCE_PARAMETER_BENCHMARK_2026-10-25.md` records a 108.23 s video, 32 GB M1 Max, baseline total 278.97 s, 14 scenes, with Qwen3-VL-8B MLX visual inference 139.63 s, Qwen3.5 text post-processing 84.31 s, Whisper large/MPS 29.41 s, FFmpeg/Tesseract OCR 9.32 s, Apple Vision OCR 4.67 s. It explicitly warns that this was one run per variant on one sample, not a controlled multi-video benchmark. Treat it as historical evidence, not proof of universal superiority. The user specifically identifies the 25 October build/run as the best observed quality reference; locate the exact historical source snapshot/commit and compare it with the local snapshot before editing.
 
+**Important distinction / do not silently resolve the apparent conflict:** the published 25 October *benchmark profile* itself records MLX for Qwen3-VL and Qwen3.5, while Whisper was MPS. The user's requested *target architecture* is explicitly different: no MLX/Metal for VLM or Text LLM, Whisper on PyTorch MPS. Therefore use the 25 October run/output as the quality-and-coverage reference, but do not assume that the exact backend in that benchmark is the desired final backend. Identify the exact local 25 October source build and its backend dispatch from the Mac snapshot/backups. If the public history has no exact non-MLX VLM/LLM implementation, locate it in local backups or upstream history before choosing a replacement. Do not claim the benchmark document proves a non-MLX backend was used.
+
 ## Latest full-length forensic run (2026-11-06)
 
 User's required source:
