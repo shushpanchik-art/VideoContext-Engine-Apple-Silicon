@@ -59,7 +59,10 @@ class TestRuntimeProfiles(unittest.TestCase):
         self.assertIn('value="baseline_mps_sequential"', self.ui)
         self.assertIn('value="mlx_parallel"', self.ui)
         self.assertIn("runtime_profile: document.getElementById('cfg-runtime-profile').value", self.ui)
-        self.assertNotIn('id="cfg-mlx-whisper"', self.ui)
+        self.assertIn('id="cfg-mlx-whisper" type="checkbox" hidden disabled', self.ui)
+        self.assertNotIn('id="cfg-mlx-whisper"', self.ui.replace(
+            'id="cfg-mlx-whisper" type="checkbox" hidden disabled', ''
+        ))
 
 
 if __name__ == "__main__":
