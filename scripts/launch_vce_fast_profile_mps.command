@@ -71,7 +71,7 @@ device_output = (device_probe.stdout or "") + "\n" + (device_probe.stderr or "")
 # llama.cpp 0.7.0 labels Apple Metal devices as MTL0/MTL1 rather than "Metal".
 # Accept either the explicit backend name or a Metal device identifier.
 has_metal_device = any(
-    re.search(r"(?i)(?:\\bmetal\\b|\\bMTL\\d+\\s*:)", line)
+    re.search(r"(?i)(?:\bmetal\b|\bMTL\d+\s*:)", line)
     for line in device_output.splitlines()
 )
 if device_probe.returncode != 0 or not has_metal_device:
