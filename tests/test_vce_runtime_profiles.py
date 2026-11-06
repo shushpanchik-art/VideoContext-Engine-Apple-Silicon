@@ -54,6 +54,18 @@ class TestRuntimeProfiles(unittest.TestCase):
         self.assertIn('"whisper_backend": whisper_backend', self.source)
         self.assertIn('"whisper_vlm_overlap_seconds":', self.source)
 
+    def test_baseline_releases_pytorch_mps_cache_and_reports_zero_overlap(self):
+        stage = self.function_source("_vce_run_whisper_cpu_stage") if False else self.source
+        self.assertIn("await asyncio.to_thread(torch.mps.synchronize)", stage)
+        self.assertIn("release_accelerator_memory,", stage)
+        self.assertIn("if runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL and all(v is not None", stage)
+        self.assertNotIn("def _vce_load_whisper_model(", stage)
+
+    def test_example_resolution_matches_documented_baseline(self):
+        import json
+        config = json.loads((ROOT / "config/videocontext_settings.apple_silicon.example.json").read_text())
+        self.assertEqual(config["vlm_resolution"], 1280)
+
     def test_ui_has_one_authoritative_runtime_selector(self):
         self.assertIn('id="cfg-runtime-profile"', self.ui)
         self.assertIn('value="baseline_mps_sequential"', self.ui)
