@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -134,6 +135,26 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
             patcher_blob_sha,
             "PATCHER_REF must identify a commit, not the patcher's blob object.",
         )
+
+    def test_mps_vlm_smoke_launcher_is_pinned_guarded_and_shell_valid(self):
+        smoke_path = ROOT / "scripts" / "run_vce_fast_profile_mps_smoke.command"
+        smoke = smoke_path.read_text(encoding="utf-8")
+        self.assertIn("launch_vce_fast_profile_mps.command", smoke)
+        self.assertIn('PATCHER_REF="10f8c706e9aae494f6d6a092db7ba7d34a21897a"', smoke)
+        self.assertIn("VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1", smoke)
+        self.assertIn("VCE_BENCH_VLM_ONLY=1", smoke)
+        self.assertIn("VCE_VLM_DIAG_REQUEST_MANIFEST", smoke)
+        self.assertIn("-t 20", smoke)
+        self.assertIn("-map 0:v:0 -an", smoke)
+        self.assertNotIn("git push", smoke)
+
+        check = subprocess.run(
+            ["bash", "-n", str(smoke_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(check.returncode, 0, check.stderr)
 
     def test_original_vlm_and_text_llm_models_use_separate_llama_cpp_metal_stages(self):
         patched = self.patcher.patch_engine(self.engine)
