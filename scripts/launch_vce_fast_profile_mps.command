@@ -193,7 +193,6 @@ for removed in ("MLX", "mlx-community/", "mlx_vlm", "cfg-mlx-whisper", "enable_m
 print("Runtime syntax, PyTorch MPS, llama.cpp Metal, and OCR markers: OK")
 print("UI llama.cpp model selectors and preserved OCR/Whisper controls: OK")
 PY
-PY
 
 printf '[5/6] Starting VCE server...\n'
 mkdir -p "$LOG_DIR"
