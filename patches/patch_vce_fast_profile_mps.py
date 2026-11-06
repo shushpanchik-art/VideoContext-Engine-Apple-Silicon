@@ -820,7 +820,7 @@ def _patch_text_llm_to_llama_server(source: str) -> str:
         function_source = _replace_exact(
             function_source,
             legacy_cache_cleanup,
-            "        gc.collect()\\n",
+            "        gc.collect()\n",
             "Text LLM MLX cache cleanup"
         )
     elif (
