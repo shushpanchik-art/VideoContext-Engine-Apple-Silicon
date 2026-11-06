@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import importlib.util
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -10,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PATCHER_PATH = ROOT / "patches" / "patch_vce_fast_profile_mps.py"
 ENGINE_PATH = ROOT / "VideoContextEngine_v3.19.py"
 UI_PATH = ROOT / "videocontext_web_ui.html"
+LAUNCHER_PATH = ROOT / "scripts" / "launch_vce_fast_profile_mps.command"
 
 
 def load_patcher():
@@ -106,6 +108,17 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         ast.parse(upgraded)
         self.assertIn("import threading as _vce_threading", upgraded)
         self.assertIn("_VCE_METAL_RUNTIME_FAILURE_LOCK = _vce_threading.Lock()", upgraded)
+
+    def test_llama_cpp_metal_detection_accepts_mtl_device_identifiers(self):
+        pattern = re.compile(r"(?i)(?:\\bmetal\\b|\\bMTL\\d+\\s*:)")
+        self.assertIsNotNone(pattern.search("  MTL0: Apple M1 Max (25559 MiB, 25558 MiB free)"))
+        self.assertIsNotNone(pattern.search("Metal: Apple GPU"))
+        self.assertIsNone(pattern.search("BLAS: Accelerate (0 MiB, 0 MiB free)"))
+
+        launcher = LAUNCHER_PATH.read_text(encoding="utf-8")
+        patcher = PATCHER_PATH.read_text(encoding="utf-8")
+        self.assertIn(r're.search(r"(?i)(?:\\bmetal\\b|\\bMTL\\d+\\s*:)", line)', launcher)
+        self.assertIn(r're.search(r"(?i)(?:\\bmetal\\b|\\bMTL\\d+\\s*:)", line)', patcher)
 
     def test_original_vlm_and_text_llm_models_use_separate_llama_cpp_metal_stages(self):
         patched = self.patcher.patch_engine(self.engine)
