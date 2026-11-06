@@ -81,3 +81,23 @@ Do not update the launcher's expected hash to the observed value and do not reap
 Next safe step: download the exact helper from this PR's immutable commit into a temporary directory (not into the installed project), then run it in memory against both the backup and current source. Record the reconstructed SHA, whether the current source is idempotently accepted by the helper, and whether the RAM teardown marker exists. Do not write either file. Only after inspecting that comparison should the launcher checksum/preflight and public patch provenance be corrected.
 
 The failed smoke attempt did not alter the source, backup, VCE settings, or GitHub artifacts. Keep PR #34 Draft and do not run the VCE service until source provenance is resolved.
+
+
+## 2026-11-06 target-Mac source reconstruction result
+
+User ran the read-only comparison using the repository's immutable Metal-latch patcher from commit `5dced7045c63f4de492c598e082cd9a60bb49b93`. Results supplied from the target Mac:
+
+- Current installed source SHA256: `7cf4f32cf6e63685ae1ea470f6a63f9b357105966c9b2de28a3156b552e99e23`.
+- Timestamped backup exists; SHA256: `eb0708be06944503a9a2ad3429b8f27938356d1d16816634855fc93b7cda4f2c`.
+- The current source compiles successfully in memory.
+- `VCE_METAL_RUNTIME_LATCH_RAM_MINUS_TEARDOWN_V1` is present in the installed source.
+- Applying the official repo patcher in memory to the backup deterministically reconstructs SHA256 `eacd4eecfda2cc8a2c71203bf5ae3589611f5fd8d0405ded747146a78f147055`, matching the earlier handoff's recorded patched SHA.
+- The reconstructed file is not byte-identical to the installed current source.
+- Applying the official patcher to the current source fails closed with `ValueError: Found a partial Metal-latch patch`, reporting missing marker calls:
+  - `_vce_mark_metal_runtime_failed("text_llm_stream_fallback", fallback_stream_error)`
+  - `_vce_mark_metal_runtime_failed("text_llm_stream_generate", stream_error)`
+- The user's diff script reported 70 SequenceMatcher opcodes between reconstructed and installed files. This is a large structural difference; the opcode count alone does not identify the semantic changes and should not be interpreted as 70 isolated defects.
+
+Interpretation: the backup is intact and the canonical repo patcher reproduces the earlier `eacd4eec...` hash exactly. The installed `7cf4f32c...` source is syntactically valid but contains additional/different local modifications (including the RAM teardown marker) and does not satisfy the canonical patcher's complete-latch idempotence checks. Whether this represents an intentional later runtime revision or an incomplete/mixed patch is not yet known.
+
+Do not restore the backup, reapply the canonical patch, weaken the launcher SHA check, or run VCE yet. Next perform a narrow, read-only structural comparison of top-level function ASTs between the installed source and reconstructed canonical source. Report names/line ranges only for changed Metal/MLX/Text-LLM functions, plus a short excerpt around the RAM teardown marker and Text LLM fallback exception handlers. This should identify whether the two missing latch hooks were replaced by equivalent newer control flow or removed. No raw source or private logs need to be uploaded.
