@@ -105,3 +105,14 @@ Only after successful profile/API/UI verification should the next agent plan a s
 - Do not change the user's local `main`, local working tree, settings or backups.
 - Do not remove the user's installed MLX packages; MLX runtime use is removed by the profile, package deletion is unnecessary.
 - Do not claim performance improvement until controlled target-Mac measurements exist.
+
+
+## Follow-up: patcher download returned 404
+
+The first target-Mac rerun passed all dependency checks, including the MTL0-aware llama.cpp/Metal preflight, then failed at step 3/6 while downloading the pinned patcher.
+
+Root cause: the launcher's `PATCHER_REF` had been set to `2677bee642a4d6d232b5bff05b5efb8672e83e2e`, which is the **Git blob SHA of the patcher file**, not a commit SHA. GitHub's raw URL treats that URL segment as a Git ref/commit, so it correctly returned 404 even though the file exists in the current branch tree.
+
+Correction: the launcher now pins to commit `05ed277e0f1b0e582bc1cb65a8bb759767ce62ad`, whose tree contains `patches/patch_vce_fast_profile_mps.py`. A focused regression test computes the patcher's Git blob SHA and rejects using that blob ID as `PATCHER_REF`.
+
+Next target-Mac action: re-download the launcher from `feat/experimental-benchmark-launcher` using the same command in this handoff and rerun it. Do not reinstall llama.cpp, remove MLX packages, or run a video request before the launcher completes its profile/API verification. Keep PR #34 Draft and do not change `main`.
