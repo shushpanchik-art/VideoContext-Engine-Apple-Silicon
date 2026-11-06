@@ -137,3 +137,108 @@ Operational decision:
 - Do not bypass or edit the SHA check, and do not start an inference request through a hand-crafted API call yet.
 - A real VLM-only test can proceed only after identifying the installed app's exact VLM inference call path and verifying the relevant Metal failure latch around that path, or after preparing a reviewed diagnostic adapter that explicitly targets this installed source hash and architecture.
 - Next safe action is a read-only inspection of the exact VLM call site and its surrounding `try/except` and failure-latch calls, then a normal app launch/health check without submitting a video request. Only after those checks should the single 20-second VLM-only request be issued.
+
+
+---
+
+## 2026-11-06 operational handoff: from live API to accepted VLM-only app test
+
+**Purpose:** stop repeating discovery commands. The next agent owns the remaining path from the already-running local app to a verified, observable VLM-only request, then a stability decision. This section supersedes earlier "API not yet started" instructions where they conflict with the newer evidence below.
+
+### Current target-Mac state (user-provided terminal evidence, 2026-11-06)
+
+- macOS menu-bar process: `VideoContextStatusBar`, PID `62603`.
+- Engine process: Python 3.11 running `~/VideoContext-Engine-Apple-Silicon/VideoContextEngine_v3.19.py`, PID `62613`.
+- TCP `*:7555` is LISTEN, owned by PID `62613`.
+- `GET http://127.0.0.1:7555/openapi.json` returns HTTP 200.
+- API identifies itself as VideoContext Engine 3.19.
+- No analysis POST has yet been reported in this session. API health/schema inspection is not an inference test.
+
+### Installed runtime provenance — do not silently normalize
+
+- Installed source SHA256: `7cf4f32cf6e63685ae1ea470f6a63f9b357105966c9b2de28a3156b552e99e23`.
+- Backup SHA256: `eb0708be06944503a9a2ad3429b8f27938356d1d16816634855fc93b7cda4f2c`.
+- Official immutable patcher applied in memory to backup reconstructs `eacd4eecfda2cc8a2c71203bf5ae3589611f5fd8d0405ded747146a78f147055`.
+- Installed source is not byte-identical to that reconstruction; applying the canonical patcher to installed source fails closed as a partial patch. Installed source compiles, and contains the additional RAM-minus teardown marker.
+- Keep the original and backup untouched. Do not change expected SHA, reapply the canonical patcher, restore the backup, or assume that the local source is identical to the canonical patch output. First establish the exact installed source hash at the point of any proposed code change.
+
+### Verified installed VLM path
+
+- `_vce_describe_scene_with_memory_fallback` at approximately line 4123 calls `vlm_engine.describe_scene(...)`.
+- On a Metal memory error it checks timeout classification. A Metal command-buffer timeout calls `_vce_mark_metal_runtime_failed("vlm_generation", exc)`, disables further VLM work for the current video via a JSON sentinel, and avoids unsafe unload/cache cleanup after a fatal timeout.
+- Scene inference caller in `analyze_video` awaits this helper through `asyncio.to_thread`; it parses the returned JSON and disables VLM for the rest of the job if the memory-fallback sentinel is returned.
+- Summary inference also uses the same helper.
+- This is evidence for a specific timeout latch path, not proof that every VLM exception or every Metal failure mode is latched. Non-memory exceptions are re-raised. Do not broaden the claim.
+- The RAM-minus teardown guard checks the latched failure before unloading VLM/releasing accelerator memory. On a fatal latched timeout, teardown is skipped and process restart is required.
+
+### API contract confirmed from live OpenAPI
+
+- `POST /api/v1/analyze`, multipart/form-data.
+- `video_file` is optional binary upload; `local_video_token` and `video_url` default to empty.
+- Relevant request fields and defaults:
+  - `analysis_mode="full"`
+  - `skip_audio=false`
+  - `skip_visual=false`
+  - `enable_apple_ocr=true`
+  - `enable_ffmpeg_ocr=true`
+  - `text_llm_enabled=true`
+  - `generate_summary=true`
+  - `generate_txt=true`, `generate_json=true`
+  - `vlm_model="Qwen/Qwen3-VL-8B-Instruct-GGUF:Q4_K_M"`
+  - `vlm_resolution=1280`
+  - `keyframes_per_scene=1`
+  - `vlm_max_tokens_scene=1024`, `vlm_max_tokens_summary=2048`
+  - `max_scene_duration=20.0`
+- API also exposes `POST /api/v1/server/shutdown`. Do not call it as a casual cleanup action; it stops the user's running app.
+
+### Exact next-agent execution plan
+
+**Phase A — establish a clean, attributable session**
+1. Re-fetch PR #34 current head, handoff and relevant runner/adapter files. Do not trust stale commit pins from earlier handoffs; verify each immutable pin against current head.
+2. On the Mac, record current engine PID, listener PID, source SHA256, process start time and server-log byte offset. Do not kill an unknown listener. If an analysis request is already active, wait for it to finish or use the app's own cancel control.
+3. Confirm the UI is open and the app is responsive. Preserve the running app for user observation. If a restart is needed, use the app's documented UI/launch mechanism and confirm the new PID/listener before proceeding.
+4. Do not rerun the old smoke launcher until its engine SHA preflight and patcher provenance explicitly support the installed source. Prefer fixing the launcher/adapter with a separate reviewed commit over weakening the SHA check.
+
+**Phase B — prepare and validate the request without sending it**
+5. Use the actual local API schema and installed handler to confirm multipart field parsing and response/report schema. Inspect the handler's effective flag normalization: verify that `skip_audio=true` suppresses Whisper/audio feature extraction; `skip_visual=false` retains VLM; both OCR flags false suppress both OCR paths; `text_llm_enabled=false` suppresses Text LLM; `generate_summary=false` suppresses the second/global VLM summary call. Confirm `analysis_mode="full"` is required for VLM (the code computes `run_vlm = analysis_mode == "full" and not skip_visual`). Do not infer behavior from field names alone.
+6. Use a separate 20-second excerpt from the user's chosen video, created in a temporary test location; never modify the original. Verify the excerpt duration and that it decodes. Keep its path local and out of GitHub.
+7. Prepare a single multipart request to `POST /api/v1/analyze` with:
+   - `video_file`: the 20-second excerpt
+   - `analysis_mode=full`
+   - `skip_audio=true`
+   - `skip_visual=false`
+   - `enable_apple_ocr=false`
+   - `enable_ffmpeg_ocr=false`
+   - `text_llm_enabled=false`
+   - `generate_summary=false`
+   - `generate_txt=true` and `generate_json=true` only if needed by the app's normal result presentation
+   - `keyframes_per_scene=1`, conservative `vlm_resolution` and token limits if supported by the validated handler
+   - no Whisper/OCR/Text-LLM model overrides.
+8. Before POST, print the effective form fields (not the video path or private prompt) and verify all isolation flags. Do not send until the handler semantics above are confirmed. Do not add a new endpoint or bypass application orchestration.
+
+**Phase C — run once, observe and classify**
+9. Submit exactly one 20-second VLM-only request while the user can observe the application. Capture request start/end, response HTTP status, job ID, engine PID, listener PID, process RSS, system memory snapshot and server-log byte range. Keep detailed/raw logs and model output local.
+10. Acceptance requires all of:
+    - POST actually observed in server access log;
+    - HTTP 200 and a parseable response;
+    - VLM positively enabled in effective request/runtime metadata;
+    - positive VLM inference duration;
+    - at least one non-empty visual description (and scene counts consistent with response);
+    - audio/Whisper skipped, both OCR paths disabled with zero OCR samples/inference, Text LLM disabled, summary disabled;
+    - zero runtime errors and no new Metal timeout/submissions-ignored/OOM signatures in the PID-scoped log delta;
+    - no unexplained mismatch between request flags, runtime metadata and result fields.
+11. HTTP 200 alone is not success. If a guard disables VLM, a scene is missing, error_count is non-zero, or metadata contradicts actual execution, classify as DEGRADED/FAILED and preserve sanitized evidence. Do not retry automatically.
+12. After the request, verify the app remains responsive, check listener/PID stability, inspect the fresh log delta, and verify no unexpected memory/Metal regression. Do not force model unload after a latched fatal Metal timeout; the installed teardown guard intentionally requires process restart in that case.
+
+**Phase D — only then make the app reliable**
+13. If the smoke passes, repeat one additional 20-second run only if the first run is clean and the user approves; then consider a longer representative clip. Do not jump to full video, Text LLM, Whisper, concurrent workload or benchmark matrix.
+14. If it fails, identify the first causal exception from the new PID-scoped log delta and exact installed source call path. Fix the smallest reproducible defect with regression tests; avoid broad rewrites. Add tests for effective request flags, VLM error/latch semantics, report metadata consistency, cancellation and teardown behavior as applicable.
+15. Re-run focused tests, all relevant current-head CI, and the same 20-second acceptance test. Only mark PR ready/merge when the user authorizes and all declared acceptance criteria pass.
+
+### Required final report from the next agent
+
+Return one concise status table with: phase, evidence, pass/fail, blocker, next owner. Explicitly state whether a POST occurred and whether VLM inference actually ran. Include exact commit/head SHA and CI run conclusions. Never publish local video, private paths, raw server logs, full response bodies, OCR/transcript text, or model output. Publish only sanitized summaries and error categories.
+
+### Current stop point
+
+Phase A is partly complete: the app is running and live OpenAPI is readable. Phase B is not complete: inspect the installed handler's form parsing and effective flag behavior before sending the POST. The user's latest grep attempt failed only because its regex had unbalanced parentheses; do not repeat broad grep. Use targeted source/AST inspection once, then proceed to the request. No VLM inference has yet been evidenced in this current session.
