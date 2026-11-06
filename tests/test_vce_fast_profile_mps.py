@@ -189,7 +189,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         smoke = smoke_path.read_text(encoding="utf-8")
         self.assertIn("launch_vce_fast_profile_mps.command", smoke)
         self.assertIn('PATCHER_REF="10f8c706e9aae494f6d6a092db7ba7d34a21897a"', smoke)
-        self.assertIn("fa0bf91596b30f76548464cfcfd52bf637b590f5/scripts/launch_vce_fast_profile_mps.command", smoke)
+        self.assertIn("094763c7de1a744d0ce147ac10df56f198985832/scripts/launch_vce_fast_profile_mps.command", smoke)
         self.assertIn("VCE_LLAMA_CPP_METAL_SHARED_MODEL_V1", smoke)
         self.assertIn("VCE_BENCH_VLM_ONLY=1", smoke)
         self.assertIn("VCE_VLM_DIAG_REQUEST_MANIFEST", smoke)
@@ -197,6 +197,22 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
         self.assertIn("-map 0:v:0 -an", smoke)
         self.assertIn("source_mtime = int(os.stat(source).st_mtime)", smoke)
         self.assertNotIn("git push", smoke)
+
+        launcher_path = ROOT / "scripts" / "launch_vce_fast_profile_mps.command"
+        launcher = launcher_path.read_text(encoding="utf-8")
+        self.assertEqual(
+            launcher.count("<<'PY'"),
+            sum(1 for line in launcher.splitlines() if line == "PY"),
+            "Every Python heredoc in the launcher must have exactly one terminator.",
+        )
+        launcher_check = subprocess.run(
+            ["bash", "-n", str(launcher_path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(launcher_check.returncode, 0, launcher_check.stderr)
+
 
         check = subprocess.run(
             ["bash", "-n", str(smoke_path)],
