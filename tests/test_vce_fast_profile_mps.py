@@ -167,7 +167,7 @@ class FastProfileMpsPatcherTests(unittest.TestCase):
 
         patched = self.patcher.patch_engine(variant)
         start = patched.index("def run_text_llm_postprocess(")
-        end = patched.index("\\ndef format_text_llm_report", start)
+        end = patched.index("\ndef format_text_llm_report", start)
         function_source = patched[start:end]
         ast.parse(function_source)
 
