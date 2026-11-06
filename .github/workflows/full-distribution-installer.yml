@@ -20,6 +20,9 @@ on:
       - "tests/test_vce_stop_mps_patch.py"
       - "tests/test_vce_repository_hygiene.py"
       - "tests/test_vce_metal_timeout_guard.py"
+      - "scripts/vce_run_nsrspec.command"
+      - "scripts/vce_observed_run.py"
+      - "tests/test_vce_nsrspec_forensic_runner.py"
       - "patches/patch_vce_stop_and_mps.py"
       - "VideoContextEngine_v3.19.py"
       - "docs/MEMORY_SAFETY_AND_VIDEO_COMPATIBILITY.md"
@@ -77,6 +80,7 @@ jobs:
       - name: Validate shell scripts
         run: |
           bash -n scripts/install_video_context_engine.command
+          bash -n scripts/vce_run_nsrspec.command
           bash -n macos/install_video_context_mac.command
           bash -n "macos/VideoContext Engine.app/Contents/Resources/start_server.command"
       - name: Validate example JSON
@@ -89,3 +93,4 @@ jobs:
           python -m unittest discover -s tests -p "test_vce_stop_mps_patch.py" -v
           python -m unittest discover -s tests -p "test_vce_metal_timeout_guard.py" -v
           python -m unittest discover -s tests -p "test_vce_repository_hygiene.py" -v
+          python -m unittest discover -s tests -p "test_vce_nsrspec_forensic_runner.py" -v
