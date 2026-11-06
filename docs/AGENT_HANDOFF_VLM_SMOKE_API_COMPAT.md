@@ -58,3 +58,26 @@ The PR head is now `2a5036489cdd5a380d554a6408bd956d25aed428`. CI for this head 
 No Mac smoke was run by this follow-up agent. Before running, inspect the actual current listener on port 7555 and confirm no active request; PID 53188 is only the last recorded PID and must not be killed blindly. The launcher itself requires exactly one listener and refuses an established connection. It also verifies the listener started after the expected patched engine source.
 
 For a video longer than 30 seconds, the launcher creates a separate 20-second video-only excerpt at the beginning of the source and leaves the original unchanged. Keep the local source path in the shell environment only; do not write it into this public handoff or commit local diagnostic output.
+
+
+## 2026-11-06 target-Mac preflight follow-up: engine checksum mismatch
+
+The next VLM diagnostic attempt stopped before starting a request. User-provided read-only terminal output:
+
+- No process was listening on TCP port 7555 at the time of the attempt.
+- Installed `VideoContextEngine_v3.19.py` exists and compiles successfully in memory.
+- Installed source SHA256: `7cf4f32cf6e63685ae1ea470f6a63f9b357105966c9b2de28a3156b552e99e23`.
+- Timestamped backup `.backup-20261105T000114` exists and has SHA256 `eb0708be06944503a9a2ad3429b8f27938356d1d16816634855fc93b7cda4f2c`.
+- The local project directory did not contain `patches/patch_vce_metal_runtime_latch.py`, so the audit could not run patch idempotence or reconstruct the patched output from the backup.
+- No API request or VLM inference was started.
+
+Checksum provenance is inconsistent in the current materials:
+- The earlier Metal runtime-latch handoff records the applied source SHA as `eacd4eecfda2cc8a2c71203bf5ae3589611f5fd8d0405ded747146a78f147055`.
+- The VLM diagnostic launcher currently requires `6a47735e6cff4ea72e66f4052c7eeb770fb32c790504986f07967da4cd242ca6`.
+- The target Mac currently reports `7cf4f32cf6e63685ae1ea470f6a63f9b357105966c9b2de28a3156b552e99e23`.
+
+Do not update the launcher's expected hash to the observed value and do not reapply the patch yet. The launcher also checks for `VCE_METAL_RUNTIME_LATCH_RAM_MINUS_TEARDOWN_V1`; that marker is not present in the repository's currently pinned `patch_vce_metal_runtime_latch.py` helper (blob `926ddcb9d29c54f22f8d7487239f933b5b760f94`). This suggests the expected source may include an additional local safeguard not reproduced by the published helper, but the cause is not yet established.
+
+Next safe step: download the exact helper from this PR's immutable commit into a temporary directory (not into the installed project), then run it in memory against both the backup and current source. Record the reconstructed SHA, whether the current source is idempotently accepted by the helper, and whether the RAM teardown marker exists. Do not write either file. Only after inspecting that comparison should the launcher checksum/preflight and public patch provenance be corrected.
+
+The failed smoke attempt did not alter the source, backup, VCE settings, or GitHub artifacts. Keep PR #34 Draft and do not run the VCE service until source provenance is resolved.
