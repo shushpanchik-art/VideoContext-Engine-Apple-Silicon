@@ -50,7 +50,7 @@ rsync -a --human-readable \
   --exclude='output/' --exclude='results/' --exclude='benchmark-results/' \
   --exclude='*.mp4' --exclude='*.mov' --exclude='*.mkv' --exclude='*.wav' \
   --exclude='*.mp3' --exclude='*.m4a' --exclude='*.aac' --exclude='*.flac' \
-  --exclude='.env' --exclude='.env.*' --exclude='*token*' --exclude='*secret*' \
+  --exclude='videocontext_settings.json' --exclude='*.log' --exclude='.env' --exclude='.env.*' --exclude='*token*' --exclude='*secret*' \
   --exclude='*credential*' --exclude='*password*' \
   "$PROJECT_DIR/" "$STAGE/project/"
 
@@ -111,7 +111,7 @@ if [[ -f "$SERVER_LOG" ]]; then
 fi
 
 echo "--- Source hashes and inventory ---"
-find "$STAGE/project" -type f -print0 | sort -z | xargs -0 shasum -a 256 > "$STAGE/evidence/project_sha256.txt"
+find "$STAGE/project" -type f -print0 | xargs -0 shasum -a 256 > "$STAGE/evidence/project_sha256.txt"
 shasum -a 256 "$PROJECT_DIR/VideoContextEngine_v3.19.py" > "$STAGE/evidence/local_runtime_sha256.txt"
 {
   echo "project_dir=$PROJECT_DIR"
