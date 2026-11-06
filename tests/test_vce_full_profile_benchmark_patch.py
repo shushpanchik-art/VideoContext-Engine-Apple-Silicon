@@ -422,6 +422,14 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
         self.assertIn('--out-root "$RUN_OUTPUT"', source)
         self.assertNotIn('export VCE_BENCH_RESULT_ROOT=', source)
 
+    def test_vlm_smoke_launcher_pins_baseline_planner_compat_adapter(self):
+        launcher = ROOT / "scripts" / "run_vce_vlm_smoke_diagnostic.command"
+        source = launcher.read_text(encoding="utf-8")
+        self.assertIn(
+            'PATCHER_REF="2a8869450ad5224cf13a34f41282379385f3f5d4"',
+            source,
+        )
+
     def test_patch_is_idempotent(self):
         once = PATCHER.patch_source(STUB_RUNNER)
         self.assertEqual(PATCHER.patch_source(once), once)
