@@ -413,14 +413,78 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     return info
 
 
-def resolve_whisper_device(acceleration_enabled: bool = True) -> str:
-    """Whisper is pinned to MLX CPU stream to overlap with MLX/Metal inference."""
+VCE_RUNTIME_PROFILE_BASELINE = "baseline_mps_sequential"
+VCE_RUNTIME_PROFILE_MLX_PARALLEL = "mlx_parallel"
+VCE_RUNTIME_PROFILES = {
+    VCE_RUNTIME_PROFILE_BASELINE,
+    VCE_RUNTIME_PROFILE_MLX_PARALLEL,
+}
+
+
+def _vce_normalize_runtime_profile(value: Optional[str] = None) -> str:
+    profile = str(value or setting("runtime_profile", VCE_RUNTIME_PROFILE_BASELINE)).strip().lower()
+    if profile not in VCE_RUNTIME_PROFILES:
+        raise ValueError(
+            f"Unsupported runtime_profile {profile!r}; expected one of {sorted(VCE_RUNTIME_PROFILES)}"
+        )
+    return profile
+
+
+def resolve_whisper_device(
+    acceleration_enabled: bool = True,
+    runtime_profile: Optional[str] = None,
+) -> str:
+    """Resolve the actual Whisper device for the selected, explicitly named runtime profile."""
+    profile = _vce_normalize_runtime_profile(runtime_profile)
+    if profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
+        # MLX Whisper is pinned to its CPU stream so it can overlap MLX/Metal VLM.
+        return "cpu"
+    if acceleration_enabled and platform.system() == "Darwin":
+        try:
+            if torch.backends.mps.is_available():
+                return "mps"
+        except Exception:
+            pass
     return "cpu"
 
 
-def load_whisper_model(model_name: str, acceleration_enabled: bool = True):
-    """Return an mlx-whisper adapter; MLX model weights load inside the CPU stream."""
-    return _VCEWhisperMLXCPU(model_name)
+def _vce_whisper_cache_key(
+    model_name: str,
+    runtime_profile: Optional[str] = None,
+    acceleration_enabled: bool = True,
+) -> str:
+    profile = _vce_normalize_runtime_profile(runtime_profile)
+    device = resolve_whisper_device(acceleration_enabled, profile)
+    return f"{profile}|{device}|{str(model_name).strip()}"
+
+
+def load_whisper_model(
+    model_name: str,
+    acceleration_enabled: bool = True,
+    runtime_profile: Optional[str] = None,
+):
+    """Load PyTorch Whisper/MPS for the sequential baseline or MLX Whisper for parallel mode."""
+    profile = _vce_normalize_runtime_profile(runtime_profile)
+    if profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
+        return _VCEWhisperMLXCPU(model_name)
+
+    device = resolve_whisper_device(acceleration_enabled, profile)
+    print(f"[VCE Whisper] backend=openai-whisper device={device} model={model_name}", flush=True)
+    model = whisper.load_model(model_name, device=device)
+    observed_device = str(getattr(model, "device", device))
+    VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"] = {
+        "backend": "openai-whisper",
+        "device": observed_device,
+        "requested_device": device,
+        "model": model_name,
+        "device_verified": observed_device == device,
+    }
+    print(
+        "[VCE runtime] "
+        + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"], ensure_ascii=False, sort_keys=True),
+        flush=True,
+    )
+    return model
 
 # Optionnel : supprimer le warning HF tokenizers
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -3344,9 +3408,17 @@ async def lifespan(app: FastAPI):
         try:
             t0 = time.time()
             startup_whisper_model = str(setting("whisper_model", DEFAULT_WHISPER_MODEL))
-            WHISPER_CACHE[startup_whisper_model] = load_whisper_model(
+            startup_runtime_profile = _vce_normalize_runtime_profile()
+            startup_whisper_acceleration = bool(setting("whisper_acceleration", True))
+            startup_cache_key = _vce_whisper_cache_key(
                 startup_whisper_model,
-                acceleration_enabled=bool(setting("whisper_acceleration", True)),
+                startup_runtime_profile,
+                startup_whisper_acceleration,
+            )
+            WHISPER_CACHE[startup_cache_key] = load_whisper_model(
+                startup_whisper_model,
+                acceleration_enabled=startup_whisper_acceleration,
+                runtime_profile=startup_runtime_profile,
             )
             print(f"✅ Whisper '{DEFAULT_WHISPER_MODEL}' préchargé ({time.time()-t0:.2f}s)")
         except Exception as e:
@@ -3513,7 +3585,8 @@ async def get_ui_settings():
         "enable_stage_timing": False,
         "enable_adaptive_keyframes": False,
         "enable_ocr_cache": False,
-        "enable_mlx_whisper": False,
+        "runtime_profile": VCE_RUNTIME_PROFILE_BASELINE,
+        "enable_mlx_whisper": False,  # legacy API compatibility; runtime_profile is authoritative
         "enable_fast_scene_detection": False,
         "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
         "whisper_model": "large", "vlm_resolution": 1280,
@@ -3567,7 +3640,10 @@ async def save_ui_settings(payload: Dict[str, Any]):
     allowed_whisper = {"tiny", "base", "small", "medium", "large"}
     merged = dict(current)
     for key, value in payload.items():
-        if key == "analysis_mode":
+        if key == "runtime_profile":
+            if value not in VCE_RUNTIME_PROFILES:
+                raise HTTPException(422, "Недопустимый профиль выполнения")
+        elif key == "analysis_mode":
             if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
         elif key == "vlm_model":
             if value not in allowed_vlm: raise HTTPException(422, "Недопустимая VLM-модель")
@@ -3593,6 +3669,10 @@ async def save_ui_settings(payload: Dict[str, Any]):
         else:
             raise HTTPException(422, f"Неизвестная настройка: {key}")
         merged[key] = value
+
+    if "runtime_profile" in payload:
+        # Keep the old boolean key in sync for older local clients; the profile is canonical.
+        merged["enable_mlx_whisper"] = payload["runtime_profile"] == VCE_RUNTIME_PROFILE_MLX_PARALLEL
 
     temp_path = config_path.with_name(config_path.name + ".tmp")
     try:
@@ -4755,9 +4835,29 @@ async def analyze_video(
     enable_stage_timing: bool = Form(False, description="Добавлять подробные тайминги этапов в JSON-ответ"),
     enable_adaptive_keyframes: bool = Form(False, description="Адаптивно уменьшать число кадров на коротких сценах"),
     enable_ocr_cache: bool = Form(False, description="Кэшировать OCR для повторяющихся кадров"),
-    enable_mlx_whisper: bool = Form(False, description="Использовать опциональный MLX Whisper вместо PyTorch Whisper"),
+    runtime_profile: str = Form("", description="baseline_mps_sequential | mlx_parallel"),
+    enable_mlx_whisper: bool = Form(False, description="Устаревший API-флаг; для новых клиентов используйте runtime_profile"),
     enable_fast_scene_detection: bool = Form(False, description="Экспериментальная ускоренная детекция сцен с выборкой 1 кадр/сек"),
 ):
+    requested_runtime_profile = str(runtime_profile or "").strip().lower()
+    if requested_runtime_profile:
+        runtime_profile = requested_runtime_profile
+    else:
+        runtime_profile = _vce_normalize_runtime_profile()
+        if enable_mlx_whisper:
+            runtime_profile = VCE_RUNTIME_PROFILE_MLX_PARALLEL
+    try:
+        runtime_profile = _vce_normalize_runtime_profile(runtime_profile)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    # Keep the legacy flag derived from the canonical profile; it no longer selects a separate backend.
+    enable_mlx_whisper = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+    VCE_MLX_RUNTIME_DIAGNOSTICS.pop("whisper", None)
+    if runtime_profile == VCE_RUNTIME_PROFILE_BASELINE:
+        print("[VCE execution] baseline_mps_sequential: PyTorch Whisper/MPS (CPU fallback) -> MLX/Metal VLM -> MLX/Metal Text LLM", flush=True)
+    else:
+        print("[VCE execution] mlx_parallel: MLX Whisper/CPU overlaps MLX/Metal VLM; Text LLM remains MLX/Metal", flush=True)
+
     analysis_mode = (analysis_mode or "full").strip().lower()
     if analysis_mode not in {"full", "whisper_ocr", "ocr_only"}:
         raise HTTPException(422, "Недопустимый сценарий анализа")
@@ -4800,7 +4900,10 @@ async def analyze_video(
     _vce_vlm_scene_finished_at = None
 
     target_whisper = whisper_model
-    whisper_device = resolve_whisper_device(whisper_acceleration)
+    whisper_device = resolve_whisper_device(whisper_acceleration, runtime_profile)
+    whisper_backend = (
+        "mlx-whisper" if runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL else "openai-whisper"
+    )
     target_vlm = vlm_model
     temp_path = None
     cap = None
@@ -4916,7 +5019,7 @@ async def analyze_video(
             skip_audio = False
             analysis_mode = "audio_only_fallback"
             print("⚠️ [Media fallback] " + _vce_media_recovery_note)
-        if enable_mlx_whisper:
+        if runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL and not skip_audio:
             _vce_validate_mlx_whisper_model(target_whisper)
         video_duration, _vce_recovered_video_path, _vce_recovery_note = _vce_validate_video_with_remux(temp_path)
         if _vce_recovered_video_path:
@@ -5003,34 +5106,47 @@ async def analyze_video(
                     nonlocal whisper_load_time, whisper_infer_time
                     nonlocal _vce_whisper_started_at, _vce_whisper_finished_at
                     _vce_whisper_started_at = time.perf_counter()
+                    cache_key = _vce_whisper_cache_key(
+                        target_whisper, runtime_profile, whisper_acceleration
+                    )
+                    if runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
+                        stage_label = "MLX Whisper/CPU: распознаём речь параллельно с MLX/Metal VLM"
+                    else:
+                        stage_label = f"PyTorch Whisper/{whisper_device}: распознаём речь до VLM (последовательно)"
                     try:
                         set_job_progress(
-                            job_id, "whisper", None,
-                            "Whisper CPU: распознаём речь параллельно с MLX/Metal VLM",
+                            job_id, "whisper", None, stage_label,
                             indeterminate=True, stage_index=2, stage_count=6,
                         )
-                        print("[VCE Whisper] Starting CPU ASR in parallel with the GPU stage.")
+                        print(
+                            f"[VCE Whisper] backend={whisper_backend} device={whisper_device} "
+                            f"profile={runtime_profile}; starting ASR."
+                        )
                         if RAM_MODE == "ram+":
-                            if target_whisper in WHISPER_CACHE:
-                                w_model = WHISPER_CACHE[target_whisper]
+                            if cache_key in WHISPER_CACHE:
+                                w_model = WHISPER_CACHE[cache_key]
                                 whisper_load_time = 0.0
-                                print(f"Whisper '{target_whisper}' reused from CPU cache.")
+                                print(f"Whisper '{target_whisper}' reused from {runtime_profile} cache.")
                             else:
                                 t0 = time.time()
                                 w_model = await asyncio.to_thread(
-                                    load_whisper_model, target_whisper, acceleration_enabled=False
+                                    load_whisper_model,
+                                    target_whisper,
+                                    acceleration_enabled=whisper_acceleration,
+                                    runtime_profile=runtime_profile,
                                 )
-                                WHISPER_CACHE[target_whisper] = w_model
+                                WHISPER_CACHE[cache_key] = w_model
                                 whisper_load_time = time.time() - t0
                         else:
                             t0 = time.time()
                             w_model = await asyncio.to_thread(
-                                load_whisper_model, target_whisper, acceleration_enabled=False
+                                load_whisper_model,
+                                target_whisper,
+                                acceleration_enabled=whisper_acceleration,
+                                runtime_profile=runtime_profile,
                             )
                             whisper_load_time = time.time() - t0
 
-                        # mlx-whisper assigns its operations to a thread-local mx.cpu stream.
-                        # Do not call .to("cpu"): MLX uses unified memory and explicit stream placement.
                         t_infer_start = time.perf_counter()
                         audio_res = await asyncio.to_thread(
                             w_model.transcribe,
@@ -5044,10 +5160,13 @@ async def analyze_video(
                         result = audio_res.get("segments", []) or []
                         set_job_progress(
                             job_id, "whisper_done", 25,
-                            f"Whisper CPU завершён: фрагментов речи {len(result)}",
+                            f"Whisper завершён: фрагментов речи {len(result)}",
                             stage_index=2, stage_count=6, transcript_segments=len(result),
                         )
-                        print(f"[VCE Whisper] CPU inference: {whisper_infer_time:.2f}s")
+                        print(
+                            f"[VCE Whisper] backend={whisper_backend} device={whisper_device} "
+                            f"inference={whisper_infer_time:.2f}s"
+                        )
                         if RAM_MODE == "ram-":
                             if hasattr(w_model, "release"):
                                 await asyncio.to_thread(w_model.release)
@@ -5058,7 +5177,11 @@ async def analyze_video(
                         _vce_whisper_finished_at = time.perf_counter()
 
                 if not skip_audio:
-                    _vce_whisper_task = asyncio.create_task(_vce_run_whisper_cpu_stage())
+                    if runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
+                        _vce_whisper_task = asyncio.create_task(_vce_run_whisper_cpu_stage())
+                    else:
+                        # Reproducible baseline: complete PyTorch Whisper/MPS before VLM touches Metal.
+                        whisper_segments = await _vce_run_whisper_cpu_stage()
 
                 if run_vlm:
                     release_accelerator_memory('before VLM load')
@@ -5324,7 +5447,10 @@ async def analyze_video(
                         min(_vce_whisper_finished_at, _vce_vlm_scene_finished_at)
                         - max(_vce_whisper_started_at, _vce_vlm_scene_started_at),
                     )
-                print(f"[VCE parallelism] CPU Whisper / MLX VLM overlap: {_vce_overlap_seconds:.2f}s")
+                if runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
+                    print(f"[VCE parallelism] MLX Whisper/CPU and MLX VLM/Metal overlap: {_vce_overlap_seconds:.2f}s")
+                else:
+                    print("[VCE parallelism] Disabled for baseline_mps_sequential; Whisper completed before VLM.")
                 set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам", indeterminate=True, stage_index=5, stage_count=6)
                 if generate_summary:
                     print("🧠 Génération du résumé global...")
@@ -5562,6 +5688,7 @@ async def analyze_video(
             "vlm_max_tokens_scene": vlm_max_tokens_scene,
             "vlm_max_tokens_summary": vlm_max_tokens_summary,
             "ram_mode": RAM_MODE,
+            "runtime_profile": runtime_profile,
             "audio_track_available": audio_track_available,
             "audio_auto_skipped": audio_auto_skipped,
             "audio_status": audio_probe_message,
@@ -5591,14 +5718,17 @@ async def analyze_video(
             OUTPUT_FILE_REGISTRY[txt_download_id] = (Path(txt_path), txt_output_name)
 
         timings = {
+            "runtime_profile": runtime_profile,
             "total_process_time": round(process_duration, 3),
             "total_request_time": round(total_request_time, 3),
             "whisper": {
+                "backend": whisper_backend,
                 "model": target_whisper,
                 "device": whisper_device,
                 "acceleration": whisper_acceleration,
                 "load_time": round(whisper_load_time, 3),
                 "inference_time": round(whisper_infer_time, 3),
+                "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
             },
             "vlm": {
                 "model": target_vlm,
@@ -5607,8 +5737,10 @@ async def analyze_video(
                 "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {}),
             },
             "parallelism": {
-                "whisper_backend": "mlx-whisper",
-                "whisper_device": "cpu",
+                "profile": runtime_profile,
+                "enabled": runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL,
+                "whisper_backend": whisper_backend,
+                "whisper_device": whisper_device,
                 "whisper_runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
                 "whisper_vlm_overlap_seconds": round(_vce_overlap_seconds, 3) if "_vce_overlap_seconds" in locals() else 0.0,
                 "cpu_keyframe_prefetch_seconds": round(float(locals().get("_vce_frame_prefetch_stats", {}).get("worker_seconds", locals().get("_vce_cpu_prefetch_seconds", 0.0))), 3),
@@ -5650,6 +5782,7 @@ async def analyze_video(
                     "process_time": round(process_duration, 2),
                     "global_summary": global_summary_text,
                     "scene_count": len(final_segments),
+                    "runtime_profile": runtime_profile,
                     "models": {
                         "vlm": target_vlm,
                         "whisper": target_whisper,
@@ -5674,6 +5807,7 @@ async def analyze_video(
                         "enable_apple_ocr": enable_apple_ocr,
                         "whisper_acceleration": whisper_acceleration,
                         "whisper_device": whisper_device,
+                        "runtime_profile": runtime_profile,
                         "enable_audio_features": enable_audio_features,
                         "word_timestamps": word_timestamps,
                         "generate_json": generate_json,
