@@ -4156,20 +4156,6 @@ def _vce_validate_mlx_whisper_model(model_name):
     return repo
 
 
-def _vce_load_whisper_model(model_name, use_mlx, acceleration_enabled=None):
-    """Avoid PyTorch when MLX is selected; otherwise preserve VCE's configured loader."""
-    if use_mlx:
-        _vce_validate_mlx_whisper_model(model_name)
-        return None
-    # Preserve the existing loader and its optional MPS/CUDA selection flag.
-    loader = globals().get("load_whisper_model")
-    if callable(loader):
-        if acceleration_enabled is None:
-            return loader(model_name)
-        return loader(model_name, acceleration_enabled=acceleration_enabled)
-    return whisper.load_model(model_name)
-
-
 def _vce_transcribe_audio(audio_path, model_name, model, use_mlx, *args, **kwargs):
     """Use the selected ASR backend while keeping Whisper-compatible output fields."""
     if not use_mlx:
@@ -5181,9 +5167,20 @@ async def analyze_video(
                         )
                         if RAM_MODE == "ram-":
                             if hasattr(w_model, "release"):
+                                # MLX Whisper owns a private model cache; release it before dropping the adapter.
                                 await asyncio.to_thread(w_model.release)
+                            else:
+                                # PyTorch Whisper/MPS has no .release(); synchronize before dropping references.
+                                try:
+                                    if str(getattr(w_model, "device", "")).startswith("mps"):
+                                        await asyncio.to_thread(torch.mps.synchronize)
+                                except Exception as exc:
+                                    print(f"[VCE Whisper] MPS synchronize before release failed: {exc}", flush=True)
                             del w_model
-                            gc.collect()
+                            await asyncio.to_thread(
+                                release_accelerator_memory,
+                                f"after Whisper unload ({whisper_backend}/{whisper_device})",
+                            )
                         return result
                     finally:
                         _vce_whisper_finished_at = time.perf_counter()
@@ -5449,8 +5446,10 @@ async def analyze_video(
                         except UnboundLocalError:
                             pass
                         release_accelerator_memory("after concurrent Whisper inference")
+                # Sequential baseline guarantees no Whisper/VLM overlap by scheduling.
+                # Do not infer it from timestamps: report an explicit contractual zero.
                 _vce_overlap_seconds = 0.0
-                if all(v is not None for v in (
+                if runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL and all(v is not None for v in (
                     _vce_whisper_started_at, _vce_whisper_finished_at,
                     _vce_vlm_scene_started_at, _vce_vlm_scene_finished_at,
                 )):
