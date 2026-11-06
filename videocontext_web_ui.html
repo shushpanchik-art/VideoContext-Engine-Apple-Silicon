@@ -97,6 +97,8 @@ button#stop:disabled { color:#4b4217 !important; }
     <label><input id="cfg-adaptive-keyframes" type="checkbox"> Адаптивное число кадров на сцену (настройка количества кадров — верхний предел)</label>
     <label><input id="cfg-ocr-cache" type="checkbox"> Кэш OCR Apple Vision для повторяющихся кадров</label>
     <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропускать короткие переходы</label>
+    <!-- Hidden legacy hook required by the existing optimization patcher; runtime_profile is the only visible/authoritative selector. -->
+    <input id="cfg-mlx-whisper" type="checkbox" hidden disabled aria-hidden="true" tabindex="-1">
     <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->
   <div id="vce-server-controls" style="grid-column:1 / -1; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
     <button type="button" id="vce-stop-server">Остановить сервер VCE</button>
