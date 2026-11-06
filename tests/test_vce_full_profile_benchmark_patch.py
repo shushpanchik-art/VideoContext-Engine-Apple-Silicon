@@ -39,8 +39,15 @@ def build_base_fields():
         "enable_ffmpeg_ocr": True,
         "text_llm_enabled": True,
         "generate_summary": True,
+        "enable_adaptive_keyframes": False,
+        "enable_mlx_whisper": False,
+        "enable_fast_scene_detection": False,
     }
-    missing = []
+    missing = [
+        "enable_adaptive_keyframes",
+        "enable_mlx_whisper",
+        "enable_fast_scene_detection",
+    ]
     return fields, missing
 
 def run_one(run_root, key="baseline", index=1):
@@ -98,6 +105,17 @@ class VCEBenchmarkRunnerPatchTests(unittest.TestCase):
             plan = namespace["build_plan"]()
         self.assertEqual(len(plan), 1)
         self.assertEqual(plan[0][0], "baseline")
+
+    def test_fast_profile_removed_experimental_fields_are_filtered_in_baseline_mode(self):
+        namespace = self._load()
+        fields, missing = namespace["build_base_fields"]()
+        self.assertEqual(missing, [])
+        for removed in (
+            "enable_adaptive_keyframes",
+            "enable_mlx_whisper",
+            "enable_fast_scene_detection",
+        ):
+            self.assertNotIn(removed, fields)
 
     def test_whisper_only_mode_keeps_speech_and_disables_other_models(self):
         namespace = self._load()
