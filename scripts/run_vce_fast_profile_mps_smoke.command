@@ -5,7 +5,7 @@ set -Eeuo pipefail
 
 REPOSITORY="shushpanchik-art/VideoContext-Engine-Apple-Silicon"
 RUNNER_REF="650f3a1437ee0cdcab1c3ea41005a599a373d578"
-PATCHER_REF="2abc054f8a3037391f00ee022331b3cad85082d4"
+PATCHER_REF="2a8869450ad5224cf13a34f41282379385f3f5d4"
 
 PROJECT_DIR="${VCE_PROJECT_DIR:-$HOME/VideoContext-Engine-Apple-Silicon}"
 ENGINE_SOURCE="${VCE_ENGINE_SOURCE:-$PROJECT_DIR/VideoContextEngine_v3.19.py}"
