@@ -8,8 +8,8 @@ IFS=$'\n\t'
 # Make Homebrew GitHub CLI discoverable when this script is launched from Finder.
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 
-APP_PATH="\${VCE_APP_PATH:-/Applications/VideoContext Engine.app}"
-UPLOAD_REPO="\${VCE_APP_UPLOAD_REPO:-shushpanchik-art/vce-local-review-20261102-170802}"
+APP_PATH="${VCE_APP_PATH:-/Applications/VideoContext Engine.app}"
+UPLOAD_REPO="${VCE_APP_UPLOAD_REPO:-shushpanchik-art/vce-local-review-20261102-170802}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="$HOME/Downloads/VCE_INSTALLED_APP_$STAMP"
 ARCHIVE_NAME="VideoContext_Engine_app_$STAMP.zip"
@@ -47,7 +47,7 @@ command -v gh >/dev/null 2>&1 || fail "GitHub CLI 'gh' not found. Install with: 
 # Confirm GitHub authentication and refuse to upload to a public repository.
 gh auth status --hostname github.com >/dev/null 2>&1 || fail "GitHub CLI is not authenticated. Run: gh auth login"
 VISIBILITY="$(gh repo view "$UPLOAD_REPO" --json visibility --jq .visibility 2>/dev/null || true)"
-[[ "$VISIBILITY" == "PRIVATE" ]] || fail "Upload destination is not confirmed PRIVATE (reported: '\${VISIBILITY:-unknown}'). Nothing uploaded."
+[[ "$VISIBILITY" == "PRIVATE" ]] || fail "Upload destination is not confirmed PRIVATE (reported: '${VISIBILITY:-unknown}'). Nothing uploaded."
 
 BUNDLE_ID="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$INFO_PLIST" 2>/dev/null || true)"
 APP_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST" 2>/dev/null || true)"
@@ -113,10 +113,10 @@ created_utc=$STAMP
 machine=$(uname -m)
 macos_version=$(sw_vers -productVersion 2>/dev/null || true)
 app_path=$APP_PATH
-bundle_id=\${BUNDLE_ID:-unknown}
-short_version=\${APP_VERSION:-unknown}
-bundle_version=\${BUILD_VERSION:-unknown}
-cf_bundle_executable=\${EXECUTABLE:-unknown}
+bundle_id=${BUNDLE_ID:-unknown}
+short_version=${APP_VERSION:-unknown}
+bundle_version=${BUILD_VERSION:-unknown}
+cf_bundle_executable=${EXECUTABLE:-unknown}
 main_executable_path=$MAIN_EXECUTABLE
 main_executable_file=$MAIN_EXECUTABLE_FILE
 regular_file_count=$FILE_COUNT
@@ -132,8 +132,8 @@ cat > "$RELEASE_NOTES" <<EOF_NOTES
 Forensic snapshot of the installed macOS application bundle.
 
 Created UTC: $STAMP
-Bundle ID: \${BUNDLE_ID:-unknown}
-Version: \${APP_VERSION:-unknown} (build \${BUILD_VERSION:-unknown})
+Bundle ID: ${BUNDLE_ID:-unknown}
+Version: ${APP_VERSION:-unknown} (build ${BUILD_VERSION:-unknown})
 The ZIP was created using Apple's ditto with resource-fork preservation and the parent app directory retained.
 The release is uploaded only after confirming the destination repository visibility is PRIVATE.
 EOF_NOTES
@@ -175,9 +175,9 @@ repository_visibility=$VISIBILITY
 tag=$TAG
 release_url=$RELEASE_URL
 app_path=$APP_PATH
-bundle_id=\${BUNDLE_ID:-unknown}
-short_version=\${APP_VERSION:-unknown}
-bundle_version=\${BUILD_VERSION:-unknown}
+bundle_id=${BUNDLE_ID:-unknown}
+short_version=${APP_VERSION:-unknown}
+bundle_version=${BUILD_VERSION:-unknown}
 archive=$ARCHIVE
 archive_name=$ARCHIVE_NAME
 archive_size_bytes=$ARCHIVE_SIZE
