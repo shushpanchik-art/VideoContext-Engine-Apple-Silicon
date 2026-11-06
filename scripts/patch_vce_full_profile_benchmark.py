@@ -109,14 +109,36 @@ def build_base_fields(*args, **kwargs):
     if _vce_whisper_only and _vce_vlm_only:
         raise RuntimeError("Choose only one of VCE_BENCH_WHISPER_ONLY or VCE_BENCH_VLM_ONLY")
     _vce_result = _vce_original_build_base_fields(*args, **kwargs)
-    if not (_vce_whisper_only or _vce_vlm_only):
-        return _vce_result
     if not isinstance(_vce_result, tuple) or len(_vce_result) != 2:
-        raise RuntimeError("build_base_fields() returned an unexpected value; cannot apply isolation mode")
+        raise RuntimeError("build_base_fields() returned an unexpected value; cannot filter profile settings")
     _vce_fields, _vce_missing = _vce_result
     if not isinstance(_vce_fields, dict):
         raise RuntimeError("build_base_fields() did not return a settings dictionary")
     _vce_fields = dict(_vce_fields)
+
+    # VCE's reviewed Apple-Silicon fast profile intentionally removes these
+    # experimental API/UI fields. Do not let an older benchmark runner demand
+    # their presence from /api/v1/ui-settings or forward stale form values.
+    _vce_removed_profile_fields = {
+        "enable_adaptive_keyframes",
+        "enable_mlx_whisper",
+        "enable_fast_scene_detection",
+    }
+    for _vce_removed_key in _vce_removed_profile_fields:
+        _vce_fields.pop(_vce_removed_key, None)
+    if isinstance(_vce_missing, list):
+        _vce_missing = [
+            _vce_item for _vce_item in _vce_missing
+            if str(_vce_item) not in _vce_removed_profile_fields
+        ]
+    elif isinstance(_vce_missing, tuple):
+        _vce_missing = tuple(
+            _vce_item for _vce_item in _vce_missing
+            if str(_vce_item) not in _vce_removed_profile_fields
+        )
+
+    if not (_vce_whisper_only or _vce_vlm_only):
+        return _vce_fields, _vce_missing
     if _vce_whisper_only:
         # Keep Whisper inference, word timing and audio features; disable every visual/secondary model.
         _vce_fields["analysis_mode"] = "whisper_ocr"
