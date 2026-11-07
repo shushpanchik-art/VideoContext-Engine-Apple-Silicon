@@ -1,4 +1,4 @@
-# Validates the optional llama.cpp/Metal backend and the private NSR forensic runner.
+# Validates the optional llama.cpp/Metal backend, verbose offload evidence, and private NSR forensic runner.
 name: Full distribution installer validation
 
 on:
