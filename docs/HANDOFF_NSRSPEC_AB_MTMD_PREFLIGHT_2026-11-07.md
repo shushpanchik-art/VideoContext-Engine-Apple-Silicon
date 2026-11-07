@@ -24,11 +24,11 @@
 /Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon
 ```
 
-Перед патчем полностью закрой VideoContext Engine через `⌘Q`. Затем выполни единый блок ниже. Он сохраняет локальные изменения в Git stash (не удаляет их), переключает checkout на ветку PR, обновляет её только fast-forward и запускает patch installer. Installer проверяет backup/целостность файлов, выполняет regression suite и bash syntax checks, а затем запускает MTMD preflight и A/B. Не запускай отдельные команды с относительными путями из `~`.
+Перед патчем полностью закрой VideoContext Engine через `⌘Q`. Затем выполни первый блок ниже: он сохраняет локальные изменения в Git stash (не удаляет их), переключает checkout на ветку PR, обновляет её только fast-forward, устанавливает исправленные файлы и выполняет только regression suite и bash syntax checks. Загрузка моделей и аппаратный A/B запускаются отдельным вторым блоком после успешной установки. Не запускай отдельные команды с относительными путями из `~`.
 
 ```bash
 # Do not enable errexit in the interactive zsh. Run strict Bash in a child process.
- /bin/bash <<'VCE_PATCH_ONLY'
+/bin/bash <<'VCE_PATCH_ONLY'
 set -Eeuo pipefail
 LOG="$HOME/Desktop/VCE_NSRSPEC_patch_$(date '+%Y%m%d_%H%M%S').log"
 exec > >(tee -a "$LOG") 2>&1
@@ -92,9 +92,13 @@ exec > >(tee -a "$LOG") 2>&1
 ROOT="$HOME/VideoContext-Engine-Apple-Silicon"
 [[ -x "$ROOT/.venv/bin/python" ]]
 [[ -f "$ROOT/scripts/vce_run_nsrspec_ab.command" ]]
+set +e
 /bin/bash "$ROOT/scripts/vce_run_nsrspec_ab.command"
-echo "A/B launcher exit: $?"
+LAUNCHER_STATUS=$?
+set -e
+echo "A/B launcher exit: $LAUNCHER_STATUS"
 echo "A/B log: $LOG"
+exit "$LAUNCHER_STATUS"
 VCE_AB_RUN
 AB_STATUS=$?
 printf '\\nA/B shell exit code: %s\\n' "$AB_STATUS"
