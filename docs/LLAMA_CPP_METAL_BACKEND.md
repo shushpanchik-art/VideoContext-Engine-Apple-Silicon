@@ -15,9 +15,9 @@ Whisper не переключается вместе с этим парамет�
 
 | Стадия | Репозиторий | Файл |
 |---|---|---|
-| VLM | bartowski/Qwen_Qwen3-VL-8B-Instruct-GGUF | Qwen3-VL-8B-Instruct-Q4_K_M.gguf |
-| VLM projector | тот же репозиторий | mmproj-Qwen3-VL-8B-Instruct-f16.gguf |
-| Text LLM | bartowski/Qwen_Qwen3.5-9B-GGUF | Qwen3.5-9B-Q4_K_M.gguf |
+| VLM | Qwen/Qwen3-VL-8B-Instruct-GGUF | Qwen3VL-8B-Instruct-Q4_K_M.gguf |
+| VLM projector | тот же репозиторий | mmproj-Qwen3VL-8B-Instruct-F16.gguf |
+| Text LLM | gguf/Qwen3.5-9B-GGUF | qwen3.5-9b-Q4_K_M.gguf |
 
 Файлы автоматически загружаются в Hugging Face cache; они не сохраняются в репозитории и не кладутся в рабочую папку проекта. Значения preset-моделей ограничены allow-list.
 
@@ -50,4 +50,4 @@ Whisper не переключается вместе с этим парамет�
 - n_gpu_layers=-1 запрашивает offload всех слоёв; startup preflight проверяет поддержку GPU offload в native llama.cpp build. Это не заменяет фактическое профилирование Metal на целевом Mac.
 - meta.params.inference_backend различает архитектуры; runtime_profile продолжает описывать только профиль Whisper/runtime scheduling.
 - Для сравнения MLX и llama.cpp используйте один файл и одинаковые resolution, scene parameters, prompts и OCR. Отдельно сравнивайте качество JSON, а не только wall time.
-- Размеры по умолчанию: около 5.0 GB для VLM Q4_K_M, 1.16 GB для projector и 6.17 GB для Text LLM Q4_K_M. Нужен запас unified memory под контекст и runtime.
+- Размеры по умолчанию: около 5.03 GB для VLM Q4_K_M, 1.16 GB для projector и 6.17 GB для Text LLM Q4_K_M. Нужен запас unified memory под контекст и runtime.
