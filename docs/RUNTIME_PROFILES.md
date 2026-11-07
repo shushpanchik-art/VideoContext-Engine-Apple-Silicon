@@ -19,6 +19,19 @@ This is the reproducible sequential baseline selected to represent the documente
 
 This profile is explicitly an optimization experiment. It must not be used as the baseline label.
 
+## Independent inference backend selector
+
+The `inference_backend` setting is orthogonal to `runtime_profile`:
+
+- `mlx_metal` is the default and preserves the MLX VLM + MLX Text LLM implementation.
+- `llama_cpp_metal` selects llama.cpp for both VLM and Text LLM. It requires local GGUF paths for `vlm_model`, `vlm_mmproj_model`, and `text_llm_model`, plus a llama-cpp-python build with Metal/GPU offload support.
+
+Whisper scheduling remains controlled only by `runtime_profile`. To compare architectures, keep `runtime_profile=baseline_mps_sequential` in both runs and change only `inference_backend` plus the corresponding model files. Apple Vision OCR and FFmpeg/Tesseract OCR settings are independent and unchanged.
+
+Changing `inference_backend` requires restarting the native VideoContext Engine app because the VLM provider is created during server startup. The API rejects a request whose declared backend differs from the backend loaded by the running server. There is no automatic fallback from llama.cpp/Metal to MLX or CPU.
+
+The llama.cpp path requests all model layers for GPU offload and checks that the installed llama-cpp-python build advertises GPU offload support. This is a runtime configuration check, not per-operator Metal profiling; benchmark archives must retain llama.cpp logs/build information and memory measurements. Use a Qwen3-VL-compatible mmproj and chat handler; generic LLaVA handlers are not interchangeable.
+
 ## Measurement requirements
 
 Each result must include `meta.runtime_profile`, `timings.runtime_profile`, Whisper backend/device, VLM backend/device diagnostics, Whisper/VLM overlap seconds, and stage timings. The sequential profile must report zero Whisper/VLM overlap because its scheduling guarantees Whisper completion before VLM loading. The parallel profile reports the measured overlap; it must not infer overlap from backend selection alone.
