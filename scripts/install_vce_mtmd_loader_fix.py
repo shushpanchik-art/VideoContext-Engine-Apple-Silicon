@@ -13,6 +13,9 @@ from pathlib import Path
 
 MODULE_CONTENT = '''"""Prefer llama-cpp-python's bundled libmtmd over system Homebrew ggml."""
 import ctypes.util as _ctypes_util
+import os as _os
+# Do not let a stale environment override force a global/Homebrew mtmd dylib.
+_os.environ.pop("MTMD_CPP_LIB", None)
 _original_find_library = _ctypes_util.find_library
 if not getattr(_original_find_library, "_vce_mtmd_loader_fix", False):
     def _vce_find_library(name):
