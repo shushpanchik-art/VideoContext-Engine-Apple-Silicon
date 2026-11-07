@@ -3805,6 +3805,9 @@ async def save_ui_settings(payload: Dict[str, Any]):
 
     selected_backend = _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX))
     if selected_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        selected_whisper_profile = _vce_normalize_runtime_profile(merged.get("runtime_profile", VCE_RUNTIME_PROFILE_BASELINE))
+        if selected_whisper_profile != VCE_RUNTIME_PROFILE_BASELINE:
+            raise HTTPException(422, "llama.cpp/Metal A/B-профиль требует baseline_mps_sequential, чтобы не смешивать MLX Whisper с llama.cpp.")
         for key in ("vlm_model", "vlm_mmproj_model", "text_llm_model"):
             value = merged.get(key)
             if not isinstance(value, str) or not value.strip() or not value.lower().endswith(".gguf"):
@@ -4988,6 +4991,8 @@ async def analyze_video(
             f"Запрошен backend {inference_backend}, но запущенный движок использует {configured_backend}. "
             "Сохраните настройку backend и перезапустите VideoContext Engine."
         )
+    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP and runtime_profile != VCE_RUNTIME_PROFILE_BASELINE:
+        raise HTTPException(422, "llama.cpp/Metal требует baseline_mps_sequential: PyTorch Whisper/MPS без MLX Whisper.")
     VCE_MLX_RUNTIME_DIAGNOSTICS.pop("whisper", None)
     VCE_MLX_RUNTIME_DIAGNOSTICS.pop("vlm", None)
     VCE_MLX_RUNTIME_DIAGNOSTICS.pop("text_llm", None)
