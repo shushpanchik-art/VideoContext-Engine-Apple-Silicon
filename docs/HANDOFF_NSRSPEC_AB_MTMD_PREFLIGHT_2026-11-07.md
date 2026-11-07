@@ -51,7 +51,7 @@ if [[ -n "$SETTINGS_BACKUP" ]]; then
   rm -f "$SETTINGS_BACKUP"
 fi
 
-git -C "$ROOT" fetch origin "$BRANCH"
+git -C "$ROOT" fetch origin "+refs/heads/$BRANCH:refs/remotes/origin/$BRANCH"
 if git -C "$ROOT" show-ref --verify --quiet "refs/heads/$BRANCH"; then
   git -C "$ROOT" switch "$BRANCH"
 else
