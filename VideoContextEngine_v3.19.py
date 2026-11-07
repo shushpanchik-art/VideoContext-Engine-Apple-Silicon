@@ -1754,12 +1754,15 @@ class LlamaCppEngine(VLMProvider):
         _vce_require_llama_metal()
         from llama_cpp import Llama
         try:
-            from llama_cpp.llama_chat_format import Qwen3VLChatHandler
-        except ImportError as exc:
-            raise RuntimeError(
-                "В этой версии llama-cpp-python отсутствует Qwen3VLChatHandler. "
-                "Обновите/пересоберите llama-cpp-python с поддержкой Qwen3-VL."
-            ) from exc
+            from llama_cpp.llama_multimodal import Qwen3VLChatHandler
+        except ImportError:
+            try:
+                from llama_cpp.llama_chat_format import Qwen3VLChatHandler
+            except ImportError as exc:
+                raise RuntimeError(
+                    "В этой версии llama-cpp-python отсутствует Qwen3VLChatHandler. "
+                    "Установите Qwen3-VL capable fork по docs/LLAMA_CPP_METAL_BACKEND.md."
+                ) from exc
 
         mmproj_name = str(setting("llama_cpp_vlm_mmproj", DEFAULT_MMPROJ_GGUF))
         mmproj_path = _vce_hf_gguf_file(DEFAULT_VLM_REPO_GGUF, mmproj_name)
@@ -1772,7 +1775,11 @@ class LlamaCppEngine(VLMProvider):
         print(f"🧠 [llama.cpp/Metal VLM] Загрузка {model_file}", flush=True)
         started = time.perf_counter()
         self.llm = None
-        self.chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path)
+        try:
+            self.chat_handler = Qwen3VLChatHandler(mmproj_path=mmproj_path)
+        except TypeError:
+            # Compatibility with pre-0.3.41-preview handler API.
+            self.chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path)
         self.llm = Llama(
             model_path=model_file,
             chat_handler=self.chat_handler,
