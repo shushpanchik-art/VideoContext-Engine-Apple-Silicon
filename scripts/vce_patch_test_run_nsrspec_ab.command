@@ -51,7 +51,6 @@ while IFS=" " read -r REL SHA; do
     fail "Есть локальные изменения в $REL. Сохрани их отдельно/закоммить и повтори запуск."
   fi
   [[ -f "$ROOT/$REL" ]] || fail "Не найден локальный файл для безопасного backup: $ROOT/$REL"
-  [[ -f "$ROOT/$REL" ]] || fail "Не найден локальный файл для безопасного backup: $ROOT/$REL"
   mkdir -p "$STAGE/$(dirname "$REL")"
   curl -fsSL "$BASE_URL/$REL" -o "$STAGE/$REL"
   ACTUAL="$(git -C "$ROOT" hash-object "$STAGE/$REL")"
