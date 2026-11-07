@@ -28,6 +28,14 @@ The `inference_backend` setting is orthogonal to `runtime_profile`:
 
 Whisper scheduling remains controlled only by `runtime_profile`. To compare architectures, keep `runtime_profile=baseline_mps_sequential` in both runs and change only `inference_backend` plus the corresponding model files. Apple Vision OCR and FFmpeg/Tesseract OCR settings are independent and unchanged.
 
+Install the optional binding in the engine's Python environment (do not add it to the default MLX requirements):
+
+```bash
+CMAKE_ARGS="-DGGML_METAL=on" pip install --force-reinstall --no-cache-dir -r requirements-llama-cpp-metal.txt
+```
+
+Then set absolute local paths to compatible Qwen3-VL quantized GGUF, its Qwen3-VL mmproj GGUF, and Qwen3.5 quantized GGUF. The mmproj must match the VLM checkpoint. The backend intentionally does not guess Hugging Face filenames or silently download a potentially mismatched projector.
+
 Changing `inference_backend` requires restarting the native VideoContext Engine app because the VLM provider is created during server startup. The API rejects a request whose declared backend differs from the backend loaded by the running server. There is no automatic fallback from llama.cpp/Metal to MLX or CPU.
 
 The llama.cpp path requests all model layers for GPU offload and checks that the installed llama-cpp-python build advertises GPU offload support. This is a runtime configuration check, not per-operator Metal profiling; benchmark archives must retain llama.cpp logs/build information and memory measurements. Use a Qwen3-VL-compatible mmproj and chat handler; generic LLaVA handlers are not interchangeable.
