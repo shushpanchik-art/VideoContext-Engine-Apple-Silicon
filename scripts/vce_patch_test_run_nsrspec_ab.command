@@ -14,6 +14,7 @@ STAGE="$(mktemp -d "${TMPDIR:-/tmp}/vce-nsrspec-patch.XXXXXX")"
 BACKUP="$HOME/Downloads/VCE_patch_backups_NSRSPEC_AB/$STAMP"
 PATCH_INSTALL_STARTED=0
 REGRESSION_TESTS_PASSED=0
+MISSING_FILES=""
 
 fail() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 2; }
 cleanup() {
@@ -24,6 +25,8 @@ cleanup() {
       [[ -n "$REL" ]] || continue
       if [[ -f "$BACKUP/$REL" ]]; then
         /usr/bin/install -m 0644 "$BACKUP/$REL" "$ROOT/$REL" || status=2
+      elif [[ "$MISSING_FILES" == *"|$REL|"* ]]; then
+        rm -f "$ROOT/$REL" || status=2
       fi
     done <<< "$FILES"
   fi
@@ -61,11 +64,17 @@ requirements-llama-cpp-metal.txt e0a8628d8d41510e17dc8c771330323c26a1d90e
 "
 while IFS=" " read -r REL SHA; do
   [[ -n "$REL" ]] || continue
-  git -C "$ROOT" ls-files --error-unmatch "$REL" >/dev/null 2>&1 || fail "Файл не отслеживается Git; не перезаписываю его автоматически: $REL"
-  if ! git -C "$ROOT" diff --quiet -- "$REL" || ! git -C "$ROOT" diff --cached --quiet -- "$REL"; then
-    fail "Есть локальные изменения в $REL. Сохрани их отдельно/закоммить и повтори запуск."
+  if git -C "$ROOT" ls-files --error-unmatch "$REL" >/dev/null 2>&1; then
+    if ! git -C "$ROOT" diff --quiet -- "$REL" || ! git -C "$ROOT" diff --cached --quiet -- "$REL"; then
+      fail "Есть локальные изменения в $REL. Сохрани их отдельно/закоммить и повтори запуск."
+    fi
+    [[ -f "$ROOT/$REL" ]] || fail "Отслеживаемый файл отсутствует неожиданно: $ROOT/$REL"
+  else
+    # A path absent from this older checkout is a legitimate new patch file.
+    # An existing untracked path is user data and must never be overwritten.
+    [[ ! -e "$ROOT/$REL" ]] || fail "Файл существует, но не отслеживается Git; не перезаписываю: $REL"
+    MISSING_FILES="${MISSING_FILES}|$REL|"
   fi
-  [[ -f "$ROOT/$REL" ]] || fail "Не найден локальный файл для безопасного backup: $ROOT/$REL"
   mkdir -p "$STAGE/$(dirname "$REL")"
   curl -fsSL "$BASE_URL/$REL" -o "$STAGE/$REL"
   ACTUAL="$(git -C "$ROOT" hash-object "$STAGE/$REL")"
@@ -75,8 +84,10 @@ done <<< "$FILES"
 mkdir -p "$BACKUP"
 while IFS=" " read -r REL SHA; do
   [[ -n "$REL" ]] || continue
-  mkdir -p "$BACKUP/$(dirname "$REL")"
-  cp -p "$ROOT/$REL" "$BACKUP/$REL"
+  if [[ -f "$ROOT/$REL" ]]; then
+    mkdir -p "$BACKUP/$(dirname "$REL")"
+    cp -p "$ROOT/$REL" "$BACKUP/$REL"
+  fi
 done <<< "$FILES"
 
 PATCH_INSTALL_STARTED=1
