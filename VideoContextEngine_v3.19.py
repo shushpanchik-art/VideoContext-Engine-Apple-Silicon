@@ -98,6 +98,13 @@ async def _vce_mlx_run(fn, *args, **kwargs):
     call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)
     return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
 
+
+async def _vce_backend_run(fn, *args, **kwargs):
+    """Run llama.cpp backend work on the dedicated executor without emitting MLX traces."""
+    loop = asyncio.get_running_loop()
+    call = _vce_mlx_functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+
 # VCE_MLX_VLM_RUNTIME_TRACE_V1
 import sys as _vce_mlx_trace_sys
 import threading as _vce_mlx_trace_threading
@@ -402,6 +409,7 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         "metal_smoke_test": "passed",
     }
     VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    VCE_BACKEND_DIAGNOSTICS[stage] = info
     if default_device_observed != str(mx.gpu):
         print(
             f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
@@ -5168,7 +5176,10 @@ async def analyze_video(
                         if vlm_engine is not None:
                             vlm_engine.unload_model()
                         vlm_engine = MLXEngine()
-                    await _vce_mlx_run(vlm_engine.load_model, target_vlm)
+                    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                        await _vce_backend_run(vlm_engine.load_model, target_vlm)
+                    else:
+                        await _vce_mlx_run(vlm_engine.load_model, target_vlm)
                     t1 = time.time()
                     vlm_load_time = vlm_engine.last_load_time or (t1 - t0)
                 else:
@@ -5601,7 +5612,7 @@ async def analyze_video(
             try:
                 print(f"🧠 [Text LLM] Улучшение структуры отчёта: {text_llm_model}")
                 async with gpu_lock:
-                    text_llm_result = await _vce_mlx_run(run_text_llm_postprocess,
+                    text_llm_result = await (_vce_backend_run if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP else _vce_mlx_run)(run_text_llm_postprocess,
                         text_llm_model,
                         source_name,
                         video_duration,
@@ -5708,7 +5719,7 @@ async def analyze_video(
                 "model": target_vlm,
                 "load_time": round(vlm_load_time, 3),
                 "inference_time": round(vlm_infer_time, 3),
-                "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {}),
+                "runtime": VCE_BACKEND_DIAGNOSTICS.get("vlm", VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {})),
             },
             "parallelism": {
                 "whisper_backend": "mlx-whisper",
