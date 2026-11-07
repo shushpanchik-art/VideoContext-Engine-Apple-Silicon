@@ -23,7 +23,7 @@ Whisper не переключается вместе с этим парамет�
 
 ## Установка llama-cpp-python с Metal
 
-Это опциональная зависимость: не добавляйте её в базовый requirements-apple-silicon.txt — MLX baseline не должен зависеть от llama.cpp.
+Это опциональная зависимость: не добавляйте её в базовый requirements-apple-silicon.txt — MLX baseline не должен зависеть от llama.cpp. Для Qwen3VLChatHandler requirements-llama-cpp-metal.txt указывает на исходную сборку JamePeng fork, а не на произвольный PyPI wheel.
 
 В терминале на Apple Silicon:
 
