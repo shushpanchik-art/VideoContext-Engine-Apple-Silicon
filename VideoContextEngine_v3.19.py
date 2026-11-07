@@ -420,6 +420,17 @@ VCE_RUNTIME_PROFILES = {
     VCE_RUNTIME_PROFILE_MLX_PARALLEL,
 }
 
+VCE_INFERENCE_BACKEND_MLX = "mlx_metal"
+VCE_INFERENCE_BACKEND_LLAMA_CPP = "llama_cpp_metal"
+VCE_INFERENCE_BACKENDS = {VCE_INFERENCE_BACKEND_MLX, VCE_INFERENCE_BACKEND_LLAMA_CPP}
+
+
+def _vce_normalize_inference_backend(value: Optional[str] = None) -> str:
+    backend = str(value or setting("inference_backend", VCE_INFERENCE_BACKEND_MLX)).strip().lower()
+    if backend not in VCE_INFERENCE_BACKENDS:
+        raise ValueError(f"Unsupported inference_backend {backend!r}; expected one of {sorted(VCE_INFERENCE_BACKENDS)}")
+    return backend
+
 
 def _vce_normalize_runtime_profile(value: Optional[str] = None) -> str:
     if value is None or not str(value).strip():
@@ -1805,24 +1816,36 @@ class LlamaCppEngine(VLMProvider):
         print(f"🐧/🪟 [Llama.cpp] Chargement VLM : {model_path}")
         t0 = time.time()
         try:
+            if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
+                raise RuntimeError("llama.cpp/Metal requires native Apple Silicon macOS.")
             from llama_cpp import Llama
-            from llama_cpp.llama_chat_format import Llava15ChatHandler
+            from llama_cpp.llama_chat_format import Qwen3VLChatHandler
+            from llama_cpp import llama_cpp as _llama_cpp_native
 
+            if not _llama_cpp_native.llama_supports_gpu_offload():
+                raise RuntimeError("Installed llama-cpp-python was built without GPU offload; Metal backend is unavailable.")
             self.llm = None
             gc.collect()
 
-            mmproj = DEFAULT_MMPROJ_GGUF if os.path.exists(DEFAULT_MMPROJ_GGUF) else None
-            self.chat_handler = (
-                Llava15ChatHandler(clip_model_path=mmproj) if mmproj else None
-            )
-
+            mmproj = str(setting("vlm_mmproj_model", "")).strip()
+            if not mmproj or not Path(mmproj).expanduser().is_file():
+                raise RuntimeError("Для Qwen3-VL GGUF требуется существующий локальный vlm_mmproj_model.")
+            self.chat_handler = Qwen3VLChatHandler(clip_model_path=str(Path(mmproj).expanduser()))
             self.llm = Llama(
-                model_path=model_path,
+                model_path=str(Path(model_path).expanduser()),
                 chat_handler=self.chat_handler,
                 n_gpu_layers=-1,
-                n_ctx=4096,
+                n_ctx=int(setting("llama_cpp_vlm_context", 8192)),
                 verbose=False,
             )
+            if int(getattr(self.llm, "n_gpu_layers", -1)) == 0:
+                raise RuntimeError("llama.cpp не подтвердил GPU layer offload; refusing CPU fallback.")
+            print("[VCE runtime] " + json.dumps({
+                "stage": "vlm", "backend": "llama.cpp", "accelerator": "Metal",
+                "model": str(Path(model_path).expanduser()), "mmproj": str(Path(mmproj).expanduser()),
+                "gpu_layers_requested": -1, "gpu_offload_supported": True,
+                "device_semantics": "Metal offload requested; llama.cpp build/runtime must be verified on device"
+            }, ensure_ascii=False, sort_keys=True), flush=True)
             self.current_model_path = model_path
             self.last_load_time = time.time() - t0
             print(f"✅ [Llama.cpp] VLM chargé en {self.last_load_time:.2f}s")
@@ -1873,7 +1896,10 @@ class LlamaCppEngine(VLMProvider):
         gc.collect()
 
 
-def get_vlm_engine() -> VLMProvider:
+def get_vlm_engine(backend: Optional[str] = None) -> VLMProvider:
+    selected = _vce_normalize_inference_backend(backend)
+    if selected == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        return LlamaCppEngine()
     return MLXEngine() if platform.system() == "Darwin" else LlamaCppEngine()
 
 
@@ -2946,16 +2972,64 @@ def run_text_llm_postprocess(
     max_tokens: int = 4096,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Load the selected MLX VLM-family checkpoint in text-only mode and return validated enrichment."""
+    """Run text-only enrichment on the explicitly selected MLX/Metal or llama.cpp/Metal backend."""
     import gc
-    _vce_configure_mlx_metal("text_llm")
-    from mlx_vlm import load, generate
-    try:
-        from mlx_vlm.generate import stream_generate
-    except Exception:
-        stream_generate = None
-    from mlx_vlm.prompt_utils import apply_chat_template
-    from mlx_vlm.utils import load_config
+    inference_backend = _vce_normalize_inference_backend()
+    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
+            raise RuntimeError("llama.cpp/Metal Text LLM requires native Apple Silicon macOS.")
+        from llama_cpp import Llama, llama_cpp as _llama_cpp_native
+        if not _llama_cpp_native.llama_supports_gpu_offload():
+            raise RuntimeError("Installed llama-cpp-python was built without GPU offload; Metal backend is unavailable.")
+
+        def load(path):
+            instance = Llama(model_path=str(Path(path).expanduser()), n_gpu_layers=-1,
+                             n_ctx=int(setting("llama_cpp_text_context", 16384)), verbose=False)
+            if int(getattr(instance, "n_gpu_layers", -1)) == 0:
+                raise RuntimeError("llama.cpp Text LLM did not enable GPU layer offload.")
+            print("[VCE runtime] " + json.dumps({
+                "stage": "text_llm", "backend": "llama.cpp", "accelerator": "Metal",
+                "model": str(Path(path).expanduser()), "gpu_layers_requested": -1,
+                "gpu_offload_supported": True
+            }, ensure_ascii=False, sort_keys=True), flush=True)
+            return instance, object()
+
+        def load_config(_path):
+            return None
+
+        def apply_chat_template(_processor, _config, prompt, **_kwargs):
+            return prompt
+
+        def generate(instance, _processor, prompt, **kwargs):
+            response = instance.create_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=int(kwargs.get("max_tokens", 4096)),
+                temperature=float(kwargs.get("temperature", 0.1)),
+            )
+            return response["choices"][0]["message"]["content"]
+
+        def stream_generate(instance, _processor, prompt, **kwargs):
+            stream = instance.create_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=int(kwargs.get("max_tokens", 4096)),
+                temperature=float(kwargs.get("temperature", 0.1)),
+                stream=True,
+            )
+            count = 0
+            for chunk in stream:
+                piece = ((chunk.get("choices") or [{}])[0].get("delta") or {}).get("content")
+                if piece:
+                    count += 1
+                    yield type("LlamaCppTextChunk", (), {"text": piece, "generation_tokens": count})()
+    else:
+        _vce_configure_mlx_metal("text_llm")
+        from mlx_vlm import load, generate
+        try:
+            from mlx_vlm.generate import stream_generate
+        except Exception:
+            stream_generate = None
+        from mlx_vlm.prompt_utils import apply_chat_template
+        from mlx_vlm.utils import load_config
 
     model = processor = config = None
     try:
@@ -3173,11 +3247,12 @@ def run_text_llm_postprocess(
         processor = None
         config = None
         gc.collect()
-        try:
-            import mlx.core as mx
-            mx.clear_cache()
-        except Exception:
-            pass
+        if inference_backend == VCE_INFERENCE_BACKEND_MLX:
+            try:
+                import mlx.core as mx
+                mx.clear_cache()
+            except Exception:
+                pass
 
 
 def format_text_llm_report(payload: Dict[str, Any]) -> str:
@@ -3654,8 +3729,19 @@ async def save_ui_settings(payload: Dict[str, Any]):
         elif key == "runtime_profile":
             if value not in VCE_RUNTIME_PROFILES:
                 raise HTTPException(422, "Недопустимый профиль выполнения")
+        elif key == "inference_backend":
+            if value not in VCE_INFERENCE_BACKENDS:
+                raise HTTPException(422, "Недопустимый inference backend")
+        elif key == "vlm_mmproj_model":
+            if not isinstance(value, str) or (value and not value.lower().endswith(".gguf")):
+                raise HTTPException(422, "vlm_mmproj_model должен быть путём к GGUF mmproj")
         elif key == "vlm_model":
-            if value not in allowed_vlm: raise HTTPException(422, "Недопустимая VLM-модель")
+            if not isinstance(value, str) or not value.strip():
+                raise HTTPException(422, "Недопустимая VLM-модель")
+            if _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX)) == VCE_INFERENCE_BACKEND_LLAMA_CPP and not value.lower().endswith(".gguf"):
+                raise HTTPException(422, "Для llama.cpp/Metal VLM-модель должна быть GGUF")
+            if _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX)) == VCE_INFERENCE_BACKEND_MLX and value not in allowed_vlm:
+                raise HTTPException(422, "Недопустимая MLX VLM-модель")
         elif key == "whisper_model":
             if value not in allowed_whisper: raise HTTPException(422, "Недопустимая Whisper-модель")
         elif key == "text_llm_name_reconciliation_prompt":
@@ -3664,8 +3750,13 @@ async def save_ui_settings(payload: Dict[str, Any]):
             if len(value) > 8000:
                 raise HTTPException(422, "Промпт согласования названий не должен превышать 8000 символов")
         elif key == "text_llm_model":
-            if value != TEXT_LLM_DEFAULT_MODEL:
+            if not isinstance(value, str) or not value.strip():
                 raise HTTPException(422, "Недопустимая модель текстовой LLM")
+            selected_backend = _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX))
+            if selected_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP and not value.lower().endswith(".gguf"):
+                raise HTTPException(422, "Для llama.cpp/Metal Text LLM-модель должна быть GGUF")
+            if selected_backend == VCE_INFERENCE_BACKEND_MLX and value != TEXT_LLM_DEFAULT_MODEL:
+                raise HTTPException(422, "Недопустимая MLX модель текстовой LLM")
         elif key in int_ranges:
             if type(value) is not int or not int_ranges[key][0] <= value <= int_ranges[key][1]:
                 raise HTTPException(422, f"Недопустимое значение настройки {key}")
