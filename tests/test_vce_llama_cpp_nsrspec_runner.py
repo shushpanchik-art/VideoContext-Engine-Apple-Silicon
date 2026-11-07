@@ -1,5 +1,7 @@
 from pathlib import Path
 import importlib.util
+import shutil
+import subprocess
 import unittest
 
 
@@ -84,6 +86,21 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
     def test_legacy_llama_launcher_routes_to_ab_launcher(self):
         self.assertIn('exec "$SCRIPT_DIR/vce_run_nsrspec_ab.command"', self.legacy_launcher)
+
+
+    def test_bash_syntax_for_both_launchers(self):
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("bash is not installed")
+        for path in (
+            ROOT / "scripts/vce_run_nsrspec_ab.command",
+            ROOT / "scripts/vce_run_nsrspec_llama_cpp.command",
+        ):
+            result = subprocess.run([bash, "-n", str(path)], capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, f"{path}: {result.stderr}")
+
+    def test_runtime_source_compiles_without_importing_platform_dependencies(self):
+        compile(self.runtime, str(ROOT / "VideoContextEngine_v3.19.py"), "exec")
 
 
 if __name__ == "__main__":
