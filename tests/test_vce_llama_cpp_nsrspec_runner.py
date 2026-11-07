@@ -84,6 +84,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("lsof -nP -tiTCP:7555", self.launcher)
         self.assertIn("pgrep -f", self.launcher)
         self.assertIn("дождись закрытия API на порту 7555", self.launcher)
+        self.assertIn("printf 'API listener PID(s): %s\n'", self.launcher)
 
     def test_observer_backend_argument_builds_separate_mlx_and_gguf_settings(self):
         mlx = _OBSERVER.build_backend_settings("mlx_metal")
