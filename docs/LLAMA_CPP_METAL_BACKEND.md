@@ -31,7 +31,15 @@ Whisper не переключается вместе с этим парамет�
 
 После установки обязательно проверьте именно Metal и Qwen3-VL handler:
 
-    python -c "from llama_cpp import llama_cpp; from llama_cpp.llama_multimodal import Qwen3VLChatHandler; assert llama_cpp.llama_supports_gpu_offload(); print('Metal offload + Qwen3VLChatHandler: OK')"
+    python - <<'PY'
+    from llama_cpp import llama_cpp
+    try:
+        from llama_cpp.llama_multimodal import Qwen3VLChatHandler
+    except ImportError:
+        from llama_cpp.llama_chat_format import Qwen3VLChatHandler
+    assert llama_cpp.llama_supports_gpu_offload()
+    print("Metal offload + Qwen3VLChatHandler: OK")
+    PY
 
 Если Qwen3VLChatHandler отсутствует, установленная сборка не подходит. Не заменяйте его на Llava15ChatHandler: это другой multimodal handler. Runtime завершится понятной ошибкой вместо незаметного CPU fallback.
 
