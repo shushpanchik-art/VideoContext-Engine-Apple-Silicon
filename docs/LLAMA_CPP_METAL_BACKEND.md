@@ -55,7 +55,7 @@ Whisper не переключается вместе с этим парамет�
 ## Ограничения и корректность измерений
 
 - VLM Qwen3-VL требует Qwen3VLChatHandler и projector именно от той же модели.
-- n_gpu_layers=-1 запрашивает offload всех слоёв; startup preflight проверяет поддержку GPU offload в native llama.cpp build. Это не заменяет фактическое профилирование Metal на целевом Mac.
+- n_gpu_layers=-1 запрашивает offload всех слоёв; startup preflight проверяет поддержку GPU offload в native llama.cpp build. verbose=True сохраняет в server.log сообщения llama.cpp о backend и реально offloaded layers, которые нужно сверить в forensic-архиве. Это не заменяет фактическое профилирование Metal на целевом Mac.
 - meta.params.inference_backend различает архитектуры; runtime_profile продолжает описывать только профиль Whisper/runtime scheduling.
 - Для сравнения MLX и llama.cpp используйте один файл и одинаковые resolution, scene parameters, prompts и OCR. Отдельно сравнивайте качество JSON, а не только wall time.
 - Размеры по умолчанию: около 5.03 GB для VLM Q4_K_M, 1.16 GB для projector и 6.17 GB для Text LLM Q4_K_M. Нужен запас unified memory под контекст и runtime.
