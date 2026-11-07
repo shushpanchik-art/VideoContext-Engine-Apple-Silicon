@@ -157,8 +157,8 @@ curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce
 API_PIDS="$(/usr/sbin/lsof -nP -tiTCP:7555 -sTCP:LISTEN 2>/dev/null || true)"
 APP_PIDS="$(/usr/bin/pgrep -f "$APP/Contents/MacOS/" 2>/dev/null || true)"
 if [[ -n "$API_PIDS" || -n "$APP_PIDS" ]] || curl -fsS --max-time 2 "$API/openapi.json" >/dev/null 2>&1; then
-  printf 'API listener PID(s): %s\\n' "${API_PIDS:-не обнаружены}"
-  printf 'VideoContext Engine PID(s): %s\\n' "${APP_PIDS:-не обнаружены}"
+  printf 'API listener PID(s): %s\n' "${API_PIDS:-не обнаружены}"
+  printf 'VideoContext Engine PID(s): %s\n' "${APP_PIDS:-не обнаружены}"
   fail "VideoContext Engine ещё работает. Заверши приложение через VideoContext Engine → Quit (⌘Q), дождись закрытия API на порту 7555 и запусти команду снова. Нельзя подключить .pth-хук к уже работающему Python-процессу."
 fi
 
