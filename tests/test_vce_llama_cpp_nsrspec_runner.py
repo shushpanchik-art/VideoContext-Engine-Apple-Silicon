@@ -35,7 +35,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4", self.launcher)
 
     def test_mtmd_installer_is_pinned_downloaded_and_run_before_app_start(self):
-        self.assertIn('TOOLS_COMMIT="108a6d06dcadada647c8184d0c86d34b7049cd73"', self.launcher)
+        self.assertIn('TOOLS_COMMIT="4b2246b6928af233cbb4180672a4dd4de6918872"', self.launcher)
         self.assertIn('curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py"', self.launcher)
         self.assertIn('"$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"', self.launcher)
         self.assertLess(
@@ -45,7 +45,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("import llama_cpp.mtmd_cpp as mtmd_cpp", self.launcher)
         self.assertIn('ctypes.util.find_library("mtmd") is not None', self.launcher)
         self.assertIn("50e91ffabcf2cb6174b068a12eea0b6b909cba5e", self.launcher)
-        self.assertIn("c087d7c5fa00f697453bd917bcae7d4d6947c6be", self.launcher)
+        self.assertIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
         self.assertIn("16b1f22af3af081940d556d98020640ca4051c2e", self.launcher)
 
     def test_observer_backend_argument_builds_separate_mlx_and_gguf_settings(self):
