@@ -32,7 +32,8 @@ class LlamaCppMetalBackendTests(unittest.TestCase):
         self.assertIn("from mlx_vlm import load, generate", self.runtime)
 
     def test_backend_switch_applies_to_both_stages(self):
-        self.assertIn("target_vlm = _vce_selected_vlm_model()", self.runtime)
+        self.assertIn('str(setting("llama_cpp_vlm_model", DEFAULT_VLM_MODEL_GGUF))', self.runtime)
+        self.assertIn("else vlm_model", self.runtime)
         self.assertIn('text_llm_model = str(setting("llama_cpp_text_llm_model"', self.runtime)
         self.assertIn('"inference_backend": inference_backend', self.runtime)
         self.assertIn('id="cfg-inference-backend"', self.ui)
