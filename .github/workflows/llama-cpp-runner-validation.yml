@@ -1,0 +1,41 @@
+name: llama.cpp runner validation
+
+on:
+  push:
+    branches:
+      - feature/llama-cpp-on-runtime-profile-20261107
+  pull_request:
+    branches:
+      - feature/llama-cpp-on-runtime-profile-20261107
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run focused regression suite
+        run: python -m unittest discover -s tests -p 'test_vce_llama_cpp_nsrspec_runner.py' -v
+
+      - name: Compile Python runtime and diagnostic tools
+        run: |
+          python -m py_compile \
+            VideoContextEngine_v3.19.py \
+            scripts/vce_observed_llama_cpp_run.py \
+            scripts/vce_runtime_watchdog.py \
+            scripts/install_vce_mtmd_loader_fix.py
+
+      - name: Validate shell launcher syntax
+        run: |
+          bash -n scripts/vce_run_nsrspec_ab.command
+          bash -n scripts/vce_run_nsrspec_llama_cpp.command
