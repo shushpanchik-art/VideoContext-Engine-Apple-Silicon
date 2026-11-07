@@ -1,0 +1,3 @@
+# Optional alternative inference backend. Install with Metal enabled on Apple Silicon:
+# CMAKE_ARGS="-DGGML_METAL=on" pip install --force-reinstall --no-cache-dir -r requirements-llama-cpp-metal.txt
+llama-cpp-python>=0.3.16
