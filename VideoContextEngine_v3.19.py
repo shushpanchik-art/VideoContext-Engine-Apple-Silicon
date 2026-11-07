@@ -6126,8 +6126,10 @@ async def analyze_video(
                     "load_download_time": round(locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0), 3),
                     "generation_time": round(max(0.0, text_llm_infer_time - locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0)), 3),
                     "model_cached_before_run": bool(locals().get("_vce_text_llm_model_cached", True)) if text_llm_enabled else None,
-                    "thinking_enabled": bool(text_llm_enabled),
-                    "thinking_budget": 512 if text_llm_enabled else None,
+                    "thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX),
+                    "thinking_budget": (
+                        512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0
+                    ) if text_llm_enabled else None,
                     "max_output_tokens": int(text_llm_max_tokens or 4096) if text_llm_enabled else None,
                     "error": text_llm_error or None,
                     "raw_excerpt": text_llm_raw_excerpt or None,
