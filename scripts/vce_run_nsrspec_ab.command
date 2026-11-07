@@ -11,7 +11,7 @@ API="http://127.0.0.1:7555"
 SETTINGS="$ROOT/videocontext_settings.json"
 
 # Pin all downloaded tooling to the same reviewed commit, never to a moving branch.
-TOOLS_COMMIT="__TOOL_COMMIT__"
+TOOLS_COMMIT="5d41d71599c424f8601434111df9be6cce7dfe23"
 TOOLS_DIR="$HOME/Library/Application Support/VideoContext Engine/forensic-tools/nsrspec-ab-$TOOLS_COMMIT"
 OUT_PARENT="$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
