@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import unittest
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -242,7 +243,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
             and node.name == "_vce_qwen3vl_mmproj_init_keyword"
         )
-        namespace = {}
+        namespace = {"Any": Any}
         exec(
             compile(
                 ast.Module(body=[resolver_node], type_ignores=[]),
@@ -272,7 +273,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(resolve(VariadicQwenHandler), "mmproj_path")
         self.assertEqual(resolve(ExplicitMmprojHandler), "mmproj_path")
         self.assertEqual(resolve(LegacyClipHandler), "clip_model_path")
-        with self.assertRaisesRegex(RuntimeError, "nor **kwargs"):
+        with self.assertRaisesRegex(RuntimeError, r"nor \\*\\*kwargs"):
             resolve(UnsupportedHandler)
         self.assertIn(
             "_vce_qwen3vl_mmproj_init_keyword(Qwen3VLChatHandler)",
