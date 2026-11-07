@@ -276,6 +276,9 @@ PY
 
 # Resolve the pinned model and projector; initialize the native MTMD context with the
 # same 8B Q4 model, handler, GPU layers and context size used by LlamaCppEngine.load_model.
+# HF Hub requests get finite network timeouts; public model downloads do not require HF_TOKEN.
+export HF_HUB_ETAG_TIMEOUT="${HF_HUB_ETAG_TIMEOUT:-60}"
+export HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-120}"
 set +e
 "$PY" - "$OUT_ROOT/mtmd_context_preflight.json" "$LLAMA_CPP_PINNED_COMMIT" "$VLM_HF_REPO_REVISION" <<'PY'
 import inspect
@@ -314,18 +317,23 @@ try:
     report["qwen3vl_handler_signature"] = str(signature)
 
     from huggingface_hub import hf_hub_download
+    print("HF_PREFLIGHT: resolving pinned Qwen3-VL Q4 model; this may download several GB on first run.", flush=True)
     model_path = hf_hub_download(
         repo_id=report["hf_repo"],
         filename=report["model_filename"],
         revision=hf_revision,
     )
+    report["model_path"] = str(Path(model_path).resolve())
+    report["model_size_bytes"] = Path(model_path).stat().st_size
+    print("HF_PREFLIGHT: model ready (" + str(report["model_size_bytes"]) + " bytes); resolving F16 mmproj.", flush=True)
     mmproj_path = hf_hub_download(
         repo_id=report["hf_repo"],
         filename=report["mmproj_filename"],
         revision=hf_revision,
     )
-    report["model_path"] = str(Path(model_path).resolve())
     report["mmproj_path"] = str(Path(mmproj_path).resolve())
+    report["mmproj_size_bytes"] = Path(mmproj_path).stat().st_size
+    print("HF_PREFLIGHT: model and mmproj files are present; initializing Qwen3-VL.", flush=True)
     if not Path(model_path).is_file() or not Path(mmproj_path).is_file():
         raise FileNotFoundError("Pinned HF model or mmproj did not resolve to a local file.")
 
