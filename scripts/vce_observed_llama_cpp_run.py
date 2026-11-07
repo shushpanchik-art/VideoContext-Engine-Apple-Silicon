@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run one local VCE analysis while recording progress, server logs and host metrics.
 
-macOS-only observer. Reads local settings but never writes them. Results (including
-the full response/transcript) are stored locally and are NOT uploaded to GitHub.
+macOS-only observer. Applies the requested backend/OCR settings through the local API,
+then records the analysis. Full response/transcript remain local until the shell runner
+uploads the private forensic archive to Dropbox; nothing is uploaded to GitHub.
 """
 from __future__ import annotations
 
