@@ -1,3 +1,4 @@
-# Optional alternative inference backend. Install with Metal enabled on Apple Silicon:
+# Qwen3-VL vision handler + llama.cpp. Build this optional backend with Metal enabled:
 # CMAKE_ARGS="-DGGML_METAL=on" pip install --force-reinstall --no-cache-dir -r requirements-llama-cpp-metal.txt
-llama-cpp-python>=0.3.16
+# This fork exposes Qwen3VLChatHandler; the stock PyPI package may not expose it in all releases.
+llama-cpp-python @ git+https://github.com/jaai-pma8/llama-cpp-python-qwen3vlchathandler.git
