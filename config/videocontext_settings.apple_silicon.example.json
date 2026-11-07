@@ -2,6 +2,8 @@
   "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
   "whisper_model": "large",
   "runtime_profile": "baseline_mps_sequential",
+  "inference_backend": "mlx_metal",
+  "vlm_mmproj_model": "",
   "response_format": "json",
   "vlm_resolution": 1280,
   "scene_threshold": 0.15,
