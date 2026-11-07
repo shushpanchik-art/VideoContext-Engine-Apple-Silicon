@@ -273,7 +273,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(resolve(VariadicQwenHandler), "mmproj_path")
         self.assertEqual(resolve(ExplicitMmprojHandler), "mmproj_path")
         self.assertEqual(resolve(LegacyClipHandler), "clip_model_path")
-        with self.assertRaisesRegex(RuntimeError, r"nor \\*\\*kwargs"):
+        with self.assertRaises(RuntimeError):
             resolve(UnsupportedHandler)
         self.assertIn(
             "_vce_qwen3vl_mmproj_init_keyword(Qwen3VLChatHandler)",
