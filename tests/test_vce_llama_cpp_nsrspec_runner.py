@@ -172,7 +172,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("RUN2_EXIT=125", self.launcher[gate:llama])
         self.assertIn("MLX baseline не завершился успешно", self.launcher[gate:llama])
         self.assertIn('"baseline_gate_for_llama_cpp": True', self.launcher)
-        self.assertIn('"run2_skipped_reason": run2_skipped_reason', self.launcher)
+        self.assertIn('"skipped_reason": run2_skipped_reason', self.launcher)
 
     def test_pinned_fork_and_hf_revision_are_explicit(self):
         requirements = (ROOT / "requirements-llama-cpp-metal.txt").read_text(encoding="utf-8")
