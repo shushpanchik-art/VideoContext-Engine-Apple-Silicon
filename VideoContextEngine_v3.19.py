@@ -1841,12 +1841,19 @@ class LlamaCppEngine(VLMProvider):
             self.llm = None
             gc.collect()
 
+            model_file = Path(model_path).expanduser()
+            if model_file.suffix.lower() != ".gguf" or not model_file.is_file():
+                raise RuntimeError(f"Qwen3-VL GGUF не найден: {model_file}")
             mmproj = str(setting("vlm_mmproj_model", "")).strip()
-            if not mmproj or not Path(mmproj).expanduser().is_file():
+            mmproj_file = Path(mmproj).expanduser() if mmproj else None
+            if mmproj_file is None or mmproj_file.suffix.lower() != ".gguf" or not mmproj_file.is_file():
                 raise RuntimeError("Для Qwen3-VL GGUF требуется существующий локальный vlm_mmproj_model.")
-            self.chat_handler = Qwen3VLChatHandler(clip_model_path=str(Path(mmproj).expanduser()))
+            try:
+                self.chat_handler = Qwen3VLChatHandler(mmproj_path=str(mmproj_file))
+            except TypeError:
+                self.chat_handler = Qwen3VLChatHandler(clip_model_path=str(mmproj_file))
             self.llm = Llama(
-                model_path=str(Path(model_path).expanduser()),
+                model_path=str(model_file),
                 chat_handler=self.chat_handler,
                 n_gpu_layers=-1,
                 n_ctx=int(setting("llama_cpp_vlm_context", 8192)),
@@ -2998,8 +3005,11 @@ def run_text_llm_postprocess(
             raise RuntimeError("Installed llama-cpp-python was built without GPU offload; Metal backend is unavailable.")
 
         def load(path):
-            instance = Llama(model_path=str(Path(path).expanduser()), n_gpu_layers=-1,
-                             n_ctx=int(setting("llama_cpp_text_context", 16384)), verbose=False)
+            model_file = Path(path).expanduser()
+            if model_file.suffix.lower() != ".gguf" or not model_file.is_file():
+                raise RuntimeError(f"Text LLM GGUF не найден: {model_file}")
+            instance = Llama(model_path=str(model_file), n_gpu_layers=-1,
+                             n_ctx=int(setting("llama_cpp_text_context", 32768)), verbose=False)
             if int(getattr(instance, "n_gpu_layers", -1)) == 0:
                 raise RuntimeError("llama.cpp Text LLM did not enable GPU layer offload.")
             VCE_MLX_RUNTIME_DIAGNOSTICS["text_llm"] = {
