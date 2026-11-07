@@ -134,6 +134,10 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("Qwen3VLChatHandler.__init__", self.launcher)
         self.assertIn("model_load", self.launcher)
         self.assertIn("mtmd_context_preflight.json", self.launcher)
+        self.assertIn('HF_HUB_DOWNLOAD_TIMEOUT="${HF_HUB_DOWNLOAD_TIMEOUT:-120}"', self.launcher)
+        self.assertIn("HF_PREFLIGHT: resolving pinned Qwen3-VL Q4 model", self.launcher)
+        self.assertIn("HF_PREFLIGHT: model ready", self.launcher)
+        self.assertIn("HF_PREFLIGHT: model and mmproj files are present", self.launcher)
 
     def test_pinned_fork_and_hf_revision_are_explicit(self):
         requirements = (ROOT / "requirements-llama-cpp-metal.txt").read_text(encoding="utf-8")
