@@ -27,7 +27,12 @@
 Перед патчем полностью закрой VideoContext Engine через `⌘Q`. Затем выполни единый блок ниже. Он сохраняет локальные изменения в Git stash (не удаляет их), переключает checkout на ветку PR, обновляет её только fast-forward и запускает patch installer. Installer проверяет backup/целостность файлов, выполняет regression suite и bash syntax checks, а затем запускает MTMD preflight и A/B. Не запускай отдельные команды с относительными путями из `~`.
 
 ```bash
+# Do not enable errexit in the interactive zsh. Run strict Bash in a child process.
+ /bin/bash <<'VCE_PATCH_ONLY'
 set -Eeuo pipefail
+LOG="$HOME/Desktop/VCE_NSRSPEC_patch_$(date '+%Y%m%d_%H%M%S').log"
+exec > >(tee -a "$LOG") 2>&1
+
 ROOT="$HOME/VideoContext-Engine-Apple-Silicon"
 BRANCH="fix/qwen3vl-kwargs-mtmd-preflight-handoff-20261107"
 
@@ -37,7 +42,7 @@ BRANCH="fix/qwen3vl-kwargs-mtmd-preflight-handoff-20261107"
 }
 git -C "$ROOT" status --short --branch
 
-# Preserve the current API settings file outside the stash; it is machine-local state.
+# Preserve machine-local API settings outside Git stash.
 SETTINGS="$ROOT/videocontext_settings.json"
 SETTINGS_BACKUP=""
 if [[ -f "$SETTINGS" ]]; then
@@ -63,8 +68,40 @@ git -C "$ROOT" pull --ff-only origin "$BRANCH"
   echo "Не найден Python проекта: $ROOT/.venv/bin/python" >&2
   exit 2
 }
-/bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"
+
+# Install corrected files and run regression tests only. Do not start model loading yet.
+VCE_SKIP_AB=1 /bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"
+echo "PATCH_AND_REGRESSION=PASSED"
+echo "Patch log: $LOG"
+VCE_PATCH_ONLY
+PATCH_STATUS=$?
+printf '\\nPatch/setup shell exit code: %s\\n' "$PATCH_STATUS"
+printf 'Полный лог: ~/Desktop/VCE_NSRSPEC_patch_*.log\\n'
 ```
+
+The installer invocation above deliberately sets `VCE_SKIP_AB=1`: it installs the reviewed code and runs tests, but does not load model weights or start the benchmark. Continue to the separate A/B command only after `PATCH_AND_REGRESSION=PASSED`.
+
+### Отдельный запуск аппаратного A/B
+
+```bash
+/bin/bash <<'VCE_AB_RUN'
+set -Eeuo pipefail
+LOG="$HOME/Desktop/VCE_NSRSPEC_AB_$(date '+%Y%m%d_%H%M%S').log"
+exec > >(tee -a "$LOG") 2>&1
+
+ROOT="$HOME/VideoContext-Engine-Apple-Silicon"
+[[ -x "$ROOT/.venv/bin/python" ]]
+[[ -f "$ROOT/scripts/vce_run_nsrspec_ab.command" ]]
+/bin/bash "$ROOT/scripts/vce_run_nsrspec_ab.command"
+echo "A/B launcher exit: $?"
+echo "A/B log: $LOG"
+VCE_AB_RUN
+AB_STATUS=$?
+printf '\\nA/B shell exit code: %s\\n' "$AB_STATUS"
+printf 'Лог на рабочем столе: ~/Desktop/VCE_NSRSPEC_AB_*.log\\n'
+```
+
+Because both sequences run inside a child `/bin/bash`, a non-zero preflight or benchmark exit does not enable `set -e` in the interactive zsh and should not close the Terminal session.
 
 Если `git pull --ff-only` сообщает о diverged history, не используй `reset --hard`: остановись и сохрани вывод. Stash остаётся резервной копией локальных изменений; не выполняй `git stash pop` поверх обновлённого production-кода до проверки его содержимого.
 
