@@ -143,22 +143,24 @@ fi
 REMOTE_TYPE="$(rclone config show "$DROPBOX_REMOTE" 2>/dev/null | awk -F ' = ' '$1 == "type" {print $2; exit}')"
 [[ "$REMOTE_TYPE" == dropbox ]] || fail "Remote $DROPBOX_REMOTE не является Dropbox."
 
-# The .pth hook must be loaded when the app's Python process starts.
-if curl -fsS --max-time 2 "$API/openapi.json" >/dev/null 2>&1; then
-  fail "Локальный API уже запущен. Полностью закрой VideoContext Engine и повтори запуск, чтобы mtmd .pth-хук загрузился до старта сервера."
-fi
-if /usr/bin/pgrep -f "$APP/Contents/MacOS/" >/dev/null 2>&1; then
-  fail "Процесс VideoContext Engine уже запущен. Полностью закрой приложение, затем повтори запуск."
-fi
-
 note "Скачиваю watchdog, observer и mtmd-патч из одного pinned-коммита $TOOLS_COMMIT."
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$TOOLS_COMMIT/scripts"
 curl -fsSL "$BASE_URL/vce_runtime_watchdog.py" -o "$TOOLS_DIR/vce_runtime_watchdog.py"
 curl -fsSL "$BASE_URL/vce_observed_llama_cpp_run.py" -o "$TOOLS_DIR/vce_observed_llama_cpp_run.py"
 curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
 [[ "$(git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py")" == "50e91ffabcf2cb6174b068a12eea0b6b909cba5e" ]] || fail "Не прошла проверка целостности watchdog."
-[[ "$(git hash-object "$TOOLS_DIR/vce_observed_llama_cpp_run.py")" == "13bb85082a5ba9da5a7a555cb847fa52774c8e8b" ]] || fail "Не прошла проверка целостности observer."
+[[ "$(git hash-object "$TOOLS_DIR/vce_observed_llama_cpp_run.py")" == "55f8f0b561577b90d1525f6c960359e21f74c27b" ]] || fail "Не прошла проверка целостности observer."
 [[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
+
+# Install the .pth hook only while the app/API is fully stopped. Download and
+# verify the pinned tools first, so a broken checksum is reported before app-state checks.
+API_PIDS="$(/usr/sbin/lsof -nP -tiTCP:7555 -sTCP:LISTEN 2>/dev/null || true)"
+APP_PIDS="$(/usr/bin/pgrep -f "$APP/Contents/MacOS/" 2>/dev/null || true)"
+if [[ -n "$API_PIDS" || -n "$APP_PIDS" ]] || curl -fsS --max-time 2 "$API/openapi.json" >/dev/null 2>&1; then
+  printf 'API listener PID(s): %s\\n' "${API_PIDS:-не обнаружены}"
+  printf 'VideoContext Engine PID(s): %s\\n' "${APP_PIDS:-не обнаружены}"
+  fail "VideoContext Engine ещё работает. Заверши приложение через VideoContext Engine → Quit (⌘Q), дождись закрытия API на порту 7555 и запусти команду снова. Нельзя подключить .pth-хук к уже работающему Python-процессу."
+fi
 
 note "Ставлю venv-scoped mtmd resolver hook до запуска API."
 "$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py" --report "$OUT_ROOT/mtmd_installer_report.json"
