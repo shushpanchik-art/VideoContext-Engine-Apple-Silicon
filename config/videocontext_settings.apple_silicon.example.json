@@ -1,5 +1,10 @@
 {
   "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+  "inference_backend": "mlx_metal",
+  "llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+  "llama_cpp_vlm_mmproj": "mmproj-Qwen3VL-8B-Instruct-F16.gguf",
+  "llama_cpp_text_llm_model": "qwen3.5-9b-Q4_K_M.gguf",
+  "llama_cpp_text_context": 32768,
   "whisper_model": "large",
   "runtime_profile": "baseline_mps_sequential",
   "response_format": "json",

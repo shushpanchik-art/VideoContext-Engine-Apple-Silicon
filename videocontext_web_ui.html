@@ -66,6 +66,13 @@ button#stop:disabled { color:#4b4217 !important; }
         </select>
         <span class="hint">Qwen3.5 текстовая постобработка не отключается сценариями: она собирает итог из доступных транскрипта и OCR.</span>
       </label>
+      <label class="setting">Вычислительный backend VLM + Text LLM
+        <select id="cfg-inference-backend">
+          <option value="mlx_metal">MLX / Metal — baseline (по умолчанию)</option>
+          <option value="llama_cpp_metal">llama.cpp / Metal — GGUF эксперимент</option>
+        </select>
+        <span class="hint">Выбор применяется одновременно к VLM и Text LLM. Whisper остаётся на текущем runtime-профиле; смешение MLX и llama.cpp внутри одного запуска не допускается. Для llama.cpp нужна отдельная Metal-сборка.</span>
+      </label>
       <label class="setting">VLM-модель
         <select id="cfg-vlm-model"><option value="mlx-community/Qwen3-VL-8B-Instruct-4bit">Qwen3-VL-8B · качество</option><option value="mlx-community/Qwen3-VL-4B-Instruct-4bit">Qwen3-VL-4B · быстрее</option></select>
       </label>
@@ -178,6 +185,7 @@ button#stop:disabled { color:#4b4217 !important; }
     runtime_profile: document.getElementById('cfg-runtime-profile').value,
     enable_fast_scene_detection: document.getElementById('cfg-fast-scene-detection').checked,
     analysis_mode: document.getElementById('cfg-analysis-mode').value,
+    inference_backend: document.getElementById('cfg-inference-backend').value,
     vlm_model: document.getElementById('cfg-vlm-model').value,
     whisper_model: document.getElementById('cfg-whisper-model').value,
     vlm_resolution: Number(document.getElementById('cfg-vlm-resolution').value),
@@ -204,6 +212,7 @@ button#stop:disabled { color:#4b4217 !important; }
   function fillSettings(s) {
     const fields = {
       'cfg-analysis-mode':'analysis_mode',
+      'cfg-inference-backend':'inference_backend',
       'cfg-ffmpeg-ocr-interval':'ffmpeg_ocr_interval',
       'cfg-ffmpeg-ocr-workers':'ffmpeg_ocr_workers',
       'cfg-vlm-model':'vlm_model','cfg-whisper-model':'whisper_model','cfg-runtime-profile':'runtime_profile','cfg-vlm-resolution':'vlm_resolution',
