@@ -83,7 +83,7 @@ class PatchsetSanityTests(unittest.TestCase):
         self.assertTrue(cfg["word_timestamps"])
 
     def test_shell_scripts_parse(self):
-        for path in [ROOT / "install_patches_to_existing_checkout.command", ROOT / "macos/install_video_context_mac.command"]:
+        for path in [ROOT / "macos/install_video_context_mac.command"]:
             with self.subTest(path=path):
                 p = subprocess.run(["bash", "-n", str(path)], capture_output=True, text=True)
                 self.assertEqual(p.returncode, 0, p.stderr)

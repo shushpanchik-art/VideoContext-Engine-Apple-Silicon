@@ -1,8 +1,9 @@
 {
   "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
   "whisper_model": "large",
+  "runtime_profile": "baseline_mps_sequential",
   "response_format": "json",
-  "vlm_resolution": 768,
+  "vlm_resolution": 1280,
   "scene_threshold": 0.15,
   "min_scene_duration": 1.5,
   "max_scene_duration": 20,
