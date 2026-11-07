@@ -27,6 +27,8 @@ class LlamaCppMetalBackendTests(unittest.TestCase):
 
     def test_text_llm_has_a_separate_llama_cpp_generation_path(self):
         self.assertIn("DEFAULT_TEXT_LLM_MODEL_GGUF", self.runtime)
+        self.assertIn("gguf/Qwen3.5-9B-GGUF", self.runtime)
+        self.assertIn("qwen3.5-9b-Q4_K_M.gguf", self.runtime)
         self.assertIn("create_chat_completion", self.runtime)
         self.assertIn("if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:", self.runtime)
         self.assertIn("from mlx_vlm import load, generate", self.runtime)
