@@ -27,8 +27,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
     def test_observer_selects_llama_for_both_llm_stages_and_keeps_whisper_mps(self):
         self.assertIn('"inference_backend": "llama_cpp_metal"', self.observer)
-        self.assertIn('"llama_cpp_vlm_model": "Qwen3-VL-8B-Instruct-Q4_K_M.gguf"', self.observer)
-        self.assertIn('"llama_cpp_text_llm_model": "Qwen3.5-9B-Q4_K_M.gguf"', self.observer)
+        self.assertIn('"llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf"', self.observer)
+        self.assertIn('"llama_cpp_text_llm_model": "qwen3.5-9b-Q4_K_M.gguf"', self.observer)
         self.assertIn('"runtime_profile": "baseline_mps_sequential"', self.observer)
         self.assertIn('"enable_mlx_whisper": False', self.observer)
         self.assertIn('"enable_ocr_cache": True', self.observer)
