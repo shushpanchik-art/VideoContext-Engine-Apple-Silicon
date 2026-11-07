@@ -6,7 +6,7 @@ IFS=$'\n\t'
 ROOT="/Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon"
 APP="/Applications/VideoContext Engine.app"
 API="http://127.0.0.1:7555"
-PATCH_COMMIT="506e36021e2de629f0eae1776f439319a94f8fbb"
+PATCH_COMMIT="8b540061edf06727b89728953c2cc854271cfc06"
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_COMMIT"
 PY="$ROOT/.venv/bin/python"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -53,13 +53,13 @@ fi
 
 # Refuse to overwrite local edits in the exact files being installed.
 FILES="
-VideoContextEngine_v3.19.py fe76b7831dd75c133457ba3d91488ac65da8460b
+VideoContextEngine_v3.19.py 32cc8870f5e77ac72126b6b72b764c1f29cfcc4c
 scripts/vce_observed_llama_cpp_run.py 39fff57545c50500c3ce241fcb10ae3004204c0c
 scripts/vce_run_nsrspec_ab.command a90639ab6f0f5fdec9f8960c8d5318ad35758b62
 scripts/vce_runtime_watchdog.py 50e91ffabcf2cb6174b068a12eea0b6b909cba5e
 scripts/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
 scripts/vce_run_nsrspec_llama_cpp.command 31356e628780a37470d3d3c7c4321c45a3cbaef4
-tests/test_vce_llama_cpp_nsrspec_runner.py dfa9573f5e0a6e67fee82d90d483500a524488e8
+tests/test_vce_llama_cpp_nsrspec_runner.py 711901d3fb2a699374990069480fd6d7531ce271
 requirements-llama-cpp-metal.txt e0a8628d8d41510e17dc8c771330323c26a1d90e
 "
 while IFS=" " read -r REL SHA; do
