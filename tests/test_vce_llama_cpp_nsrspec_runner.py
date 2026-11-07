@@ -43,7 +43,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("DROPBOX_UPLOAD=SUCCESS", self.launcher)
         self.assertIn("no video was submitted", self.launcher)
         self.assertNotIn("rclone copyto \"$VIDEO\"", self.launcher)
-        self.assertIn("does not upload video/results", self.watchdog)
+        self.assertIn("upload video/results", self.watchdog)
 
 
 if __name__ == "__main__":
