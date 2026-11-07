@@ -6,10 +6,9 @@
 
 1. OpenAI Whisper / PyTorch runs on `mps` when macOS MPS is available and Whisper acceleration is enabled. Otherwise it explicitly falls back to CPU.
 2. Whisper completes before the VLM model is loaded or visual inference begins.
-3. Qwen3-VL continues to use MLX/Metal.
-4. Qwen3.5 Text LLM continues to use MLX/Metal after the scene analysis and OCR stages.
+3. The VLM and Text LLM providers are selected independently by `inference_backend`.
 
-This is the reproducible sequential baseline selected to represent the documented 25 October behavior.
+The documented 25 October architecture is the combination `runtime_profile=baseline_mps_sequential` + `inference_backend=mlx_metal`: PyTorch Whisper/MPS → MLX/Metal VLM → MLX/Metal Text LLM. Selecting llama.cpp does not reproduce that baseline even if the Whisper scheduling profile remains sequential.
 
 ### `mlx_parallel` (experimental optimization)
 
@@ -38,7 +37,7 @@ Then set absolute local paths to compatible Qwen3-VL quantized GGUF, its Qwen3-V
 
 Changing `inference_backend` requires restarting the native VideoContext Engine app because the VLM provider is created during server startup. The API rejects a request whose declared backend differs from the backend loaded by the running server. There is no automatic fallback from llama.cpp/Metal to MLX or CPU.
 
-The llama.cpp path requests all model layers for GPU offload and checks that the installed binding advertises GPU offload support. The optional dependency file uses a Qwen3-VL-enabled llama-cpp-python fork because the vision handler is not present in every stock PyPI release. This is a runtime configuration check, not per-operator Metal profiling; benchmark archives must retain llama.cpp logs/build information and memory measurements. Use a Qwen3-VL-compatible mmproj and chat handler; generic LLaVA handlers are not interchangeable.
+The llama.cpp path requests all model layers for GPU offload and checks that the installed binding advertises GPU offload support. The optional dependency file uses the Qwen3-VL-enabled JamePeng llama-cpp-python fork because the vision handler is not present in every stock PyPI release. This is a runtime configuration check, not per-operator Metal profiling; benchmark archives must retain llama.cpp logs/build information and memory measurements. Use a Qwen3-VL-compatible mmproj and chat handler; generic LLaVA handlers are not interchangeable.
 
 ## Measurement requirements
 
