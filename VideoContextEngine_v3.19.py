@@ -3777,6 +3777,16 @@ async def save_ui_settings(payload: Dict[str, Any]):
         # Keep the old boolean key in sync for older local clients; the profile is canonical.
         merged["enable_mlx_whisper"] = payload["runtime_profile"] == VCE_RUNTIME_PROFILE_MLX_PARALLEL
 
+    selected_backend = _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX))
+    if selected_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        for key in ("vlm_model", "vlm_mmproj_model", "text_llm_model"):
+            value = merged.get(key)
+            if not isinstance(value, str) or not value.strip() or not value.lower().endswith(".gguf"):
+                raise HTTPException(422, f"Для llama.cpp/Metal укажите локальный GGUF-файл в настройке {key}")
+    else:
+        merged.setdefault("vlm_model", DEFAULT_VLM_MODEL_MLX)
+        merged.setdefault("text_llm_model", TEXT_LLM_DEFAULT_MODEL)
+
     temp_path = config_path.with_name(config_path.name + ".tmp")
     try:
         temp_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
