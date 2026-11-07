@@ -5343,12 +5343,15 @@ async def analyze_video(
                                         full_visual_prompt += "\n\nДополнительный OCR из FFmpeg/Tesseract (может содержать ошибки):\n" + ffmpeg_scene_ocr_text
                             if run_vlm:  # VCE_ANALYSIS_PROFILES_VLM_GUARD
                                 t_vlm_start = time.time()
-                                raw = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
-                                    vlm_engine,
-                                    images,
-                                    full_visual_prompt,
-                                    vlm_max_tokens_scene,
-                                )
+                                if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                                    raw = await _vce_backend_run(vlm_engine.describe_scene, images, full_visual_prompt, vlm_max_tokens_scene)
+                                else:
+                                    raw = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                                        vlm_engine,
+                                        images,
+                                        full_visual_prompt,
+                                        vlm_max_tokens_scene,
+                                    )
                                 t_vlm_end = time.time()
                                 vlm_infer_time += t_vlm_end - t_vlm_start
                                 if cancel_event.is_set():
@@ -5489,12 +5492,15 @@ async def analyze_video(
 
                     if run_vlm and first_frame_img is not None:
                         t_vlm_start = time.time()
-                        raw_summary = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
-                            vlm_engine,
-                            [first_frame_img],
-                            full_summary_prompt,
-                            vlm_max_tokens_summary,
-                        )
+                        if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                            raw_summary = await _vce_backend_run(vlm_engine.describe_scene, [first_frame_img], full_summary_prompt, vlm_max_tokens_summary)
+                        else:
+                            raw_summary = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                                vlm_engine,
+                                [first_frame_img],
+                                full_summary_prompt,
+                                vlm_max_tokens_summary,
+                            )
                         t_vlm_end = time.time()
                         vlm_infer_time += t_vlm_end - t_vlm_start
                         if cancel_event.is_set():
