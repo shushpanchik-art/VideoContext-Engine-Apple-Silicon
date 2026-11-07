@@ -11,7 +11,7 @@ API="http://127.0.0.1:7555"
 SETTINGS="$ROOT/videocontext_settings.json"
 
 # Pin all downloaded tooling to the same reviewed commit, never to a moving branch.
-TOOLS_COMMIT="4b2246b6928af233cbb4180672a4dd4de6918872"
+TOOLS_COMMIT="6e7b5ef00ed5768ceaa91989590d550d5b34589e"
 TOOLS_DIR="$HOME/Library/Application Support/VideoContext Engine/forensic-tools/nsrspec-ab-$TOOLS_COMMIT"
 OUT_PARENT="$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -156,7 +156,7 @@ curl -fsSL "$BASE_URL/vce_observed_llama_cpp_run.py" -o "$TOOLS_DIR/vce_observed
 curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
 [[ "$(git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py")" == "50e91ffabcf2cb6174b068a12eea0b6b909cba5e" ]] || fail "Не прошла проверка целостности watchdog."
 [[ "$(git hash-object "$TOOLS_DIR/vce_observed_llama_cpp_run.py")" == "13bb85082a5ba9da5a7a555cb847fa52774c8e8b" ]] || fail "Не прошла проверка целостности observer."
-[[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "16b1f22af3af081940d556d98020640ca4051c2e" ]] || fail "Не прошла проверка целостности mtmd installer."
+[[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
 
 note "Ставлю venv-scoped mtmd resolver hook до запуска API."
 "$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py" --report "$OUT_ROOT/mtmd_installer_report.json"
