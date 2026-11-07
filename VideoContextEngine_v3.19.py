@@ -1840,12 +1840,13 @@ class LlamaCppEngine(VLMProvider):
             )
             if int(getattr(self.llm, "n_gpu_layers", -1)) == 0:
                 raise RuntimeError("llama.cpp не подтвердил GPU layer offload; refusing CPU fallback.")
-            print("[VCE runtime] " + json.dumps({
+            VCE_MLX_RUNTIME_DIAGNOSTICS["vlm"] = {
                 "stage": "vlm", "backend": "llama.cpp", "accelerator": "Metal",
                 "model": str(Path(model_path).expanduser()), "mmproj": str(Path(mmproj).expanduser()),
                 "gpu_layers_requested": -1, "gpu_offload_supported": True,
-                "device_semantics": "Metal offload requested; llama.cpp build/runtime must be verified on device"
-            }, ensure_ascii=False, sort_keys=True), flush=True)
+                "device_semantics": "Metal offload requested; validate loaded layers on the target device"
+            }
+            print("[VCE runtime] " + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
             self.current_model_path = model_path
             self.last_load_time = time.time() - t0
             print(f"✅ [Llama.cpp] VLM chargé en {self.last_load_time:.2f}s")
@@ -2987,11 +2988,13 @@ def run_text_llm_postprocess(
                              n_ctx=int(setting("llama_cpp_text_context", 16384)), verbose=False)
             if int(getattr(instance, "n_gpu_layers", -1)) == 0:
                 raise RuntimeError("llama.cpp Text LLM did not enable GPU layer offload.")
-            print("[VCE runtime] " + json.dumps({
+            VCE_MLX_RUNTIME_DIAGNOSTICS["text_llm"] = {
                 "stage": "text_llm", "backend": "llama.cpp", "accelerator": "Metal",
                 "model": str(Path(path).expanduser()), "gpu_layers_requested": -1,
-                "gpu_offload_supported": True
-            }, ensure_ascii=False, sort_keys=True), flush=True)
+                "gpu_offload_supported": True,
+                "device_semantics": "Metal offload requested; validate loaded layers on the target device"
+            }
+            print("[VCE runtime] " + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
             return instance, object()
 
         def load_config(_path):
@@ -4922,6 +4925,7 @@ async def analyze_video(
     enable_adaptive_keyframes: bool = Form(bool(setting("enable_adaptive_keyframes", False)), description="Адаптивно уменьшать число кадров на коротких сценах"),
     enable_ocr_cache: bool = Form(bool(setting("enable_ocr_cache", False)), description="Кэшировать OCR для повторяющихся кадров"),
     runtime_profile: str = Form(str(setting("runtime_profile", "")), description="baseline_mps_sequential | mlx_parallel"),
+    inference_backend: str = Form(str(setting("inference_backend", VCE_INFERENCE_BACKEND_MLX)), description="mlx_metal | llama_cpp_metal"),
     enable_mlx_whisper: bool = Form(bool(setting("enable_mlx_whisper", False)), description="Устаревший API-флаг; для новых клиентов используйте runtime_profile"),
     enable_fast_scene_detection: bool = Form(bool(setting("enable_fast_scene_detection", False)), description="Экспериментальная ускоренная детекция сцен с выборкой 1 кадр/сек"),
 ):
@@ -4938,7 +4942,20 @@ async def analyze_video(
         raise HTTPException(422, str(exc)) from exc
     # Keep the legacy flag derived from the canonical profile; it no longer selects a separate backend.
     enable_mlx_whisper = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+    try:
+        inference_backend = _vce_normalize_inference_backend(inference_backend)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    configured_backend = _vce_normalize_inference_backend()
+    if inference_backend != configured_backend:
+        raise HTTPException(
+            409,
+            f"Запрошен backend {inference_backend}, но запущенный движок использует {configured_backend}. "
+            "Сохраните настройку backend и перезапустите VideoContext Engine."
+        )
     VCE_MLX_RUNTIME_DIAGNOSTICS.pop("whisper", None)
+    VCE_MLX_RUNTIME_DIAGNOSTICS.pop("vlm", None)
+    VCE_MLX_RUNTIME_DIAGNOSTICS.pop("text_llm", None)
     if runtime_profile == VCE_RUNTIME_PROFILE_BASELINE:
         print("[VCE execution] baseline_mps_sequential: PyTorch Whisper/MPS (CPU fallback) -> MLX/Metal VLM -> MLX/Metal Text LLM", flush=True)
     else:
@@ -4974,6 +4991,8 @@ async def analyze_video(
             _vce_text_llm_model_cached = True
         except Exception:
             _vce_text_llm_model_cached = False
+        if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+            _vce_text_llm_model_cached = Path(text_llm_model).expanduser().is_file()
     set_job_progress(job_id, "starting", 1, "Задание принято; готовим видео", stage_index=1, stage_count=6, model_cached=_vce_text_llm_model_cached)
 
     whisper_infer_time = 0.0
@@ -5950,7 +5969,7 @@ async def analyze_video(
             OUTPUT_FILE_REGISTRY[json_download_id] = (Path(json_path), json_output_name)
 
         timings["text_llm"] = {
-            "backend": "mlx-vlm" if text_llm_enabled else None,
+            "backend": ("mlx-vlm" if inference_backend == VCE_INFERENCE_BACKEND_MLX else "llama.cpp") if text_llm_enabled else None,
             "device_target": "Metal" if text_llm_enabled else None,
             "enabled": bool(text_llm_enabled),
             "model": text_llm_model if text_llm_enabled else None,
