@@ -88,6 +88,18 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('exec "$SCRIPT_DIR/vce_run_nsrspec_ab.command"', self.legacy_launcher)
 
 
+    def test_mtmd_hook_keeps_llama_and_mtmd_from_one_venv_bundle(self):
+        installer = (ROOT / "scripts/install_vce_mtmd_loader_fix.py").read_text(encoding="utf-8")
+        for library_name in ('"mtmd", "llama", "ggml", "ggml-base", "ggml-metal", "ggml-cpu"'):
+            self.assertIn(library_name, installer)
+        self.assertIn('os.environ.pop("LLAMA_CPP_LIB_PATH", None)', installer)
+        self.assertIn("import llama_cpp.llama_cpp as llama_core", installer)
+        self.assertIn('llama_core._lib._name', installer)
+        self.assertIn('mtmd_cpp._libmtmd._name', installer)
+        self.assertIn("expected the same venv bundle directory", installer)
+        self.assertIn("does not parse the real mmproj/model weights", installer)
+
+
     def test_bash_syntax_for_both_launchers(self):
         bash = shutil.which("bash")
         if not bash:
