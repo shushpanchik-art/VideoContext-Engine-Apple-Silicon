@@ -337,7 +337,7 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
     else:
         overall = "NO_DIRECT_MLX_RUNTIME_EVIDENCE"
     return {"overall_verdict": overall, "inference_backend": inference_backend,
-            "mlx_reported": mlx_reported, "llama_cpp_reported": llama_reported,
+            "llama_cpp_reported": llama_reported,
             "mtmd_missing_symbol": mtmd_missing_symbol, "llama_offload_reported": llama_offload_reported,
             "llama_offload_evidence_lines": llama_offload_lines,
             "vlm_device": vlm_device, "text_llm_device": llm_device,
