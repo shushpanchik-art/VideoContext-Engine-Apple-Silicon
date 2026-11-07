@@ -58,7 +58,9 @@ class TestSeparateLlamaCppMetalBackend(unittest.TestCase):
         self.assertIn("_vce_mlx_run", fn)
         self.assertIn("run_in_executor(_VCE_LLAMA_CPP_EXECUTOR", fn)
         self.assertIn("await _vce_inference_run(vlm_engine.load_model", self.source)
+        self.assertEqual(self.source.count("await _vce_inference_run(_vce_describe_scene_with_memory_fallback"), 2)
         self.assertIn("await _vce_inference_run(run_text_llm_postprocess", self.source)
+        self.assertNotIn("await _vce_mlx_run(_vce_describe_scene_with_memory_fallback", self.source)
 
     def test_api_rejects_request_backend_that_differs_from_loaded_server(self):
         self.assertIn("configured_backend = _vce_normalize_inference_backend()", self.source)
