@@ -38,7 +38,7 @@ Then set absolute local paths to compatible Qwen3-VL quantized GGUF, its Qwen3-V
 
 Changing `inference_backend` requires restarting the native VideoContext Engine app because the VLM provider is created during server startup. The API rejects a request whose declared backend differs from the backend loaded by the running server. There is no automatic fallback from llama.cpp/Metal to MLX or CPU.
 
-The llama.cpp path requests all model layers for GPU offload and checks that the installed llama-cpp-python build advertises GPU offload support. This is a runtime configuration check, not per-operator Metal profiling; benchmark archives must retain llama.cpp logs/build information and memory measurements. Use a Qwen3-VL-compatible mmproj and chat handler; generic LLaVA handlers are not interchangeable.
+The llama.cpp path requests all model layers for GPU offload and checks that the installed binding advertises GPU offload support. The optional dependency file uses a Qwen3-VL-enabled llama-cpp-python fork because the vision handler is not present in every stock PyPI release. This is a runtime configuration check, not per-operator Metal profiling; benchmark archives must retain llama.cpp logs/build information and memory measurements. Use a Qwen3-VL-compatible mmproj and chat handler; generic LLaVA handlers are not interchangeable.
 
 ## Measurement requirements
 
