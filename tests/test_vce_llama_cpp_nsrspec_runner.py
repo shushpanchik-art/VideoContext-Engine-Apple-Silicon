@@ -71,7 +71,9 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.launcher.index('open -a "$APP"'),
         )
         self.assertIn("import llama_cpp.mtmd_cpp as mtmd_cpp", self.launcher)
-        self.assertIn('ctypes.util.find_library("mtmd") is not None', self.launcher)
+        self.assertIn('for name in ("mtmd", "llama", "ggml", "ggml-base")', self.launcher)
+        self.assertIn("resolved = ctypes.util.find_library(name)", self.launcher)
+        self.assertIn("if resolved is not None:", self.launcher)
 
     def test_tool_integrity_is_checked_before_live_server_guard(self):
         check = self.launcher.index('git hash-object "$TOOLS_DIR/vce_observed_llama_cpp_run.py"')
@@ -84,7 +86,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("lsof -nP -tiTCP:7555", self.launcher)
         self.assertIn("pgrep -f", self.launcher)
         self.assertIn("дождись закрытия API на порту 7555", self.launcher)
-        self.assertIn("printf 'API listener PID(s): %s\n'", self.launcher)
+        self.assertIn("printf 'API listener PID(s): %s", self.launcher)
 
     def test_observer_backend_argument_builds_separate_mlx_and_gguf_settings(self):
         mlx = _OBSERVER.build_backend_settings("mlx_metal")
