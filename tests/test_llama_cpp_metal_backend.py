@@ -67,10 +67,12 @@ class TestSeparateLlamaCppMetalBackend(unittest.TestCase):
         self.assertIn("if inference_backend != configured_backend:", self.source)
         self.assertIn("перезапустите VideoContext Engine", self.source)
 
-    def test_settings_require_gguf_paths_for_llama_architecture(self):
+    def test_settings_require_gguf_paths_and_sequential_mps_for_llama_architecture(self):
         self.assertIn('("vlm_model", "vlm_mmproj_model", "text_llm_model")', self.source)
         self.assertIn("Для llama.cpp/Metal укажите локальный GGUF-файл", self.source)
         self.assertIn('value.lower().endswith(".gguf")', self.source)
+        self.assertIn("llama.cpp/Metal A/B-профиль требует baseline_mps_sequential", self.source)
+        self.assertIn("llama.cpp/Metal требует baseline_mps_sequential", self.source)
 
     def test_ui_exposes_two_independent_selectors_and_model_paths(self):
         self.assertIn('id="cfg-runtime-profile"', self.ui)
