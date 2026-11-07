@@ -473,6 +473,12 @@ def _vce_whisper_cache_key(
     return f"{profile}|{device}|{str(model_name).strip()}"
 
 
+def _vce_device_type_name(value: Any) -> str:
+    """Normalize torch.device and indexed strings (e.g. mps / mps:0) to device type."""
+    device_type = getattr(value, "type", value)
+    return str(device_type).strip().lower().split(":", 1)[0]
+
+
 def load_whisper_model(
     model_name: str,
     acceleration_enabled: bool = True,
@@ -492,7 +498,10 @@ def load_whisper_model(
         "device": observed_device,
         "requested_device": device,
         "model": model_name,
-        "device_verified": observed_device.split(":")[0] == device.split(":")[0],
+        "device_verified": bool(
+            _vce_device_type_name(observed_device)
+            and _vce_device_type_name(observed_device) == _vce_device_type_name(device)
+        ),
     }
     print(
         "[VCE runtime] "
@@ -1824,6 +1833,29 @@ def _vce_require_llama_metal():
     return native
 
 
+def _vce_qwen3vl_mmproj_init_keyword(handler_class: Any) -> str:
+    """Resolve the projector keyword, including constructors forwarding **kwargs."""
+    import inspect
+
+    signature = inspect.signature(handler_class.__init__)
+    parameters = signature.parameters
+    if "mmproj_path" in parameters:
+        return "mmproj_path"
+    if "clip_model_path" in parameters:
+        return "clip_model_path"
+    if any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        # Qwen3VLChatHandler in the pinned fork forwards **kwargs to
+        # MTMDBaseHandler, whose canonical projector argument is mmproj_path.
+        return "mmproj_path"
+    raise RuntimeError(
+        "Qwen3VLChatHandler.__init__ accepts neither mmproj_path, "
+        "clip_model_path, nor **kwargs: " + str(signature)
+    )
+
+
 class LlamaCppEngine(VLMProvider):
     """Explicit Qwen3-VL GGUF backend. It is never selected by the MLX baseline."""
     def __init__(self):
@@ -1858,16 +1890,7 @@ class LlamaCppEngine(VLMProvider):
             DEFAULT_VLM_REPO_GGUF, model_path, revision=DEFAULT_VLM_GGUF_REVISION
         )
         handler_signature = inspect.signature(Qwen3VLChatHandler.__init__)
-        handler_parameters = handler_signature.parameters
-        if "mmproj_path" in handler_parameters:
-            handler_init_keyword = "mmproj_path"
-        elif "clip_model_path" in handler_parameters:
-            handler_init_keyword = "clip_model_path"
-        else:
-            raise RuntimeError(
-                "Qwen3VLChatHandler.__init__ не содержит mmproj_path или clip_model_path: "
-                + str(handler_signature)
-            )
+        handler_init_keyword = _vce_qwen3vl_mmproj_init_keyword(Qwen3VLChatHandler)
         print("[VCE llama.cpp] " + json.dumps({
             "llama_cpp_version": getattr(llama_cpp, "__version__", None),
             "libllama_path": str(Path(llama_core._lib._name).resolve()),
@@ -5866,7 +5889,14 @@ async def analyze_video(
                 text_llm_error = str(exc)[:500]
                 text_llm_result = None
                 text_llm_status = "failed"
-                print(f"⚠️ [Text LLM] Постобработка не удалась; продолжаю с исходным результатом: {text_llm_error}")
+                # Keep the complete exception chain in the server log; the forensic
+                # observer captures this block in server_events.jsonl for failed runs.
+                import traceback
+                traceback.print_exc()
+                print(
+                    f"⚠️ [Text LLM] Постобработка не удалась; продолжаю с исходным результатом: {text_llm_error}",
+                    flush=True,
+                )
 
         set_job_progress(job_id, "compile_output", 95, "Собираем TXT/JSON и метаданные", stage_index=6, stage_count=6)
         process_duration = time.time() - start_process
@@ -6057,14 +6087,29 @@ async def analyze_video(
                 json_file.write("\n")
             OUTPUT_FILE_REGISTRY[json_download_id] = (Path(json_path), json_output_name)
 
+        text_llm_backend_info = (
+            VCE_BACKEND_DIAGNOSTICS.get("text_llm")
+            or VCE_MLX_RUNTIME_DIAGNOSTICS.get("text_llm")
+            or {}
+        )
+        text_llm_backend = (
+            "llama.cpp"
+            if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP
+            else "mlx-vlm"
+        )
+        text_llm_device_target = (
+            text_llm_backend_info.get("accelerator")
+            or text_llm_backend_info.get("device_target")
+            or "Metal"
+        )
         timings["text_llm"] = {
-            "backend": "mlx-vlm" if text_llm_enabled else None,
-            "device_target": "Metal" if text_llm_enabled else None,
+            "backend": text_llm_backend if text_llm_enabled else None,
+            "device_target": text_llm_device_target if text_llm_enabled else None,
             "enabled": bool(text_llm_enabled),
             "model": text_llm_model if text_llm_enabled else None,
             "status": text_llm_status,
             "inference_time": round(text_llm_infer_time, 3),
-            "runtime": VCE_BACKEND_DIAGNOSTICS.get("text_llm", VCE_MLX_RUNTIME_DIAGNOSTICS.get("text_llm", {})),
+            "runtime": text_llm_backend_info,
             "error": text_llm_error or None,
         }
         set_job_progress(job_id, "completed", 100, "TXT/JSON сформированы; обработка завершена", stage_index=6, stage_count=6, status="done", indeterminate=False)

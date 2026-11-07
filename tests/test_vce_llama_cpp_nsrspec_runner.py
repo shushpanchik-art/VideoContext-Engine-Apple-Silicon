@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 import hashlib
 import importlib.util
@@ -5,6 +6,7 @@ import re
 import shutil
 import subprocess
 import unittest
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -43,22 +45,23 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("choices=SUPPORTED_INFERENCE_BACKENDS", self.observer)
         self.assertIn('open -a "$APP"', self.launcher)
         self.assertNotIn('open "$API', self.launcher)
-        self.assertIn("🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4", self.launcher)
+        self.assertIn('VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"', self.launcher)
+        self.assertNotIn("video_path = input(", self.launcher)
+        self.assertIn('"video_path": video_path', self.launcher)
 
     def test_pinned_tool_hashes_match_repository_blobs(self):
         expected = {
             "watchdog": "50e91ffabcf2cb6174b068a12eea0b6b909cba5e",
-            "observer": "55f8f0b561577b90d1525f6c960359e21f74c27b",
             "installer": "934739bd0b5f70dc26665adc115a181d365330e0",
         }
         actual = {
             "watchdog": git_blob_sha(ROOT / "scripts/vce_runtime_watchdog.py"),
-            "observer": git_blob_sha(OBSERVER_PATH),
             "installer": git_blob_sha(ROOT / "scripts/install_vce_mtmd_loader_fix.py"),
         }
         self.assertEqual(actual, expected)
         for sha in expected.values():
             self.assertIn(sha, self.launcher)
+        self.assertIn('RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-39fff57545c50500c3ce241fcb10ae3004204c0c}}"', self.launcher)
         self.assertNotIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
 
     def test_mtmd_installer_is_pinned_and_runs_before_app_start(self):
@@ -76,7 +79,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("if resolved is not None:", self.launcher)
 
     def test_tool_integrity_is_checked_before_live_server_guard(self):
-        check = self.launcher.index('git hash-object "$TOOLS_DIR/vce_observed_llama_cpp_run.py"')
+        check = self.launcher.index('git -C "$ROOT" hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py"')
         server_guard = self.launcher.index('API_PIDS=')
         installer = self.launcher.index('install_vce_mtmd_loader_fix.py" --report')
         app_start = self.launcher.index('open -a "$APP"')
@@ -93,6 +96,14 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         llama = _OBSERVER.build_backend_settings("llama_cpp_metal")
         self.assertEqual(mlx["inference_backend"], "mlx_metal")
         self.assertEqual(llama["inference_backend"], "llama_cpp_metal")
+        # 2026-10-25 documented baseline: Qwen3-VL + Qwen3.5 use MLX/Metal;
+        # Whisper remains openai-whisper / PyTorch-MPS in both A/B passes.
+        for settings in (mlx, llama):
+            self.assertEqual(settings["runtime_profile"], "baseline_mps_sequential")
+            self.assertFalse(settings["enable_mlx_whisper"])
+            self.assertEqual(settings["whisper_model"], "large")
+            self.assertEqual(settings["vlm_model"], "mlx-community/Qwen3-VL-8B-Instruct-4bit")
+            self.assertEqual(settings["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
         self.assertEqual(llama["vlm_model"], "mlx-community/Qwen3-VL-8B-Instruct-4bit")
         self.assertEqual(llama["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
         self.assertEqual(llama["llama_cpp_vlm_model"], "Qwen3VL-8B-Instruct-Q4_K_M.gguf")
@@ -103,7 +114,19 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             _OBSERVER.build_backend_settings("unknown")
 
     def test_runtime_records_mps_device_with_index_as_verified(self):
-        self.assertIn('"device_verified": observed_device.split(":")[0] == device.split(":")[0],', self.runtime)
+        self.assertIn("def _vce_device_type_name(value: Any) -> str:", self.runtime)
+        self.assertIn("_vce_device_type_name(observed_device) == _vce_device_type_name(device)", self.runtime)
+        self.assertIn('return str(device_type).strip().lower().split(":", 1)[0]', self.runtime)
+
+    def test_text_llm_backend_diagnostic_matches_selected_backend(self):
+        self.assertIn('"llama.cpp"', self.runtime)
+        self.assertIn('"backend": text_llm_backend if text_llm_enabled else None', self.runtime)
+        self.assertNotIn('"backend": "mlx-vlm" if text_llm_enabled else None', self.runtime)
+
+    def test_text_llm_failure_logs_full_traceback(self):
+        self.assertIn("traceback.print_exc()", self.runtime)
+        self.assertIn('text_llm_status = "failed"', self.runtime)
+        self.assertIn("text_llm_error = str(exc)[:500]", self.runtime)
 
     def test_gguf_ids_are_confined_to_llama_cpp_fields(self):
         self.assertIn('allowed_vlm = {"mlx-community/Qwen3-VL-8B-Instruct-4bit", "mlx-community/Qwen3-VL-4B-Instruct-4bit"}', self.runtime)
@@ -138,6 +161,39 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("HF_PREFLIGHT: resolving pinned Qwen3-VL Q4 model", self.launcher)
         self.assertIn("HF_PREFLIGHT: model ready", self.launcher)
         self.assertIn("HF_PREFLIGHT: model and mmproj files are present", self.launcher)
+        self.assertIn("inspect.Parameter.VAR_KEYWORD", self.launcher)
+        self.assertIn('report["qwen3vl_handler_accepts_kwargs"]', self.launcher)
+        self.assertIn('init_keyword = "mmproj_path"', self.launcher)
+        self.assertIn("Qwen3VLChatHandler accepts neither mmproj_path nor **kwargs", self.launcher)
+        self.assertIn('report["mtmd_cpp_module_path"]', self.launcher)
+        self.assertIn('for name in mtmd_required_symbols', self.launcher)
+        self.assertIn('"mtmd_init_from_file", "mtmd_get_video_config"', self.launcher)
+        self.assertIn('report["mtmd_cpp_native_symbols"]', self.launcher)
+        self.assertIn('handler._init_mtmd_context(llm)', self.launcher)
+        self.assertIn('report["video_capability"]', self.launcher)
+        self.assertIn('if not report["video_capability"]:', self.launcher)
+
+    def test_qwen3vl_kwargs_constructor_accepts_canonical_mmproj_path(self):
+        # The pinned fork reports (self, force_reasoning=False, add_vision_id=True, **kwargs).
+        # Qwen3VLChatHandler forwards these kwargs to MTMDBaseHandler, where mmproj_path
+        # is explicit. A direct-parameter-only signature check is therefore a false negative.
+        self.assertIn("signature_parameters = signature.parameters", self.launcher)
+        self.assertIn("inspect.Parameter.VAR_KEYWORD", self.launcher)
+        self.assertIn("accepts_arbitrary_kwargs = any(", self.launcher)
+        self.assertIn('elif accepts_arbitrary_kwargs:', self.launcher)
+        self.assertIn('init_keyword = "mmproj_path"', self.launcher)
+        self.assertIn('report["handler_constructor"] = "passed"', self.launcher)
+
+    def test_llama_cpp_pass_is_gated_by_successful_mlx_baseline(self):
+        baseline = self.launcher.index('run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"')
+        gate = self.launcher.index('if [[ "$RUN1_EXIT" -ne 0 ]]; then')
+        llama = self.launcher.index('run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"')
+        self.assertLess(baseline, gate)
+        self.assertLess(gate, llama)
+        self.assertIn("RUN2_EXIT=125", self.launcher[gate:llama])
+        self.assertIn("MLX baseline не завершился успешно", self.launcher[gate:llama])
+        self.assertIn('"baseline_gate_for_llama_cpp": True', self.launcher)
+        self.assertIn('"skipped_reason": run2_skipped_reason', self.launcher)
 
     def test_pinned_fork_and_hf_revision_are_explicit(self):
         requirements = (ROOT / "requirements-llama-cpp-metal.txt").read_text(encoding="utf-8")
@@ -180,10 +236,71 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             result = subprocess.run([bash, "-n", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{path}: {result.stderr}")
 
+    def test_production_qwen3vl_constructor_contract_accepts_forwarded_kwargs(self):
+        tree = ast.parse(self.runtime)
+        resolver_node = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_vce_qwen3vl_mmproj_init_keyword"
+        )
+        namespace = {"Any": Any}
+        exec(
+            compile(
+                ast.Module(body=[resolver_node], type_ignores=[]),
+                "VideoContextEngine_v3.19.py",
+                "exec",
+            ),
+            namespace,
+        )
+        resolve = namespace["_vce_qwen3vl_mmproj_init_keyword"]
+
+        class VariadicQwenHandler:
+            def __init__(self, force_reasoning=False, add_vision_id=True, **kwargs):
+                pass
+
+        class ExplicitMmprojHandler:
+            def __init__(self, mmproj_path=None):
+                pass
+
+        class LegacyClipHandler:
+            def __init__(self, clip_model_path=None):
+                pass
+
+        class UnsupportedHandler:
+            def __init__(self, force_reasoning=False):
+                pass
+
+        self.assertEqual(resolve(VariadicQwenHandler), "mmproj_path")
+        self.assertEqual(resolve(ExplicitMmprojHandler), "mmproj_path")
+        self.assertEqual(resolve(LegacyClipHandler), "clip_model_path")
+        with self.assertRaises(RuntimeError):
+            resolve(UnsupportedHandler)
+        self.assertIn(
+            "_vce_qwen3vl_mmproj_init_keyword(Qwen3VLChatHandler)",
+            self.runtime,
+        )
+
     def test_runtime_and_observer_source_compile(self):
         compile(self.runtime, str(ROOT / "VideoContextEngine_v3.19.py"), "exec")
         compile(self.observer, str(OBSERVER_PATH), "exec")
 
+
+    def test_http_200_with_failed_text_llm_is_not_a_pass(self):
+        verdict = _OBSERVER.classify_backend_failure(
+            200,
+            {"text_llm": {"enabled": True, "status": "failed", "error": "invalid JSON after retry"}},
+            ["Traceback (most recent call last):", "ValueError: invalid JSON"],
+        )
+        self.assertEqual(verdict["code"], "TEXT_LLM_FAILED")
+        self.assertEqual(verdict["text_llm_status"], "failed")
+        self.assertIn("invalid JSON", verdict["error_text"])
+        self.assertTrue(any("Traceback" in line for line in verdict["evidence_lines"]))
+
+    def test_observer_returns_nonzero_for_text_llm_failure(self):
+        self.assertIn('if failure_verdict["code"] != "PASS":', self.observer)
+        self.assertIn('print("VERDICT=" + failure_verdict["code"])', self.observer)
+        self.assertIn('print("TEXT_LLM_ERROR:"', self.observer)
+        self.assertIn("return 3", self.observer)
 
 if __name__ == "__main__":
     unittest.main()

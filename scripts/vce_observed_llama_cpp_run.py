@@ -112,11 +112,20 @@ def classify_backend_failure(
 ) -> dict[str, Any]:
     """Distinguish native MTMD context failures from generic API errors."""
     detail = response_data.get("detail") if isinstance(response_data, dict) else None
+    text_llm = response_data.get("text_llm", {}) if isinstance(response_data, dict) else {}
+    text_llm_status = str(text_llm.get("status", "")).strip().lower() if isinstance(text_llm, dict) else ""
+    text_llm_error = text_llm.get("error") if isinstance(text_llm, dict) else None
     evidence = [str(detail)] if detail else []
+    if text_llm_error:
+        evidence.append(str(text_llm_error))
     evidence.extend(str(line) for line in (server_event_lines or []) if line)
     combined = "\n".join(evidence)
     lowered = combined.lower()
-    if http_status == 200:
+    # HTTP 200 only means the endpoint returned a payload. A failed Text LLM
+    # post-processing stage is still a failed benchmark pass.
+    if http_status == 200 and text_llm_status == "failed":
+        code = "TEXT_LLM_FAILED"
+    elif http_status == 200:
         code = "PASS"
     elif any(marker in lowered for marker in (
         "failed to load mtmd context",
@@ -132,10 +141,11 @@ def classify_backend_failure(
     return {
         "code": code,
         "http_status": http_status,
-        "error_text": str(detail or next((line for line in (server_event_lines or []) if line), "")) or None,
+        "text_llm_status": text_llm_status or None,
+        "error_text": str(text_llm_error or detail or next((line for line in (server_event_lines or []) if line), "")) or None,
         "evidence_lines": [line for line in (server_event_lines or []) if any(
-            token in line.lower() for token in ("mtmd", "mmproj", "context", "traceback", "exception")
-        )][-20:],
+            token in line.lower() for token in ("mtmd", "mmproj", "context", "traceback", "exception", "text llm", "invalid json", "jsondecodeerror")
+        )][-40:],
     }
 
 
@@ -800,6 +810,8 @@ def main() -> int:
         "request_end": response_state["request_end"],
         "transport_error": response_state["error"],
         "api_error_detail": response_data.get("detail") if isinstance(response_data, dict) else None,
+        "text_llm_status": (response_data.get("text_llm") or {}).get("status") if isinstance(response_data, dict) and isinstance(response_data.get("text_llm"), dict) else None,
+        "text_llm_error": (response_data.get("text_llm") or {}).get("error") if isinstance(response_data, dict) and isinstance(response_data.get("text_llm"), dict) else None,
         "inference_backend": args.inference_backend,
         "runtime_profile": "baseline_mps_sequential",
         "video_scene_count": response_data.get("meta", {}).get("scene_count") if isinstance(response_data, dict) else None,
@@ -827,7 +839,8 @@ def main() -> int:
                 continue
     patterns = ("Traceback", "ERROR", "Exception", "VCE Whisper", "VCE MLX", "VCE runtime",
                 "PROFIL TEMPS", "scene_analysis", "summary", "OCR", "Metal", "RAM_MODE",
-                "KeyError", "too many values", "chargement VLM", "inference")
+                "KeyError", "too many values", "chargement VLM", "inference",
+                "Text LLM", "invalid JSON", "JSONDecodeError")
     relevant = [
         str(item.get("line", "")) for item in events
         if any(p.lower() in str(item.get("line", "")).lower() for p in patterns)
@@ -854,15 +867,17 @@ def main() -> int:
     if response_state["error"]:
         print("TRANSPORT_ERROR:", response_state["error"])
         return 3
-    if response_state["http_status"] != 200:
-        if failure_verdict["code"] == "MTMD_CONTEXT_FAILED":
-            print("VERDICT=MTMD_CONTEXT_FAILED")
+    if failure_verdict["code"] != "PASS":
+        print("VERDICT=" + failure_verdict["code"])
+        if failure_verdict["code"] == "TEXT_LLM_FAILED":
+            print("TEXT_LLM_ERROR:", failure_verdict.get("error_text") or "Подробности см. server_events.jsonl.")
+            print("Полный traceback, если он был создан сервером, сохранён в server_events.jsonl.")
+        elif failure_verdict["code"] == "MTMD_CONTEXT_FAILED":
             print("MTMD_ERROR:", failure_verdict.get("error_text") or "Подробности см. runtime_verdict.json.")
         else:
-            print("VERDICT=" + failure_verdict["code"])
-            print("Запрос завершился с HTTP-ошибкой; response.json и диагностика сохранены.")
+            print("Запрос завершился с ошибкой; response.json и диагностика сохранены.")
         return 3
-    print("PASS: API завершил полный запрос с HTTP 200.")
+    print("PASS: API завершил запрос; Text LLM status не failed.")
     return 0
 
 
