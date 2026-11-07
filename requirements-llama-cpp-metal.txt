@@ -1,0 +1,4 @@
+# Qwen3-VL + Qwen3.5 handlers with llama.cpp. Build with Metal enabled:
+# CMAKE_ARGS="-DGGML_METAL=on" pip install --force-reinstall --no-cache-dir -r requirements-llama-cpp-metal.txt
+# The JamePeng fork includes the Qwen3VLChatHandler needed for the VLM stage.
+llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git

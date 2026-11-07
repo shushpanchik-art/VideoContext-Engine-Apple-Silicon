@@ -98,6 +98,20 @@ async def _vce_mlx_run(fn, *args, **kwargs):
     call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)
     return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
 
+
+_VCE_LLAMA_CPP_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="vce-llama-cpp-metal"
+)
+
+
+async def _vce_inference_run(fn, *args, **kwargs):
+    """Run on an architecture-specific worker; never import MLX on the llama.cpp path."""
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_MLX:
+        return await _vce_mlx_run(fn, *args, **kwargs)
+    loop = asyncio.get_running_loop()
+    call = _vce_mlx_functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(_VCE_LLAMA_CPP_EXECUTOR, call)
+
 # VCE_MLX_VLM_RUNTIME_TRACE_V1
 import sys as _vce_mlx_trace_sys
 import threading as _vce_mlx_trace_threading
@@ -419,6 +433,17 @@ VCE_RUNTIME_PROFILES = {
     VCE_RUNTIME_PROFILE_BASELINE,
     VCE_RUNTIME_PROFILE_MLX_PARALLEL,
 }
+
+VCE_INFERENCE_BACKEND_MLX = "mlx_metal"
+VCE_INFERENCE_BACKEND_LLAMA_CPP = "llama_cpp_metal"
+VCE_INFERENCE_BACKENDS = {VCE_INFERENCE_BACKEND_MLX, VCE_INFERENCE_BACKEND_LLAMA_CPP}
+
+
+def _vce_normalize_inference_backend(value: Optional[str] = None) -> str:
+    backend = str(value or setting("inference_backend", VCE_INFERENCE_BACKEND_MLX)).strip().lower()
+    if backend not in VCE_INFERENCE_BACKENDS:
+        raise ValueError(f"Unsupported inference_backend {backend!r}; expected one of {sorted(VCE_INFERENCE_BACKENDS)}")
+    return backend
 
 
 def _vce_normalize_runtime_profile(value: Optional[str] = None) -> str:
@@ -1477,21 +1502,21 @@ def release_accelerator_memory(stage: str = "") -> None:
             torch.mps.empty_cache()
     except Exception as exc:
         print(f"⚠️ Не удалось очистить кэш PyTorch MPS ({stage}): {exc}")
-    try:
-        import mlx.core as mx
-        clear_cache = getattr(mx, "clear_cache", None)
-        if callable(clear_cache):
-            clear_cache()
-        else:
-            # Compatibility fallback for versions exposing this only under mx.metal.
-            metal_api = getattr(mx, "metal", None)
-            metal_clear_cache = getattr(metal_api, "clear_cache", None)
-            if callable(metal_clear_cache):
-                metal_clear_cache()
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_MLX:
+        try:
+            import mlx.core as mx
+            clear_cache = getattr(mx, "clear_cache", None)
+            if callable(clear_cache):
+                clear_cache()
             else:
-                raise RuntimeError("В этой версии MLX нет доступного clear_cache API")
-    except Exception as exc:
-        print(f"⚠️ Не удалось очистить кэш MLX ({stage}): {exc}")
+                metal_api = getattr(mx, "metal", None)
+                metal_clear_cache = getattr(metal_api, "clear_cache", None)
+                if callable(metal_clear_cache):
+                    metal_clear_cache()
+                else:
+                    raise RuntimeError("В этой версии MLX нет доступного clear_cache API")
+        except Exception as exc:
+            print(f"⚠️ Не удалось очистить кэш MLX ({stage}): {exc}")
     gc.collect()
 
 
@@ -1805,24 +1830,44 @@ class LlamaCppEngine(VLMProvider):
         print(f"🐧/🪟 [Llama.cpp] Chargement VLM : {model_path}")
         t0 = time.time()
         try:
+            if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
+                raise RuntimeError("llama.cpp/Metal requires native Apple Silicon macOS.")
             from llama_cpp import Llama
-            from llama_cpp.llama_chat_format import Llava15ChatHandler
+            from llama_cpp.llama_chat_format import Qwen3VLChatHandler
+            from llama_cpp import llama_cpp as _llama_cpp_native
 
+            if not _llama_cpp_native.llama_supports_gpu_offload():
+                raise RuntimeError("Installed llama-cpp-python was built without GPU offload; Metal backend is unavailable.")
             self.llm = None
             gc.collect()
 
-            mmproj = DEFAULT_MMPROJ_GGUF if os.path.exists(DEFAULT_MMPROJ_GGUF) else None
-            self.chat_handler = (
-                Llava15ChatHandler(clip_model_path=mmproj) if mmproj else None
-            )
-
+            model_file = Path(model_path).expanduser()
+            if model_file.suffix.lower() != ".gguf" or not model_file.is_file():
+                raise RuntimeError(f"Qwen3-VL GGUF не найден: {model_file}")
+            mmproj = str(setting("vlm_mmproj_model", "")).strip()
+            mmproj_file = Path(mmproj).expanduser() if mmproj else None
+            if mmproj_file is None or mmproj_file.suffix.lower() != ".gguf" or not mmproj_file.is_file():
+                raise RuntimeError("Для Qwen3-VL GGUF требуется существующий локальный vlm_mmproj_model.")
+            try:
+                self.chat_handler = Qwen3VLChatHandler(mmproj_path=str(mmproj_file))
+            except TypeError:
+                self.chat_handler = Qwen3VLChatHandler(clip_model_path=str(mmproj_file))
             self.llm = Llama(
-                model_path=model_path,
+                model_path=str(model_file),
                 chat_handler=self.chat_handler,
                 n_gpu_layers=-1,
-                n_ctx=4096,
+                n_ctx=int(setting("llama_cpp_vlm_context", 8192)),
                 verbose=False,
             )
+            if int(getattr(self.llm, "n_gpu_layers", -1)) == 0:
+                raise RuntimeError("llama.cpp не подтвердил GPU layer offload; refusing CPU fallback.")
+            VCE_MLX_RUNTIME_DIAGNOSTICS["vlm"] = {
+                "stage": "vlm", "backend": "llama.cpp", "accelerator": "Metal",
+                "model": str(Path(model_path).expanduser()), "mmproj": str(Path(mmproj).expanduser()),
+                "gpu_layers_requested": -1, "gpu_offload_supported": True,
+                "device_semantics": "Metal offload requested; validate loaded layers on the target device"
+            }
+            print("[VCE runtime] " + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
             self.current_model_path = model_path
             self.last_load_time = time.time() - t0
             print(f"✅ [Llama.cpp] VLM chargé en {self.last_load_time:.2f}s")
@@ -1873,7 +1918,10 @@ class LlamaCppEngine(VLMProvider):
         gc.collect()
 
 
-def get_vlm_engine() -> VLMProvider:
+def get_vlm_engine(backend: Optional[str] = None) -> VLMProvider:
+    selected = _vce_normalize_inference_backend(backend)
+    if selected == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        return LlamaCppEngine()
     return MLXEngine() if platform.system() == "Darwin" else LlamaCppEngine()
 
 
@@ -2946,16 +2994,69 @@ def run_text_llm_postprocess(
     max_tokens: int = 4096,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Load the selected MLX VLM-family checkpoint in text-only mode and return validated enrichment."""
+    """Run text-only enrichment on the explicitly selected MLX/Metal or llama.cpp/Metal backend."""
     import gc
-    _vce_configure_mlx_metal("text_llm")
-    from mlx_vlm import load, generate
-    try:
-        from mlx_vlm.generate import stream_generate
-    except Exception:
-        stream_generate = None
-    from mlx_vlm.prompt_utils import apply_chat_template
-    from mlx_vlm.utils import load_config
+    inference_backend = _vce_normalize_inference_backend()
+    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
+            raise RuntimeError("llama.cpp/Metal Text LLM requires native Apple Silicon macOS.")
+        from llama_cpp import Llama, llama_cpp as _llama_cpp_native
+        if not _llama_cpp_native.llama_supports_gpu_offload():
+            raise RuntimeError("Installed llama-cpp-python was built without GPU offload; Metal backend is unavailable.")
+
+        def load(path):
+            model_file = Path(path).expanduser()
+            if model_file.suffix.lower() != ".gguf" or not model_file.is_file():
+                raise RuntimeError(f"Text LLM GGUF не найден: {model_file}")
+            instance = Llama(model_path=str(model_file), n_gpu_layers=-1,
+                             n_ctx=int(setting("llama_cpp_text_context", 32768)), verbose=False)
+            if int(getattr(instance, "n_gpu_layers", -1)) == 0:
+                raise RuntimeError("llama.cpp Text LLM did not enable GPU layer offload.")
+            VCE_MLX_RUNTIME_DIAGNOSTICS["text_llm"] = {
+                "stage": "text_llm", "backend": "llama.cpp", "accelerator": "Metal",
+                "model": str(Path(path).expanduser()), "gpu_layers_requested": -1,
+                "gpu_offload_supported": True,
+                "device_semantics": "Metal offload requested; validate loaded layers on the target device"
+            }
+            print("[VCE runtime] " + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
+            return instance, object()
+
+        def load_config(_path):
+            return None
+
+        def apply_chat_template(_processor, _config, prompt, **_kwargs):
+            return prompt
+
+        def generate(instance, _processor, prompt, **kwargs):
+            response = instance.create_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=int(kwargs.get("max_tokens", 4096)),
+                temperature=float(kwargs.get("temperature", 0.1)),
+            )
+            return response["choices"][0]["message"]["content"]
+
+        def stream_generate(instance, _processor, prompt, **kwargs):
+            stream = instance.create_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=int(kwargs.get("max_tokens", 4096)),
+                temperature=float(kwargs.get("temperature", 0.1)),
+                stream=True,
+            )
+            count = 0
+            for chunk in stream:
+                piece = ((chunk.get("choices") or [{}])[0].get("delta") or {}).get("content")
+                if piece:
+                    count += 1
+                    yield type("LlamaCppTextChunk", (), {"text": piece, "generation_tokens": count})()
+    else:
+        _vce_configure_mlx_metal("text_llm")
+        from mlx_vlm import load, generate
+        try:
+            from mlx_vlm.generate import stream_generate
+        except Exception:
+            stream_generate = None
+        from mlx_vlm.prompt_utils import apply_chat_template
+        from mlx_vlm.utils import load_config
 
     model = processor = config = None
     try:
@@ -3173,15 +3274,16 @@ def run_text_llm_postprocess(
         processor = None
         config = None
         gc.collect()
-        try:
-            import mlx.core as mx
-            mx.clear_cache()
-        except Exception:
-            pass
+        if inference_backend == VCE_INFERENCE_BACKEND_MLX:
+            try:
+                import mlx.core as mx
+                mx.clear_cache()
+            except Exception:
+                pass
 
 
 def format_text_llm_report(payload: Dict[str, Any]) -> str:
-    lines = ["", "=" * 56, "СМЫСЛОВОЙ АНАЛИЗ И СТРУКТУРИРОВАНИЕ (Qwen3.5-9B-MLX-4bit)", "=" * 56]
+    lines = ["", "=" * 56, "СМЫСЛОВОЙ АНАЛИЗ И СТРУКТУРИРОВАНИЕ (Text LLM)", "=" * 56]
     if payload.get("executive_summary"):
         lines.extend(["", "КРАТКОЕ РЕЗЮМЕ", payload["executive_summary"]])
     if payload.get("topics"):
@@ -3593,6 +3695,8 @@ async def get_ui_settings():
         "enable_adaptive_keyframes": False,
         "enable_ocr_cache": False,
         "runtime_profile": VCE_RUNTIME_PROFILE_BASELINE,
+        "inference_backend": VCE_INFERENCE_BACKEND_MLX,
+        "vlm_mmproj_model": "",
         "enable_mlx_whisper": False,  # legacy API compatibility; runtime_profile is authoritative
         "enable_fast_scene_detection": False,
         "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
@@ -3654,8 +3758,19 @@ async def save_ui_settings(payload: Dict[str, Any]):
         elif key == "runtime_profile":
             if value not in VCE_RUNTIME_PROFILES:
                 raise HTTPException(422, "Недопустимый профиль выполнения")
+        elif key == "inference_backend":
+            if value not in VCE_INFERENCE_BACKENDS:
+                raise HTTPException(422, "Недопустимый inference backend")
+        elif key == "vlm_mmproj_model":
+            if not isinstance(value, str) or (value and not value.lower().endswith(".gguf")):
+                raise HTTPException(422, "vlm_mmproj_model должен быть путём к GGUF mmproj")
         elif key == "vlm_model":
-            if value not in allowed_vlm: raise HTTPException(422, "Недопустимая VLM-модель")
+            if not isinstance(value, str) or not value.strip():
+                raise HTTPException(422, "Недопустимая VLM-модель")
+            if _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX)) == VCE_INFERENCE_BACKEND_LLAMA_CPP and not value.lower().endswith(".gguf"):
+                raise HTTPException(422, "Для llama.cpp/Metal VLM-модель должна быть GGUF")
+            if _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX)) == VCE_INFERENCE_BACKEND_MLX and value not in allowed_vlm:
+                raise HTTPException(422, "Недопустимая MLX VLM-модель")
         elif key == "whisper_model":
             if value not in allowed_whisper: raise HTTPException(422, "Недопустимая Whisper-модель")
         elif key == "text_llm_name_reconciliation_prompt":
@@ -3664,8 +3779,13 @@ async def save_ui_settings(payload: Dict[str, Any]):
             if len(value) > 8000:
                 raise HTTPException(422, "Промпт согласования названий не должен превышать 8000 символов")
         elif key == "text_llm_model":
-            if value != TEXT_LLM_DEFAULT_MODEL:
+            if not isinstance(value, str) or not value.strip():
                 raise HTTPException(422, "Недопустимая модель текстовой LLM")
+            selected_backend = _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX))
+            if selected_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP and not value.lower().endswith(".gguf"):
+                raise HTTPException(422, "Для llama.cpp/Metal Text LLM-модель должна быть GGUF")
+            if selected_backend == VCE_INFERENCE_BACKEND_MLX and value != TEXT_LLM_DEFAULT_MODEL:
+                raise HTTPException(422, "Недопустимая MLX модель текстовой LLM")
         elif key in int_ranges:
             if type(value) is not int or not int_ranges[key][0] <= value <= int_ranges[key][1]:
                 raise HTTPException(422, f"Недопустимое значение настройки {key}")
@@ -3682,6 +3802,19 @@ async def save_ui_settings(payload: Dict[str, Any]):
     if "runtime_profile" in payload:
         # Keep the old boolean key in sync for older local clients; the profile is canonical.
         merged["enable_mlx_whisper"] = payload["runtime_profile"] == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+
+    selected_backend = _vce_normalize_inference_backend(merged.get("inference_backend", VCE_INFERENCE_BACKEND_MLX))
+    if selected_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        selected_whisper_profile = _vce_normalize_runtime_profile(merged.get("runtime_profile", VCE_RUNTIME_PROFILE_BASELINE))
+        if selected_whisper_profile != VCE_RUNTIME_PROFILE_BASELINE:
+            raise HTTPException(422, "llama.cpp/Metal A/B-профиль требует baseline_mps_sequential, чтобы не смешивать MLX Whisper с llama.cpp.")
+        for key in ("vlm_model", "vlm_mmproj_model", "text_llm_model"):
+            value = merged.get(key)
+            if not isinstance(value, str) or not value.strip() or not value.lower().endswith(".gguf"):
+                raise HTTPException(422, f"Для llama.cpp/Metal укажите локальный GGUF-файл в настройке {key}")
+    else:
+        merged.setdefault("vlm_model", DEFAULT_VLM_MODEL_MLX)
+        merged.setdefault("text_llm_model", TEXT_LLM_DEFAULT_MODEL)
 
     temp_path = config_path.with_name(config_path.name + ".tmp")
     try:
@@ -4343,14 +4476,13 @@ def _vce_clear_metal_memory_caches():
         gc.collect()
     except Exception:
         pass
-    try:
-        import mlx.core as mx
-        # Wait for outstanding work before releasing unused cached buffers.
-        mx.synchronize()
-        # MLX documents clear_cache() as the public cache-management API.
-        mx.clear_cache()
-    except Exception:
-        pass
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_MLX:
+        try:
+            import mlx.core as mx
+            mx.synchronize()
+            mx.clear_cache()
+        except Exception:
+            pass
     try:
         import torch
         mps = getattr(torch, "mps", None)
@@ -4831,6 +4963,7 @@ async def analyze_video(
     enable_adaptive_keyframes: bool = Form(bool(setting("enable_adaptive_keyframes", False)), description="Адаптивно уменьшать число кадров на коротких сценах"),
     enable_ocr_cache: bool = Form(bool(setting("enable_ocr_cache", False)), description="Кэшировать OCR для повторяющихся кадров"),
     runtime_profile: str = Form(str(setting("runtime_profile", "")), description="baseline_mps_sequential | mlx_parallel"),
+    inference_backend: str = Form(str(setting("inference_backend", VCE_INFERENCE_BACKEND_MLX)), description="mlx_metal | llama_cpp_metal"),
     enable_mlx_whisper: bool = Form(bool(setting("enable_mlx_whisper", False)), description="Устаревший API-флаг; для новых клиентов используйте runtime_profile"),
     enable_fast_scene_detection: bool = Form(bool(setting("enable_fast_scene_detection", False)), description="Экспериментальная ускоренная детекция сцен с выборкой 1 кадр/сек"),
 ):
@@ -4847,7 +4980,22 @@ async def analyze_video(
         raise HTTPException(422, str(exc)) from exc
     # Keep the legacy flag derived from the canonical profile; it no longer selects a separate backend.
     enable_mlx_whisper = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+    try:
+        inference_backend = _vce_normalize_inference_backend(inference_backend)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    configured_backend = _vce_normalize_inference_backend()
+    if inference_backend != configured_backend:
+        raise HTTPException(
+            409,
+            f"Запрошен backend {inference_backend}, но запущенный движок использует {configured_backend}. "
+            "Сохраните настройку backend и перезапустите VideoContext Engine."
+        )
+    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP and runtime_profile != VCE_RUNTIME_PROFILE_BASELINE:
+        raise HTTPException(422, "llama.cpp/Metal требует baseline_mps_sequential: PyTorch Whisper/MPS без MLX Whisper.")
     VCE_MLX_RUNTIME_DIAGNOSTICS.pop("whisper", None)
+    VCE_MLX_RUNTIME_DIAGNOSTICS.pop("vlm", None)
+    VCE_MLX_RUNTIME_DIAGNOSTICS.pop("text_llm", None)
     if runtime_profile == VCE_RUNTIME_PROFILE_BASELINE:
         print("[VCE execution] baseline_mps_sequential: PyTorch Whisper/MPS (CPU fallback) -> MLX/Metal VLM -> MLX/Metal Text LLM", flush=True)
     else:
@@ -4883,6 +5031,8 @@ async def analyze_video(
             _vce_text_llm_model_cached = True
         except Exception:
             _vce_text_llm_model_cached = False
+        if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+            _vce_text_llm_model_cached = Path(text_llm_model).expanduser().is_file()
     set_job_progress(job_id, "starting", 1, "Задание принято; готовим видео", stage_index=1, stage_count=6, model_cached=_vce_text_llm_model_cached)
 
     whisper_infer_time = 0.0
@@ -5193,7 +5343,7 @@ async def analyze_video(
                     release_accelerator_memory('before VLM load')
                     set_job_progress(job_id, "load_vlm", None, "Загружаем визуальную модель Qwen3-VL", indeterminate=True, stage_index=3, stage_count=6)
                     t0 = time.time()
-                    await _vce_mlx_run(vlm_engine.load_model, target_vlm)
+                    await _vce_inference_run(vlm_engine.load_model, target_vlm)
                     t1 = time.time()
                     vlm_load_time = vlm_engine.last_load_time or (t1 - t0)
                 else:
@@ -5357,7 +5507,7 @@ async def analyze_video(
                                         full_visual_prompt += "\n\nДополнительный OCR из FFmpeg/Tesseract (может содержать ошибки):\n" + ffmpeg_scene_ocr_text
                             if run_vlm:  # VCE_ANALYSIS_PROFILES_VLM_GUARD
                                 t_vlm_start = time.time()
-                                raw = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                                raw = await _vce_inference_run(_vce_describe_scene_with_memory_fallback,
                                     vlm_engine,
                                     images,
                                     full_visual_prompt,
@@ -5508,7 +5658,7 @@ async def analyze_video(
 
                     if run_vlm and first_frame_img is not None:
                         t_vlm_start = time.time()
-                        raw_summary = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                        raw_summary = await _vce_inference_run(_vce_describe_scene_with_memory_fallback,
                             vlm_engine,
                             [first_frame_img],
                             full_summary_prompt,
@@ -5631,7 +5781,7 @@ async def analyze_video(
             try:
                 print(f"🧠 [Text LLM] Улучшение структуры отчёта: {text_llm_model}")
                 async with gpu_lock:
-                    text_llm_result = await _vce_mlx_run(run_text_llm_postprocess,
+                    text_llm_result = await _vce_inference_run(run_text_llm_postprocess,
                         text_llm_model,
                         source_name,
                         video_duration,
@@ -5697,6 +5847,7 @@ async def analyze_video(
             "vlm_max_tokens_summary": vlm_max_tokens_summary,
             "ram_mode": RAM_MODE,
             "runtime_profile": runtime_profile,
+            "inference_backend": inference_backend,
             "audio_track_available": audio_track_available,
             "audio_auto_skipped": audio_auto_skipped,
             "audio_status": audio_probe_message,
@@ -5727,6 +5878,7 @@ async def analyze_video(
 
         timings = {
             "runtime_profile": runtime_profile,
+            "inference_backend": inference_backend,
             "total_process_time": round(process_duration, 3),
             "total_request_time": round(total_request_time, 3),
             "whisper": {
@@ -5739,6 +5891,8 @@ async def analyze_video(
                 "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
             },
             "vlm": {
+                "backend": "mlx-vlm" if inference_backend == VCE_INFERENCE_BACKEND_MLX else "llama.cpp",
+                "device_target": "Metal" if platform.system() == "Darwin" else "CPU",
                 "model": target_vlm,
                 "load_time": round(vlm_load_time, 3),
                 "inference_time": round(vlm_infer_time, 3),
@@ -5791,6 +5945,7 @@ async def analyze_video(
                     "global_summary": global_summary_text,
                     "scene_count": len(final_segments),
                     "runtime_profile": runtime_profile,
+                    "inference_backend": inference_backend,
                     "models": {
                         "vlm": target_vlm,
                         "whisper": target_whisper,
@@ -5816,6 +5971,7 @@ async def analyze_video(
                         "whisper_acceleration": whisper_acceleration,
                         "whisper_device": whisper_device,
                         "runtime_profile": runtime_profile,
+                        "inference_backend": inference_backend,
                         "enable_audio_features": enable_audio_features,
                         "word_timestamps": word_timestamps,
                         "generate_json": generate_json,
@@ -5859,7 +6015,7 @@ async def analyze_video(
             OUTPUT_FILE_REGISTRY[json_download_id] = (Path(json_path), json_output_name)
 
         timings["text_llm"] = {
-            "backend": "mlx-vlm" if text_llm_enabled else None,
+            "backend": ("mlx-vlm" if inference_backend == VCE_INFERENCE_BACKEND_MLX else "llama.cpp") if text_llm_enabled else None,
             "device_target": "Metal" if text_llm_enabled else None,
             "enabled": bool(text_llm_enabled),
             "model": text_llm_model if text_llm_enabled else None,
