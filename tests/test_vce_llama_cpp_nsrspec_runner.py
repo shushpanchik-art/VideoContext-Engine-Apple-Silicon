@@ -43,7 +43,9 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("choices=SUPPORTED_INFERENCE_BACKENDS", self.observer)
         self.assertIn('open -a "$APP"', self.launcher)
         self.assertNotIn('open "$API', self.launcher)
-        self.assertIn("🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4", self.launcher)
+        self.assertIn('VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"', self.launcher)
+        self.assertNotIn("video_path = input(", self.launcher)
+        self.assertIn('"video_path": video_path', self.launcher)
 
     def test_pinned_tool_hashes_match_repository_blobs(self):
         expected = {
@@ -138,6 +140,39 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("HF_PREFLIGHT: resolving pinned Qwen3-VL Q4 model", self.launcher)
         self.assertIn("HF_PREFLIGHT: model ready", self.launcher)
         self.assertIn("HF_PREFLIGHT: model and mmproj files are present", self.launcher)
+        self.assertIn("inspect.Parameter.VAR_KEYWORD", self.launcher)
+        self.assertIn('report["qwen3vl_handler_accepts_kwargs"]', self.launcher)
+        self.assertIn('init_keyword = "mmproj_path"', self.launcher)
+        self.assertIn("Qwen3VLChatHandler accepts neither mmproj_path nor **kwargs", self.launcher)
+        self.assertIn('report["mtmd_cpp_module_path"]', self.launcher)
+        self.assertIn('for name in mtmd_required_symbols', self.launcher)
+        self.assertIn('"mtmd_init_from_file", "mtmd_get_video_config"', self.launcher)
+        self.assertIn('report["mtmd_cpp_native_symbols"]', self.launcher)
+        self.assertIn('handler._init_mtmd_context(llm)', self.launcher)
+        self.assertIn('report["video_capability"]', self.launcher)
+        self.assertIn('if not report["video_capability"]:', self.launcher)
+
+    def test_qwen3vl_kwargs_constructor_accepts_canonical_mmproj_path(self):
+        # The pinned fork reports (self, force_reasoning=False, add_vision_id=True, **kwargs).
+        # Qwen3VLChatHandler forwards these kwargs to MTMDBaseHandler, where mmproj_path
+        # is explicit. A direct-parameter-only signature check is therefore a false negative.
+        self.assertIn("signature_parameters = signature.parameters", self.launcher)
+        self.assertIn("inspect.Parameter.VAR_KEYWORD", self.launcher)
+        self.assertIn("accepts_arbitrary_kwargs = any(", self.launcher)
+        self.assertIn('elif accepts_arbitrary_kwargs:', self.launcher)
+        self.assertIn('init_keyword = "mmproj_path"', self.launcher)
+        self.assertIn('report["handler_constructor"] = "passed"', self.launcher)
+
+    def test_llama_cpp_pass_is_gated_by_successful_mlx_baseline(self):
+        baseline = self.launcher.index('run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"')
+        gate = self.launcher.index('if [[ "$RUN1_EXIT" -ne 0 ]]; then')
+        llama = self.launcher.index('run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"')
+        self.assertLess(baseline, gate)
+        self.assertLess(gate, llama)
+        self.assertIn("RUN2_EXIT=125", self.launcher[gate:llama])
+        self.assertIn("MLX baseline не завершился успешно", self.launcher[gate:llama])
+        self.assertIn('"baseline_gate_for_llama_cpp": True', self.launcher)
+        self.assertIn('"skipped_reason": run2_skipped_reason', self.launcher)
 
     def test_pinned_fork_and_hf_revision_are_explicit(self):
         requirements = (ROOT / "requirements-llama-cpp-metal.txt").read_text(encoding="utf-8")
