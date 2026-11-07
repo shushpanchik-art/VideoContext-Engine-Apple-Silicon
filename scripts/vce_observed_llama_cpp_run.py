@@ -76,6 +76,69 @@ def build_backend_settings(inference_backend: str) -> dict[str, Any]:
         settings.update(LLAMA_CPP_MODEL_SETTINGS)
     return settings
 
+def collect_llama_runtime_info(inference_backend: str) -> dict[str, Any]:
+    """Capture the actual installed fork version and loaded native library paths."""
+    if inference_backend != "llama_cpp_metal":
+        return {}
+    try:
+        import importlib.metadata
+        import llama_cpp
+        import llama_cpp.llama_cpp as llama_core
+        import llama_cpp.mtmd_cpp as mtmd_cpp
+        direct_url = {}
+        try:
+            raw_direct_url = importlib.metadata.distribution("llama-cpp-python").read_text("direct_url.json")
+            if raw_direct_url:
+                direct_url = json.loads(raw_direct_url)
+        except Exception:
+            pass
+        vcs_info = direct_url.get("vcs_info", {}) if isinstance(direct_url, dict) else {}
+        return {
+            "llama_cpp_version": getattr(llama_cpp, "__version__", None),
+            "llama_cpp_module_path": str(Path(llama_cpp.__file__).resolve()),
+            "llama_cpp_vcs_commit": vcs_info.get("commit_id"),
+            "llama_cpp_direct_url": direct_url or None,
+            "libllama_path": str(Path(str(llama_core._lib._name)).resolve()),
+            "libmtmd_path": str(Path(str(mtmd_cpp._libmtmd._name)).resolve()),
+        }
+    except Exception as exc:
+        return {"llama_cpp_runtime_metadata_error": repr(exc)}
+
+
+def classify_backend_failure(
+    http_status: int | None,
+    response_data: Any,
+    server_event_lines: list[str] | None = None,
+) -> dict[str, Any]:
+    """Distinguish native MTMD context failures from generic API errors."""
+    detail = response_data.get("detail") if isinstance(response_data, dict) else None
+    evidence = [str(detail)] if detail else []
+    evidence.extend(str(line) for line in (server_event_lines or []) if line)
+    combined = "\n".join(evidence)
+    lowered = combined.lower()
+    if http_status == 200:
+        code = "PASS"
+    elif any(marker in lowered for marker in (
+        "failed to load mtmd context",
+        "mtmd_init_from_file",
+        "mtmd context",
+        "_init_mtmd_context",
+    )):
+        code = "MTMD_CONTEXT_FAILED"
+    elif http_status is not None or detail:
+        code = "API_ERROR"
+    else:
+        code = "TRANSPORT_ERROR"
+    return {
+        "code": code,
+        "http_status": http_status,
+        "error_text": str(detail or next((line for line in (server_event_lines or []) if line), "")) or None,
+        "evidence_lines": [line for line in (server_event_lines or []) if any(
+            token in line.lower() for token in ("mtmd", "mmproj", "context", "traceback", "exception")
+        )][-20:],
+    }
+
+
 SAFETY_OVERRIDES = {
     "analysis_mode": "full",
     "runtime_profile": "baseline_mps_sequential",
@@ -458,6 +521,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     backend_settings = build_backend_settings(args.inference_backend)
+    llama_runtime_info = collect_llama_runtime_info(args.inference_backend)
 
     if platform.system() != "Darwin":
         print("STOP: этот наблюдатель рассчитан на macOS.")
@@ -601,6 +665,7 @@ def main() -> int:
         "inference_backend": args.inference_backend,
         "backend_settings": backend_settings,
         "runtime_profile": "baseline_mps_sequential",
+        **llama_runtime_info,
         "result_directory": str(run_dir),
         "note": "generate_txt/generate_json disabled for this request to avoid overwriting existing files; full API JSON is saved here. Other pipeline stages follow the saved settings except explicit full-analysis overrides.",
     }
@@ -768,6 +833,19 @@ def main() -> int:
         if any(p.lower() in str(item.get("line", "")).lower() for p in patterns)
     ]
     (run_dir / "server_log_key_lines.txt").write_text("\n".join(relevant) + ("\n" if relevant else ""), encoding="utf-8")
+
+    failure_verdict = classify_backend_failure(
+        response_state["http_status"],
+        response_data,
+        [str(item.get("line", "")) for item in events],
+    )
+    write_json(run_dir / "runtime_verdict.json", failure_verdict)
+    metadata["runtime_verdict"] = failure_verdict
+    write_json(run_dir / "run_metadata.json", metadata)
+    response_summary_path = run_dir / "response_summary.json"
+    response_summary = json.loads(response_summary_path.read_text(encoding="utf-8"))
+    response_summary["runtime_verdict"] = failure_verdict
+    write_json(response_summary_path, response_summary)
     print_timing_summary(response_data, response_state["http_status"], elapsed_total)
     print("\n=== Наблюдение завершено ===")
     print("Результаты сохранены локально:", run_dir)
@@ -777,7 +855,12 @@ def main() -> int:
         print("TRANSPORT_ERROR:", response_state["error"])
         return 3
     if response_state["http_status"] != 200:
-        print("Запрос завершился с HTTP-ошибкой; response.json и диагностика сохранены.")
+        if failure_verdict["code"] == "MTMD_CONTEXT_FAILED":
+            print("VERDICT=MTMD_CONTEXT_FAILED")
+            print("MTMD_ERROR:", failure_verdict.get("error_text") or "Подробности см. runtime_verdict.json.")
+        else:
+            print("VERDICT=" + failure_verdict["code"])
+            print("Запрос завершился с HTTP-ошибкой; response.json и диагностика сохранены.")
         return 3
     print("PASS: API завершил полный запрос с HTTP 200.")
     return 0

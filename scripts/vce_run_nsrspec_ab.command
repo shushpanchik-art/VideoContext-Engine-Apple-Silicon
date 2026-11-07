@@ -11,7 +11,7 @@ API="http://127.0.0.1:7555"
 SETTINGS="$ROOT/videocontext_settings.json"
 
 # Pin all downloaded tooling to the same reviewed commit, never to a moving branch.
-TOOLS_COMMIT="6e7b5ef00ed5768ceaa91989590d550d5b34589e"
+TOOLS_COMMIT="__TOOL_COMMIT__"
 TOOLS_DIR="$HOME/Library/Application Support/VideoContext Engine/forensic-tools/nsrspec-ab-$TOOLS_COMMIT"
 OUT_PARENT="$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -19,6 +19,8 @@ OUT_ROOT="$OUT_PARENT/$STAMP"
 ORIGINAL_API_SETTINGS="$OUT_ROOT/active_settings_before.json"
 DROPBOX_REMOTE="${VCE_DROPBOX_REMOTE:-}"
 DROPBOX_BASE="${VCE_DROPBOX_BASE:-20261104_224554_1f098d/VCE_Forensic_Runs}"
+LLAMA_CPP_PINNED_COMMIT="1dd04befbaf1277853eb188cc4513d6089a931dd"
+VLM_HF_REPO_REVISION="f982a07559d4a2f6c8744d840bf6fccab30eea96"
 API_READY=0
 RESTORE_DONE=0
 RUN1_EXIT=99
@@ -206,25 +208,181 @@ print("API runtime_profile + MLX/llama.cpp setting schema: verified")
 print("Original active settings snapshot:", snapshot)
 PY
 
-# The .pth hook must affect the exact interpreter used by the app and observer.
-"$PY" - <<'PY'
+# Verify the pinned llama.cpp fork and the exact package-native library pair.
+"$PY" - "$LLAMA_CPP_PINNED_COMMIT" <<'PY'
 import ctypes.util
+import importlib.metadata
+import json
+import sys
 from pathlib import Path
-from llama_cpp import llama_cpp
+import llama_cpp
+import llama_cpp.llama_cpp as llama_core
 import llama_cpp.mtmd_cpp as mtmd_cpp
 
-if ctypes.util.find_library("mtmd") is not None:
-    raise SystemExit("STOP: find_library('mtmd') still resolves a system library.")
-package_lib = (Path(llama_cpp.__file__).resolve().parent / "lib" / "libmtmd.dylib").resolve()
-loaded_lib = Path(str(mtmd_cpp._libmtmd._name)).resolve()
-if not package_lib.is_file() or loaded_lib != package_lib:
-    raise SystemExit(f"STOP: wrong/missing mtmd library: {loaded_lib}; expected {package_lib}")
+expected_commit = sys.argv[1]
+try:
+    dist = importlib.metadata.distribution("llama-cpp-python")
+    direct_url = json.loads(dist.read_text("direct_url.json") or "{}")
+except Exception as exc:
+    raise SystemExit(
+        "STOP: llama-cpp-python has no PEP 610 direct_url.json; reinstall from "
+        "requirements-llama-cpp-metal.txt pinned to " + expected_commit + ". " + repr(exc)
+    )
+actual_commit = (direct_url.get("vcs_info") or {}).get("commit_id")
+if actual_commit != expected_commit:
+    raise SystemExit(
+        f"STOP: installed llama-cpp-python commit={actual_commit!r}; expected pinned commit={expected_commit}. "
+        "Reinstall with CMAKE_ARGS='-DGGML_METAL=on' FORCE_CMAKE=1 python -m pip install "
+        "--force-reinstall --no-cache-dir -r requirements-llama-cpp-metal.txt"
+    )
+if getattr(llama_cpp, "__version__", None) != "0.4.6":
+    raise SystemExit(
+        f"STOP: unexpected llama_cpp.__version__={getattr(llama_cpp, '__version__', None)!r}; "
+        "expected 0.4.6 from the pinned fork."
+    )
+for name in ("mtmd", "llama", "ggml", "ggml-base"):
+    resolved = ctypes.util.find_library(name)
+    if resolved is not None:
+        raise SystemExit(f"STOP: system find_library({name!r}) still resolves {resolved!r}.")
+package_lib_dir = (Path(llama_cpp.__file__).resolve().parent / "lib").resolve()
+loaded = {
+    "llama": Path(str(llama_core._lib._name)).resolve(),
+    "mtmd": Path(str(mtmd_cpp._libmtmd._name)).resolve(),
+}
+for name, path in loaded.items():
+    if path.parent != package_lib_dir or not path.is_file():
+        raise SystemExit(
+            f"STOP: {name} loaded from {path}; expected a library in {package_lib_dir}. "
+            "Reinstall the pinned fork into this project's .venv."
+        )
+expected_mtmd = (package_lib_dir / "libmtmd.dylib").resolve()
+if loaded["mtmd"] != expected_mtmd:
+    raise SystemExit(f"STOP: wrong libmtmd path {loaded['mtmd']}; expected {expected_mtmd}")
 getattr(mtmd_cpp._libmtmd, "mtmd_get_video_config")
-from llama_cpp.llama_multimodal import Qwen3VLChatHandler
-if not callable(getattr(llama_cpp, "llama_supports_gpu_offload", None)) or not llama_cpp.llama_supports_gpu_offload():
-    raise SystemExit("STOP: llama-cpp-python was not built with Metal GPU offload.")
-print("mtmd_cpp bundled ABI + Qwen3VL handler import + Metal offload: verified")
+if not callable(getattr(llama_core, "llama_supports_gpu_offload", None)) or not llama_core.llama_supports_gpu_offload():
+    raise SystemExit("STOP: pinned llama-cpp-python was built without Metal GPU offload.")
+print(json.dumps({
+    "status": "passed",
+    "llama_cpp_version": llama_cpp.__version__,
+    "llama_cpp_vcs_commit": actual_commit,
+    "libllama_path": str(loaded["llama"]),
+    "libmtmd_path": str(loaded["mtmd"]),
+    "mtmd_get_video_config": "present",
+    "metal_gpu_offload": True,
+}, ensure_ascii=False))
 PY
+
+# Resolve the pinned model and projector; initialize the native MTMD context with the
+# same 8B Q4 model, handler, GPU layers and context size used by LlamaCppEngine.load_model.
+set +e
+"$PY" - "$OUT_ROOT/mtmd_context_preflight.json" "$LLAMA_CPP_PINNED_COMMIT" "$VLM_HF_REPO_REVISION" <<'PY'
+import inspect
+import importlib.metadata
+import json
+import sys
+from pathlib import Path
+
+report_path, expected_fork_commit, hf_revision = sys.argv[1:]
+report = {
+    "status": "failed",
+    "code": "MTMD_CONTEXT_FAILED",
+    "fork_expected_commit": expected_fork_commit,
+    "hf_repo": "Qwen/Qwen3-VL-8B-Instruct-GGUF",
+    "hf_revision": hf_revision,
+    "model_filename": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+    "mmproj_filename": "mmproj-Qwen3VL-8B-Instruct-F16.gguf",
+}
+llm = None
+handler = None
+try:
+    import llama_cpp
+    import llama_cpp.mtmd_cpp as mtmd_cpp
+    from llama_cpp import Llama
+    try:
+        from llama_cpp.llama_multimodal import Qwen3VLChatHandler
+    except ImportError:
+        from llama_cpp.llama_chat_format import Qwen3VLChatHandler
+
+    report["llama_cpp_version"] = getattr(llama_cpp, "__version__", None)
+    dist = importlib.metadata.distribution("llama-cpp-python")
+    direct_url = json.loads(dist.read_text("direct_url.json") or "{}")
+    report["llama_cpp_vcs_commit"] = (direct_url.get("vcs_info") or {}).get("commit_id")
+    report["libmtmd_path"] = str(Path(str(mtmd_cpp._libmtmd._name)).resolve())
+    signature = inspect.signature(Qwen3VLChatHandler.__init__)
+    report["qwen3vl_handler_signature"] = str(signature)
+
+    from huggingface_hub import hf_hub_download
+    model_path = hf_hub_download(
+        repo_id=report["hf_repo"],
+        filename=report["model_filename"],
+        revision=hf_revision,
+    )
+    mmproj_path = hf_hub_download(
+        repo_id=report["hf_repo"],
+        filename=report["mmproj_filename"],
+        revision=hf_revision,
+    )
+    report["model_path"] = str(Path(model_path).resolve())
+    report["mmproj_path"] = str(Path(mmproj_path).resolve())
+    if not Path(model_path).is_file() or not Path(mmproj_path).is_file():
+        raise FileNotFoundError("Pinned HF model or mmproj did not resolve to a local file.")
+
+    if "mmproj_path" in signature.parameters:
+        init_keyword = "mmproj_path"
+    elif "clip_model_path" in signature.parameters:
+        init_keyword = "clip_model_path"
+    else:
+        raise TypeError("Unsupported Qwen3VLChatHandler constructor: " + str(signature))
+    report["handler_init_keyword"] = init_keyword
+    handler = Qwen3VLChatHandler(**{init_keyword: mmproj_path, "verbose": True, "use_gpu": True})
+
+    report["model_load"] = "started"
+    llm = Llama(
+        model_path=model_path,
+        n_gpu_layers=-1,
+        n_ctx=8192,
+        verbose=True,
+    )
+    report["model_load"] = "passed"
+
+    # Constructor alone only checks that the file exists. This call reaches
+    # mtmd_init_from_file and capability detection against the loaded Qwen3-VL model.
+    handler._init_mtmd_context(llm)
+    report["mtmd_context"] = "passed"
+    report["vision_capability"] = bool(getattr(handler, "is_support_vision", False))
+    if not report["vision_capability"]:
+        raise RuntimeError("The real mmproj initialized but reported no vision capability.")
+    report["status"] = "passed"
+    report["code"] = "MTMD_CONTEXT_READY"
+except Exception as exc:
+    report["error_type"] = type(exc).__name__
+    report["error"] = str(exc)
+    if report.get("model_load") == "passed":
+        report["code"] = "MTMD_CONTEXT_FAILED"
+    elif report.get("handler_init_keyword"):
+        report["code"] = "VLM_MODEL_LOAD_FAILED"
+    else:
+        report["code"] = "REAL_MMPROJ_PREFLIGHT_FAILED"
+finally:
+    if handler is not None:
+        try:
+            handler.close()
+        except Exception as close_exc:
+            report.setdefault("cleanup_warnings", []).append("handler.close: " + repr(close_exc))
+    if llm is not None:
+        try:
+            llm.close()
+        except Exception as close_exc:
+            report.setdefault("cleanup_warnings", []).append("llm.close: " + repr(close_exc))
+Path(report_path).write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+print(json.dumps(report, ensure_ascii=False))
+if report["status"] != "passed":
+    print("STOP: " + report["code"] + ": " + str(report.get("error", "real mmproj preflight failed")), file=sys.stderr)
+    raise SystemExit(42)
+PY
+MTMD_PREFLIGHT_EXIT=$?
+set -e
+
 
 # Whisper MPS DTW patch is required by the shared sequential profile.
 "$PY" - <<'PY'
@@ -244,38 +402,46 @@ run_backend() {
   "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$TOOLS_DIR/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --powermetrics --vmmap --sample-stacks
 }
 
-note "Прогон 1/2: mlx_metal (MLX/Metal VLM + Text LLM; PyTorch/MPS Whisper)."
-set +e
-run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"
-RUN1_EXIT=$?
-set -e
-printf 'RUN1_MLX_METAL_EXIT=%s\n' "$RUN1_EXIT"
-
-if [[ "$RUN1_EXIT" -eq 130 ]]; then
+if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then
+  RUN1_EXIT=125
   RUN2_EXIT=125
-  note "Прогон 1 прерван пользователем; прогон 2 пропущен, чтобы не запускать анализ при потенциально активной серверной задаче."
+  note "Реальный mmproj/MTMD preflight не прошёл. Оба анализа пропущены; видео не отправлялось."
 else
-  note "Прогон 2/2: llama_cpp_metal (GGUF VLM + Text LLM; PyTorch/MPS Whisper)."
+  note "Прогон 1/2: mlx_metal (MLX/Metal VLM + Text LLM; PyTorch/MPS Whisper)."
   set +e
-  run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"
-  RUN2_EXIT=$?
+  run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"
+  RUN1_EXIT=$?
   set -e
-  printf 'RUN2_LLAMA_CPP_METAL_EXIT=%s\n' "$RUN2_EXIT"
+  printf 'RUN1_MLX_METAL_EXIT=%s\n' "$RUN1_EXIT"
+
+  if [[ "$RUN1_EXIT" -eq 130 ]]; then
+    RUN2_EXIT=125
+    note "Прогон 1 прерван пользователем; прогон 2 пропущен, чтобы не запускать анализ при потенциально активной серверной задаче."
+  else
+    note "Прогон 2/2: llama_cpp_metal (GGUF VLM + Text LLM; PyTorch/MPS Whisper)."
+    set +e
+    run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"
+    RUN2_EXIT=$?
+    set -e
+    printf 'RUN2_LLAMA_CPP_METAL_EXIT=%s\n' "$RUN2_EXIT"
+  fi
 fi
 
 # Restore even if either analysis failed; the trap retries restoration on an early exit.
 restore_settings || fail "Не удалось восстановить исходные API-настройки. Проверь settings_restore_report.json и videocontext_settings.json."
 
-"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$TOOLS_COMMIT" <<'PY'
+"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$TOOLS_COMMIT" "$MTMD_PREFLIGHT_EXIT" <<'PY'
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
 
-path, run1, run2, commit = sys.argv[1:]
+path, run1, run2, commit, preflight_exit = sys.argv[1:]
 data = {
     "created_at": datetime.now().astimezone().isoformat(),
     "tooling_commit": commit,
+    "mtmd_preflight_exit_code": int(preflight_exit),
+    "mtmd_preflight_report": "mtmd_context_preflight.json",
     "runs": [
         {"pass": 1, "inference_backend": "mlx_metal", "exit_code": int(run1), "directory": "run1_mlx_metal"},
         {"pass": 2, "inference_backend": "llama_cpp_metal", "exit_code": int(run2), "directory": "run2_llama_cpp_metal"},
@@ -303,6 +469,9 @@ REMOTE_SIZE="$(rclone size "$REMOTE_FILE" --json | "$PY" -c 'import json,sys; pr
 printf '\nDROPBOX_UPLOAD=SUCCESS\nDROPBOX_REMOTE=%s\nDROPBOX_PATH=%s\nDROPBOX_SIZE=%s\n' "$DROPBOX_REMOTE" "$REMOTE_FILE" "$REMOTE_SIZE"
 printf '\n=== A/B ГОТОВО ===\nПрогон 1 mlx_metal: %s\nПрогон 2 llama_cpp_metal: %s\nАрхив: %s\nИсходное видео не копировалось в Dropbox; загружен только forensic архив.\n' "$RUN1_EXIT" "$RUN2_EXIT" "$ARCHIVE"
 
+if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then
+  exit 42
+fi
 if [[ "$RUN1_EXIT" -eq 0 && "$RUN2_EXIT" -eq 0 ]]; then
   exit 0
 fi

@@ -25,6 +25,18 @@ class LlamaCppMetalBackendTests(unittest.TestCase):
         self.assertIn("Qwen3VL-8B-Instruct-Q4_K_M.gguf", self.runtime)
         self.assertIn("mmproj-Qwen3VL-8B-Instruct-F16.gguf", self.runtime)
 
+    def test_qwen_vl_uses_one_pinned_hf_revision_for_model_and_mmproj(self):
+        self.assertIn('DEFAULT_VLM_GGUF_REVISION = "f982a07559d4a2f6c8744d840bf6fccab30eea96"', self.runtime)
+        self.assertIn("revision: Optional[str] = None", self.runtime)
+        self.assertIn("revision=DEFAULT_VLM_GGUF_REVISION", self.runtime)
+        self.assertIn('"mmproj_revision": DEFAULT_VLM_GGUF_REVISION', self.runtime)
+
+    def test_runtime_logs_handler_signature_and_initializes_mtmd_before_scene_inference(self):
+        self.assertIn("inspect.signature(Qwen3VLChatHandler.__init__)", self.runtime)
+        self.assertIn('"qwen3vl_handler_signature"', self.runtime)
+        self.assertIn('init_mtmd_context(self.llm)', self.runtime)
+        self.assertIn('"mtmd_context_initialized": True', self.runtime)
+
     def test_text_llm_has_a_separate_llama_cpp_generation_path(self):
         self.assertIn("DEFAULT_TEXT_LLM_MODEL_GGUF", self.runtime)
         self.assertIn("gguf/Qwen3.5-9B-GGUF", self.runtime)

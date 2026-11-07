@@ -537,6 +537,7 @@ DEFAULT_VLM_MODEL_MLX = "mlx-community/Qwen3-VL-8B-Instruct-4bit"
 DEFAULT_VLM_REPO_GGUF = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
 DEFAULT_VLM_MODEL_GGUF = "Qwen3VL-8B-Instruct-Q4_K_M.gguf"
 DEFAULT_MMPROJ_GGUF = "mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+DEFAULT_VLM_GGUF_REVISION = "f982a07559d4a2f6c8744d840bf6fccab30eea96"  # model + mmproj from one HF snapshot
 DEFAULT_TEXT_LLM_REPO_GGUF = "gguf/Qwen3.5-9B-GGUF"
 DEFAULT_TEXT_LLM_MODEL_GGUF = "qwen3.5-9b-Q4_K_M.gguf"
 VCE_INFERENCE_BACKEND_MLX = "mlx_metal"
@@ -1782,19 +1783,32 @@ class MLXEngine(VLMProvider):
         gc.collect()
 
 
-def _vce_hf_gguf_file(repo_id: str, filename_or_path: str) -> str:
-    """Resolve a configured local GGUF or download the exact file into the HF cache."""
+def _vce_hf_gguf_file(
+    repo_id: str,
+    filename_or_path: str,
+    revision: Optional[str] = None,
+) -> str:
+    """Resolve a local GGUF or download it from an exact, auditable HF revision."""
     candidate = Path(str(filename_or_path)).expanduser()
-    if candidate.is_file():
-        return str(candidate.resolve())
+    # Explicit local paths remain supported. A bare filename with a pinned revision
+    # must come from that exact HF snapshot, never from an arbitrary current directory.
     if candidate.is_absolute() or candidate.parent != Path("."):
+        if candidate.is_file():
+            return str(candidate.resolve())
         raise RuntimeError(f"GGUF-файл не найден: {candidate}")
+    if revision is None and candidate.is_file():
+        return str(candidate.resolve())
     try:
         from huggingface_hub import hf_hub_download
     except ImportError as exc:
         raise RuntimeError("Для загрузки GGUF установите huggingface_hub.") from exc
-    print(f"⬇️ [llama.cpp] Загрузка {repo_id}/{candidate.name} в кэш Hugging Face…", flush=True)
-    return hf_hub_download(repo_id=repo_id, filename=candidate.name)
+    print(
+        f"⬇️ [llama.cpp] Загрузка {repo_id}/{candidate.name}"
+        + (f" @ {revision}" if revision else "")
+        + " в кэш Hugging Face…",
+        flush=True,
+    )
+    return hf_hub_download(repo_id=repo_id, filename=candidate.name, revision=revision)
 
 
 def _vce_require_llama_metal():
@@ -1820,6 +1834,10 @@ class LlamaCppEngine(VLMProvider):
 
     def load_model(self, model_path: str):
         _vce_require_llama_metal()
+        import inspect
+        import llama_cpp
+        import llama_cpp.llama_cpp as llama_core
+        import llama_cpp.mtmd_cpp as mtmd_cpp
         from llama_cpp import Llama
         try:
             from llama_cpp.llama_multimodal import Qwen3VLChatHandler
@@ -1829,12 +1847,36 @@ class LlamaCppEngine(VLMProvider):
             except ImportError as exc:
                 raise RuntimeError(
                     "В этой версии llama-cpp-python отсутствует Qwen3VLChatHandler. "
-                    "Установите Qwen3-VL capable fork по docs/LLAMA_CPP_METAL_BACKEND.md."
+                    "Установите закреплённую Qwen3-VL capable fork-сборку по docs/LLAMA_CPP_METAL_BACKEND.md."
                 ) from exc
 
         mmproj_name = str(setting("llama_cpp_vlm_mmproj", DEFAULT_MMPROJ_GGUF))
-        mmproj_path = _vce_hf_gguf_file(DEFAULT_VLM_REPO_GGUF, mmproj_name)
-        model_file = _vce_hf_gguf_file(DEFAULT_VLM_REPO_GGUF, model_path)
+        mmproj_path = _vce_hf_gguf_file(
+            DEFAULT_VLM_REPO_GGUF, mmproj_name, revision=DEFAULT_VLM_GGUF_REVISION
+        )
+        model_file = _vce_hf_gguf_file(
+            DEFAULT_VLM_REPO_GGUF, model_path, revision=DEFAULT_VLM_GGUF_REVISION
+        )
+        handler_signature = inspect.signature(Qwen3VLChatHandler.__init__)
+        handler_parameters = handler_signature.parameters
+        if "mmproj_path" in handler_parameters:
+            handler_init_keyword = "mmproj_path"
+        elif "clip_model_path" in handler_parameters:
+            handler_init_keyword = "clip_model_path"
+        else:
+            raise RuntimeError(
+                "Qwen3VLChatHandler.__init__ не содержит mmproj_path или clip_model_path: "
+                + str(handler_signature)
+            )
+        print("[VCE llama.cpp] " + json.dumps({
+            "llama_cpp_version": getattr(llama_cpp, "__version__", None),
+            "libllama_path": str(Path(llama_core._lib._name).resolve()),
+            "libmtmd_path": str(Path(mtmd_cpp._libmtmd._name).resolve()),
+            "qwen3vl_handler_signature": str(handler_signature),
+            "handler_init_keyword": handler_init_keyword,
+            "hf_model_revision": DEFAULT_VLM_GGUF_REVISION,
+            "mmproj_path": mmproj_path,
+        }, ensure_ascii=False, sort_keys=True), flush=True)
         cache_key = model_file + "|" + mmproj_path
         if self.llm is not None and self.current_model_path == cache_key:
             self.last_load_time = 0.0
@@ -1843,11 +1885,10 @@ class LlamaCppEngine(VLMProvider):
         print(f"🧠 [llama.cpp/Metal VLM] Загрузка {model_file}", flush=True)
         started = time.perf_counter()
         self.llm = None
-        try:
-            self.chat_handler = Qwen3VLChatHandler(mmproj_path=mmproj_path)
-        except TypeError:
-            # Compatibility with pre-0.3.41-preview handler API.
-            self.chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path)
+        handler_kwargs = {handler_init_keyword: mmproj_path, "verbose": True, "use_gpu": True}
+        # Select the supported constructor keyword by signature. Do not catch arbitrary
+        # TypeError from inside the handler: native mmproj/context errors must stay visible.
+        self.chat_handler = Qwen3VLChatHandler(**handler_kwargs)
         self.llm = Llama(
             model_path=model_file,
             chat_handler=self.chat_handler,
@@ -1855,6 +1896,13 @@ class LlamaCppEngine(VLMProvider):
             n_ctx=8192,
             verbose=True,
         )
+        # Initialize MTMD now, rather than deferring mmproj failure until the first scene.
+        init_mtmd_context = getattr(self.chat_handler, "_init_mtmd_context", None)
+        if not callable(init_mtmd_context):
+            raise RuntimeError("Qwen3VLChatHandler lacks _init_mtmd_context; this fork build is unsupported.")
+        init_mtmd_context(self.llm)
+        if not bool(getattr(self.chat_handler, "is_support_vision", False)):
+            raise RuntimeError("Qwen3-VL mmproj initialized but did not report vision capability.")
         self.current_model_path = cache_key
         self.mmproj_path = mmproj_path
         self.last_load_time = time.perf_counter() - started
@@ -1863,6 +1911,13 @@ class LlamaCppEngine(VLMProvider):
             "accelerator": "Metal",
             "model": model_file,
             "mmproj": mmproj_path,
+            "mmproj_revision": DEFAULT_VLM_GGUF_REVISION,
+            "llama_cpp_version": getattr(llama_cpp, "__version__", None),
+            "libllama_path": str(Path(llama_core._lib._name).resolve()),
+            "libmtmd_path": str(Path(mtmd_cpp._libmtmd._name).resolve()),
+            "qwen3vl_handler_signature": str(handler_signature),
+            "handler_init_keyword": handler_init_keyword,
+            "mtmd_context_initialized": True,
             "gpu_layers_requested": -1,
             "gpu_offload_supported": True,
             "metal_offload_requested": True,

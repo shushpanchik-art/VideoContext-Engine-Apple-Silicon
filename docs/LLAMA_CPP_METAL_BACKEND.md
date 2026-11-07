@@ -59,3 +59,12 @@ Whisper не переключается вместе с этим парамет�
 - meta.params.inference_backend различает архитектуры; runtime_profile продолжает описывать только профиль Whisper/runtime scheduling.
 - Для сравнения MLX и llama.cpp используйте один файл и одинаковые resolution, scene parameters, prompts и OCR. Отдельно сравнивайте качество JSON, а не только wall time.
 - Размеры по умолчанию: около 5.03 GB для VLM Q4_K_M, 1.16 GB для projector и 6.17 GB для Text LLM Q4_K_M. Нужен запас unified memory под контекст и runtime.
+
+
+## Reproducible Qwen3-VL mmproj preflight
+
+The NSR A/B launcher pins the Qwen3-VL GGUF repository to HF revision `f982a07559d4a2f6c8744d840bf6fccab30eea96`. Both `Qwen3VL-8B-Instruct-Q4_K_M.gguf` and `mmproj-Qwen3VL-8B-Instruct-F16.gguf` are downloaded from that same snapshot. The `llama-cpp-python` dependency is pinned to JamePeng commit `1dd04befbaf1277853eb188cc4513d6089a931dd` (version 0.4.6).
+
+Before either A/B analysis, the launcher loads the real Q4 model, constructs `Qwen3VLChatHandler` with the cached real mmproj path, and calls `handler._init_mtmd_context(llama_model)`. Merely constructing the handler is insufficient: the native MTMD context is created by this method. A failure is saved as `MTMD_CONTEXT_FAILED` with the native exception text; both analysis passes are skipped and only the preflight diagnostic bundle is uploaded.
+
+Each observer run records `llama_cpp.__version__`, the installed VCS commit (from PEP 610 `direct_url.json`), and the actual loaded `libllama` / `libmtmd` paths.
