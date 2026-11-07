@@ -65,6 +65,7 @@ class ObservedRunHelpersTests(unittest.TestCase):
                             "response_format": {"type": "string", "default": "text"},
                             "enable_stage_timing": {"type": "boolean", "default": False},
                             "enable_mlx_whisper": {"type": "boolean", "default": False},
+                            "runtime_profile": {"type": "string", "default": "baseline_mps_sequential"},
                             "text_llm_enabled": {"type": "boolean", "default": False},
                             "visual_user_prompt": {"type": "string", "maxLength": 1000, "default": "short default"},
                             "summary_user_prompt": {"type": "string", "maxLength": 2000, "default": "short summary"},
@@ -97,7 +98,7 @@ class ObservedRunHelpersTests(unittest.TestCase):
         self.assertEqual(fields["generate_json"], False)
         self.assertEqual(fields["response_format"], "json")
         self.assertEqual(fields["enable_stage_timing"], True)
-        self.assertEqual(fields["enable_mlx_whisper"], True)
+        self.assertEqual(fields["enable_mlx_whisper"], False)
         self.assertEqual(fields["text_llm_enabled"], True)
         self.assertIn("job_id", origins)
 
