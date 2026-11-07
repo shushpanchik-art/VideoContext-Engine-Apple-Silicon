@@ -16,6 +16,47 @@
 
 ---
 
+## 0. Правильный запуск из Terminal
+
+Новый Terminal обычно открывается в домашней папке `~`. Команды `.venv/bin/python` и `scripts/...` работают только после перехода в корень проекта. Для этого Mac корень закреплён как:
+
+```text
+/Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon
+```
+
+Перед патчем полностью закрой VideoContext Engine через `⌘Q`. Затем выполни единый блок ниже. Он сохраняет локальные изменения в Git stash (не удаляет их), переключает checkout на ветку PR, обновляет её только fast-forward и запускает patch installer. Installer проверяет backup/целостность файлов, выполняет regression suite и bash syntax checks, а затем запускает MTMD preflight и A/B. Не запускай отдельные команды с относительными путями из `~`.
+
+```bash
+set -Eeuo pipefail
+ROOT="$HOME/VideoContext-Engine-Apple-Silicon"
+BRANCH="fix/qwen3vl-kwargs-mtmd-preflight-handoff-20261107"
+
+[[ -d "$ROOT/.git" ]] || {
+  echo "Git checkout не найден: $ROOT" >&2
+  exit 2
+}
+git -C "$ROOT" status --short --branch
+git -C "$ROOT" stash push -u -m "pre-NSRSPEC-AB-20261107"
+git -C "$ROOT" fetch origin "$BRANCH"
+
+if git -C "$ROOT" show-ref --verify --quiet "refs/heads/$BRANCH"; then
+  git -C "$ROOT" switch "$BRANCH"
+else
+  git -C "$ROOT" switch --track -c "$BRANCH" "origin/$BRANCH"
+fi
+git -C "$ROOT" pull --ff-only origin "$BRANCH"
+
+[[ -x "$ROOT/.venv/bin/python" ]] || {
+  echo "Не найден Python проекта: $ROOT/.venv/bin/python" >&2
+  exit 2
+}
+/bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"
+```
+
+Если `git pull --ff-only` сообщает о diverged history, не используй `reset --hard`: остановись и сохрани вывод. Stash остаётся резервной копией локальных изменений; не выполняй `git stash pop` поверх обновлённого production-кода до проверки его содержимого.
+
+---
+
 ## 1. Фиксированное входное видео — не менять
 
 Видео задаётся прямо в launcher, не через диалог, аргумент командной строки, file picker или переменную окружения:
