@@ -492,7 +492,7 @@ def load_whisper_model(
         "device": observed_device,
         "requested_device": device,
         "model": model_name,
-        "device_verified": observed_device == device,
+        "device_verified": observed_device.split(":")[0] == device.split(":")[0],
     }
     print(
         "[VCE runtime] "
@@ -3740,6 +3740,7 @@ async def save_ui_settings(payload: Dict[str, Any]):
         "generate_summary", "generate_txt", "generate_json", "word_timestamps",
         "text_llm_enabled",
     }
+    # vlm_model is always an MLX model selector; GGUF identifiers belong only in llama_cpp_* keys.
     allowed_vlm = {"mlx-community/Qwen3-VL-8B-Instruct-4bit", "mlx-community/Qwen3-VL-4B-Instruct-4bit"}
     allowed_whisper = {"tiny", "base", "small", "medium", "large"}
     merged = dict(current)
@@ -3784,6 +3785,14 @@ async def save_ui_settings(payload: Dict[str, Any]):
         else:
             raise HTTPException(422, f"Неизвестная настройка: {key}")
         merged[key] = value
+
+    # A legacy GGUF value may already exist in the settings file. When selecting llama.cpp,
+    # normalize the legacy selectors to MLX identifiers; GGUF stays exclusively in llama_cpp_*.
+    if merged.get("inference_backend") == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        if merged.get("vlm_model") not in allowed_vlm:
+            merged["vlm_model"] = DEFAULT_VLM_MODEL_MLX
+        if merged.get("text_llm_model") != TEXT_LLM_DEFAULT_MODEL:
+            merged["text_llm_model"] = TEXT_LLM_DEFAULT_MODEL
 
     if "runtime_profile" in payload:
         # Keep the old boolean key in sync for older local clients; the profile is canonical.

@@ -64,6 +64,18 @@ LLAMA_CPP_MODEL_SETTINGS = {
     "llama_cpp_text_context": 32768,
 }
 
+SUPPORTED_INFERENCE_BACKENDS = ("mlx_metal", "llama_cpp_metal")
+
+def build_backend_settings(inference_backend: str) -> dict[str, Any]:
+    """Build one explicit A/B pass; MLX selectors remain MLX even for the GGUF pass."""
+    if inference_backend not in SUPPORTED_INFERENCE_BACKENDS:
+        raise ValueError(f"Unsupported inference backend: {inference_backend}")
+    settings = dict(COMMON_BACKEND_SETTINGS)
+    settings["inference_backend"] = inference_backend
+    if inference_backend == "llama_cpp_metal":
+        settings.update(LLAMA_CPP_MODEL_SETTINGS)
+    return settings
+
 SAFETY_OVERRIDES = {
     "analysis_mode": "full",
     "runtime_profile": "baseline_mps_sequential",
@@ -440,15 +452,12 @@ def main() -> int:
     parser.add_argument("--interval", type=float, default=2.0, help="Интервал опроса прогресса/ресурсов в секундах.")
     parser.add_argument(
         "--inference-backend",
-        choices=("mlx_metal", "llama_cpp_metal"),
+        choices=SUPPORTED_INFERENCE_BACKENDS,
         required=True,
-        help="Backend for this A/B pass; both passes keep baseline_mps_sequential Whisper/MPS.",
+        help="Explicit backend for this A/B pass; both passes keep baseline_mps_sequential Whisper/MPS.",
     )
     args = parser.parse_args()
-    backend_settings = dict(COMMON_BACKEND_SETTINGS)
-    backend_settings["inference_backend"] = args.inference_backend
-    if args.inference_backend == "llama_cpp_metal":
-        backend_settings.update(LLAMA_CPP_MODEL_SETTINGS)
+    backend_settings = build_backend_settings(args.inference_backend)
 
     if platform.system() != "Darwin":
         print("STOP: этот наблюдатель рассчитан на macOS.")

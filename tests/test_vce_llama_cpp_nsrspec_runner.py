@@ -1,49 +1,89 @@
 from pathlib import Path
+import importlib.util
 import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
+OBSERVER_PATH = ROOT / "scripts/vce_observed_llama_cpp_run.py"
+_SPEC = importlib.util.spec_from_file_location("vce_observed_llama_cpp_run", OBSERVER_PATH)
+_OBSERVER = importlib.util.module_from_spec(_SPEC)
+assert _SPEC and _SPEC.loader
+_SPEC.loader.exec_module(_OBSERVER)
 
 
 class TestLlamaCppNsrspecRunner(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.launcher = (ROOT / "scripts/vce_run_nsrspec_llama_cpp.command").read_text(encoding="utf-8")
-        cls.observer = (ROOT / "scripts/vce_observed_llama_cpp_run.py").read_text(encoding="utf-8")
+        cls.launcher = (ROOT / "scripts/vce_run_nsrspec_ab.command").read_text(encoding="utf-8")
+        cls.legacy_launcher = (ROOT / "scripts/vce_run_nsrspec_llama_cpp.command").read_text(encoding="utf-8")
+        cls.observer = OBSERVER_PATH.read_text(encoding="utf-8")
         cls.watchdog = (ROOT / "scripts/vce_runtime_watchdog.py").read_text(encoding="utf-8")
+        cls.runtime = (ROOT / "VideoContextEngine_v3.19.py").read_text(encoding="utf-8")
 
-    def test_launcher_uses_fixed_video_and_native_app_only(self):
-        self.assertIn("🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4", self.launcher)
+    def test_ab_launcher_runs_both_explicit_backends_in_order(self):
+        self.assertIn('run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"', self.launcher)
+        self.assertIn('run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"', self.launcher)
+        self.assertLess(
+            self.launcher.index('run_backend "mlx_metal"'),
+            self.launcher.index('run_backend "llama_cpp_metal"'),
+        )
+        self.assertIn("--inference-backend", self.watchdog)
+        self.assertIn("required=True", self.observer)
+        self.assertIn('choices=SUPPORTED_INFERENCE_BACKENDS', self.observer)
         self.assertIn('open -a "$APP"', self.launcher)
         self.assertNotIn('open "$API', self.launcher)
-        self.assertIn("TOOLS_COMMIT=", self.launcher)
-        self.assertIn("git hash-object", self.launcher)
+        self.assertIn("🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4", self.launcher)
 
-    def test_launcher_requires_runtime_profile_mps_and_qwen3vl_metal(self):
-        self.assertIn('"runtime_profile" not in props', self.launcher)
-        self.assertIn("x.cpu().double().numpy()", self.launcher)
-        self.assertIn("Qwen3VLChatHandler", self.launcher)
-        self.assertIn("llama_supports_gpu_offload", self.launcher)
+    def test_mtmd_installer_is_pinned_downloaded_and_run_before_app_start(self):
+        self.assertIn('TOOLS_COMMIT="108a6d06dcadada647c8184d0c86d34b7049cd73"', self.launcher)
+        self.assertIn('curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py"', self.launcher)
+        self.assertIn('"$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"', self.launcher)
+        self.assertLess(
+            self.launcher.index('install_vce_mtmd_loader_fix.py" --report'),
+            self.launcher.index('open -a "$APP"'),
+        )
+        self.assertIn("import llama_cpp.mtmd_cpp as mtmd_cpp", self.launcher)
+        self.assertIn('ctypes.util.find_library("mtmd") is not None', self.launcher)
+        self.assertIn("50e91ffabcf2cb6174b068a12eea0b6b909cba5e", self.launcher)
+        self.assertIn("c087d7c5fa00f697453bd917bcae7d4d6947c6be", self.launcher)
+        self.assertIn("16b1f22af3af081940d556d98020640ca4051c2e", self.launcher)
 
-    def test_observer_selects_llama_for_both_llm_stages_and_keeps_whisper_mps(self):
-        self.assertIn('"inference_backend": "llama_cpp_metal"', self.observer)
-        self.assertIn('"llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf"', self.observer)
-        self.assertIn('"llama_cpp_text_llm_model": "qwen3.5-9b-Q4_K_M.gguf"', self.observer)
-        self.assertIn('"runtime_profile": "baseline_mps_sequential"', self.observer)
-        self.assertIn('"enable_mlx_whisper": False', self.observer)
-        self.assertIn('"enable_ocr_cache": True', self.observer)
-        self.assertIn('"ffmpeg_ocr_interval": 5', self.observer)
-        self.assertIn('"ffmpeg_ocr_workers": 3', self.observer)
-        self.assertIn("post_json(", self.observer)
+    def test_observer_backend_argument_builds_separate_mlx_and_gguf_settings(self):
+        mlx = _OBSERVER.build_backend_settings("mlx_metal")
+        llama = _OBSERVER.build_backend_settings("llama_cpp_metal")
+        self.assertEqual(mlx["inference_backend"], "mlx_metal")
+        self.assertEqual(llama["inference_backend"], "llama_cpp_metal")
+        self.assertEqual(llama["vlm_model"], "mlx-community/Qwen3-VL-8B-Instruct-4bit")
+        self.assertEqual(llama["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
+        self.assertEqual(llama["llama_cpp_vlm_model"], "Qwen3VL-8B-Instruct-Q4_K_M.gguf")
+        self.assertEqual(llama["llama_cpp_text_llm_model"], "qwen3.5-9b-Q4_K_M.gguf")
+        self.assertNotIn("llama_cpp_vlm_model", mlx)
+        self.assertNotIn("llama_cpp_text_llm_model", mlx)
+        with self.assertRaises(ValueError):
+            _OBSERVER.build_backend_settings("unknown")
 
-    def test_private_dropbox_upload_is_verified_and_video_is_not_uploaded(self):
+    def test_runtime_records_mps_device_with_index_as_verified(self):
+        self.assertIn('"device_verified": observed_device.split(":")[0] == device.split(":")[0],', self.runtime)
+
+    def test_gguf_ids_are_confined_to_llama_cpp_fields(self):
+        self.assertIn('allowed_vlm = {"mlx-community/Qwen3-VL-8B-Instruct-4bit", "mlx-community/Qwen3-VL-4B-Instruct-4bit"}', self.runtime)
+        self.assertIn('merged.get("inference_backend") == VCE_INFERENCE_BACKEND_LLAMA_CPP', self.runtime)
+        self.assertIn('merged["vlm_model"] = DEFAULT_VLM_MODEL_MLX', self.runtime)
+        self.assertIn('merged["text_llm_model"] = TEXT_LLM_DEFAULT_MODEL', self.runtime)
+
+    def test_single_bundle_contains_both_runs_and_verified_private_dropbox_upload(self):
         self.assertIn("20261104_224554_1f098d/VCE_Forensic_Runs", self.launcher)
+        self.assertIn('ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$ARCHIVE"', self.launcher)
         self.assertIn('rclone copyto "$ARCHIVE" "$REMOTE_FILE"', self.launcher)
         self.assertIn('rclone size "$REMOTE_FILE" --json', self.launcher)
         self.assertIn("DROPBOX_UPLOAD=SUCCESS", self.launcher)
-        self.assertIn("no video was submitted", self.launcher)
-        self.assertNotIn("rclone copyto \"$VIDEO\"", self.launcher)
-        self.assertIn("upload video/results", self.watchdog)
+        self.assertNotIn('rclone copyto "$VIDEO"', self.launcher)
+        self.assertIn("RUN1_MLX_METAL_EXIT", self.launcher)
+        self.assertIn("RUN2_LLAMA_CPP_METAL_EXIT", self.launcher)
+        self.assertIn("settings_restore_report.json", self.launcher)
+
+    def test_legacy_llama_launcher_routes_to_ab_launcher(self):
+        self.assertIn('exec "$SCRIPT_DIR/vce_run_nsrspec_ab.command"', self.legacy_launcher)
 
 
 if __name__ == "__main__":
