@@ -1,3 +1,4 @@
+# Validates the optional llama.cpp/Metal backend, verbose offload evidence, and private NSR forensic runner.
 name: Full distribution installer validation
 
 on:
@@ -22,6 +23,14 @@ on:
       - "tests/test_vce_metal_timeout_guard.py"
       - "patches/patch_vce_stop_and_mps.py"
       - "VideoContextEngine_v3.19.py"
+      - "videocontext_web_ui.html"
+      - "requirements-llama-cpp-metal.txt"
+      - "docs/LLAMA_CPP_METAL_BACKEND.md"
+      - "tests/test_llama_cpp_metal_backend.py"
+      - "scripts/vce_run_nsrspec_llama_cpp.command"
+      - "scripts/vce_observed_llama_cpp_run.py"
+      - "scripts/vce_runtime_watchdog.py"
+      - "tests/test_vce_llama_cpp_nsrspec_runner.py"
       - "docs/MEMORY_SAFETY_AND_VIDEO_COMPATIBILITY.md"
       - "docs/MLX_METAL_DIAGNOSTICS.md"
       - ".github/workflows/cleanup-merged-topic-branches.yml"
@@ -47,6 +56,10 @@ on:
       - "tests/test_vce_metal_timeout_guard.py"
       - "patches/patch_vce_stop_and_mps.py"
       - "VideoContextEngine_v3.19.py"
+      - "scripts/vce_run_nsrspec_llama_cpp.command"
+      - "scripts/vce_observed_llama_cpp_run.py"
+      - "scripts/vce_runtime_watchdog.py"
+      - "tests/test_vce_llama_cpp_nsrspec_runner.py"
       - "docs/MEMORY_SAFETY_AND_VIDEO_COMPATIBILITY.md"
       - "docs/MLX_METAL_DIAGNOSTICS.md"
       - "tests/test_vce_repository_hygiene.py"
@@ -83,6 +96,15 @@ jobs:
         run: python -m json.tool config/videocontext_settings.apple_silicon.example.json >/dev/null
       - name: Validate publication package manifest
         run: python -m json.tool PUBLICATION_PACKAGE_MANIFEST.json >/dev/null
+      - name: Validate llama.cpp forensic runner scripts
+        run: |
+          bash -n scripts/vce_run_nsrspec_llama_cpp.command
+          python -m py_compile scripts/vce_observed_llama_cpp_run.py scripts/vce_runtime_watchdog.py
+          python -m unittest discover -s tests -p "test_vce_llama_cpp_nsrspec_runner.py" -v
+      - name: Compile engine runtime
+        run: python -m py_compile VideoContextEngine_v3.19.py
+      - name: Run llama.cpp backend isolation tests
+        run: python -m unittest discover -s tests -p "test_llama_cpp_metal_backend.py" -v
       - name: Run installer contract tests
         run: |
           python -m unittest discover -s tests -p "test_vce_public_installer.py" -v

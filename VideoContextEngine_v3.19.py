@@ -98,6 +98,13 @@ async def _vce_mlx_run(fn, *args, **kwargs):
     call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)
     return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
 
+
+async def _vce_backend_run(fn, *args, **kwargs):
+    """Run llama.cpp backend work on the dedicated executor without emitting MLX traces."""
+    loop = asyncio.get_running_loop()
+    call = _vce_mlx_functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+
 # VCE_MLX_VLM_RUNTIME_TRACE_V1
 import sys as _vce_mlx_trace_sys
 import threading as _vce_mlx_trace_threading
@@ -402,6 +409,7 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         "metal_smoke_test": "passed",
     }
     VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
+    VCE_BACKEND_DIAGNOSTICS[stage] = info
     if default_device_observed != str(mx.gpu):
         print(
             f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
@@ -455,9 +463,14 @@ WHISPER_CACHE: Dict[str, Any] = {}
 PORT_SERVEUR = 7555
 
 DEFAULT_VLM_MODEL_MLX = "mlx-community/Qwen3-VL-8B-Instruct-4bit"
-DEFAULT_VLM_REPO_GGUF = "bartowski/Qwen3-VL-2B-Instruct-GGUF"
-DEFAULT_VLM_MODEL_GGUF = "qwen3-vl-2b-instruct-q4_k_m.gguf"
-DEFAULT_MMPROJ_GGUF = "mmproj-model-f16.gguf"
+DEFAULT_VLM_REPO_GGUF = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
+DEFAULT_VLM_MODEL_GGUF = "Qwen3VL-8B-Instruct-Q4_K_M.gguf"
+DEFAULT_MMPROJ_GGUF = "mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+DEFAULT_TEXT_LLM_REPO_GGUF = "gguf/Qwen3.5-9B-GGUF"
+DEFAULT_TEXT_LLM_MODEL_GGUF = "qwen3.5-9b-Q4_K_M.gguf"
+VCE_INFERENCE_BACKEND_MLX = "mlx_metal"
+VCE_INFERENCE_BACKEND_LLAMA_CPP = "llama_cpp_metal"
+VCE_BACKEND_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
 DEFAULT_WHISPER_MODEL = "large"
 
 DEFAULT_SCENE_THRESHOLD = 0.15
@@ -1701,111 +1714,135 @@ class MLXEngine(VLMProvider):
         gc.collect()
 
 
+def _vce_hf_gguf_file(repo_id: str, filename_or_path: str) -> str:
+    """Resolve a configured local GGUF or download the exact file into the HF cache."""
+    candidate = Path(str(filename_or_path)).expanduser()
+    if candidate.is_file():
+        return str(candidate.resolve())
+    if candidate.is_absolute() or candidate.parent != Path("."):
+        raise RuntimeError(f"GGUF-файл не найден: {candidate}")
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as exc:
+        raise RuntimeError("Для загрузки GGUF установите huggingface_hub.") from exc
+    print(f"⬇️ [llama.cpp] Загрузка {repo_id}/{candidate.name} в кэш Hugging Face…", flush=True)
+    return hf_hub_download(repo_id=repo_id, filename=candidate.name)
+
+
+def _vce_require_llama_metal():
+    if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
+        raise RuntimeError("llama.cpp/Metal доступен только на macOS с Apple Silicon.")
+    try:
+        from llama_cpp import llama_cpp as native
+    except ImportError as exc:
+        raise RuntimeError("llama-cpp-python не установлен. Установите Metal-сборку по docs/LLAMA_CPP_METAL_BACKEND.md.") from exc
+    supports = getattr(native, "llama_supports_gpu_offload", None)
+    if not callable(supports) or not supports():
+        raise RuntimeError("Установленный llama-cpp-python собран без GPU offload. Нужна сборка с CMAKE_ARGS='-DGGML_METAL=on'.")
+    return native
+
+
 class LlamaCppEngine(VLMProvider):
+    """Explicit Qwen3-VL GGUF backend. It is never selected by the MLX baseline."""
     def __init__(self):
         super().__init__()
         self.llm = None
         self.chat_handler = None
-
-    def _download_if_missing(self, filename: str, repo_id: str):
-        if not os.path.exists(filename):
-            print(f"⬇️ [Auto-Download] {filename}...")
-            try:
-                from huggingface_hub import hf_hub_download
-
-                hf_hub_download(
-                    repo_id=repo_id,
-                    filename=filename,
-                    local_dir=".",
-                )
-                print(f"✅ {filename} prêt.")
-            except ImportError:
-                raise RuntimeError("Erreur: 'huggingface_hub' manquant.")
-            except Exception as e:
-                print(f"⚠️ Erreur téléchargement auto : {e}")
+        self.mmproj_path = None
 
     def load_model(self, model_path: str):
-        if model_path == DEFAULT_VLM_MODEL_GGUF:
-            self._download_if_missing(model_path, DEFAULT_VLM_REPO_GGUF)
-            self._download_if_missing(DEFAULT_MMPROJ_GGUF, DEFAULT_VLM_REPO_GGUF)
+        _vce_require_llama_metal()
+        from llama_cpp import Llama
+        try:
+            from llama_cpp.llama_multimodal import Qwen3VLChatHandler
+        except ImportError:
+            try:
+                from llama_cpp.llama_chat_format import Qwen3VLChatHandler
+            except ImportError as exc:
+                raise RuntimeError(
+                    "В этой версии llama-cpp-python отсутствует Qwen3VLChatHandler. "
+                    "Установите Qwen3-VL capable fork по docs/LLAMA_CPP_METAL_BACKEND.md."
+                ) from exc
 
-        if self.llm is not None and self.current_model_path == model_path:
-            print(f"🐧/🪟 [Llama.cpp] Modèle VLM déjà chargé : {model_path}")
+        mmproj_name = str(setting("llama_cpp_vlm_mmproj", DEFAULT_MMPROJ_GGUF))
+        mmproj_path = _vce_hf_gguf_file(DEFAULT_VLM_REPO_GGUF, mmproj_name)
+        model_file = _vce_hf_gguf_file(DEFAULT_VLM_REPO_GGUF, model_path)
+        cache_key = model_file + "|" + mmproj_path
+        if self.llm is not None and self.current_model_path == cache_key:
             self.last_load_time = 0.0
             return
 
-        print(f"🐧/🪟 [Llama.cpp] Chargement VLM : {model_path}")
-        t0 = time.time()
+        print(f"🧠 [llama.cpp/Metal VLM] Загрузка {model_file}", flush=True)
+        started = time.perf_counter()
+        self.llm = None
         try:
-            from llama_cpp import Llama
-            from llama_cpp.llama_chat_format import Llava15ChatHandler
+            self.chat_handler = Qwen3VLChatHandler(mmproj_path=mmproj_path)
+        except TypeError:
+            # Compatibility with pre-0.3.41-preview handler API.
+            self.chat_handler = Qwen3VLChatHandler(clip_model_path=mmproj_path)
+        self.llm = Llama(
+            model_path=model_file,
+            chat_handler=self.chat_handler,
+            n_gpu_layers=-1,
+            n_ctx=8192,
+            verbose=True,
+        )
+        self.current_model_path = cache_key
+        self.mmproj_path = mmproj_path
+        self.last_load_time = time.perf_counter() - started
+        VCE_BACKEND_DIAGNOSTICS["vlm"] = {
+            "backend": "llama.cpp",
+            "accelerator": "Metal",
+            "model": model_file,
+            "mmproj": mmproj_path,
+            "gpu_layers_requested": -1,
+            "gpu_offload_supported": True,
+            "metal_offload_requested": True,
+            "load_seconds": round(self.last_load_time, 3),
+        }
+        print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
 
-            self.llm = None
-            gc.collect()
-
-            mmproj = DEFAULT_MMPROJ_GGUF if os.path.exists(DEFAULT_MMPROJ_GGUF) else None
-            self.chat_handler = (
-                Llava15ChatHandler(clip_model_path=mmproj) if mmproj else None
-            )
-
-            self.llm = Llama(
-                model_path=model_path,
-                chat_handler=self.chat_handler,
-                n_gpu_layers=-1,
-                n_ctx=4096,
-                verbose=False,
-            )
-            self.current_model_path = model_path
-            self.last_load_time = time.time() - t0
-            print(f"✅ [Llama.cpp] VLM chargé en {self.last_load_time:.2f}s")
-        except ImportError:
-            raise RuntimeError("Erreur: installez 'llama-cpp-python'")
-        except Exception as e:
-            raise RuntimeError(f"Erreur chargement VLM llama.cpp : {e}")
-
-    def describe_scene(
-        self,
-        images: List[Image.Image],
-        prompt: str,
-        max_tokens: int,
-    ) -> str:
-        if not self.llm:
-            raise RuntimeError("Modèle VLM llama.cpp non chargé")
-
+    def describe_scene(self, images: List[Image.Image], prompt: str, max_tokens: int) -> str:
+        if self.llm is None:
+            raise RuntimeError("Qwen3-VL llama.cpp model is not loaded.")
         contents = []
         for img in images:
             buffered = BytesIO()
-            img.save(buffered, format="JPEG")
-            img_str = base64.b64encode(buffered.getvalue()).decode("utf-8")
-            contents.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{img_str}"},
-                }
-            )
-
+            img.save(buffered, format="JPEG", quality=92)
+            encoded = base64.b64encode(buffered.getvalue()).decode("ascii")
+            contents.append({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + encoded}})
         contents.append({"type": "text", "text": prompt})
-
         response = self.llm.create_chat_completion(
-            messages=[
-                {
-                    "role": "user",
-                    "content": contents,
-                }
-            ],
+            messages=[{"role": "user", "content": contents}],
             max_tokens=max_tokens,
             temperature=0.0,
         )
-        return response["choices"][0]["message"]["content"].strip()
+        return str(response["choices"][0]["message"]["content"] or "").strip()
 
     def unload_model(self):
         self.llm = None
         self.chat_handler = None
+        self.mmproj_path = None
         self.current_model_path = None
         gc.collect()
 
 
+def _vce_normalize_inference_backend(value: Optional[str] = None) -> str:
+    selected = str(value if value is not None else setting("inference_backend", VCE_INFERENCE_BACKEND_MLX)).strip().lower()
+    if selected not in {VCE_INFERENCE_BACKEND_MLX, VCE_INFERENCE_BACKEND_LLAMA_CPP}:
+        raise RuntimeError(f"Неизвестный inference_backend: {selected}")
+    return selected
+
+
+def _vce_selected_vlm_model() -> str:
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        return str(setting("llama_cpp_vlm_model", DEFAULT_VLM_MODEL_GGUF))
+    return str(setting("vlm_model", DEFAULT_VLM_MODEL_MLX))
+
+
 def get_vlm_engine() -> VLMProvider:
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        return LlamaCppEngine()
     return MLXEngine() if platform.system() == "Darwin" else LlamaCppEngine()
 
 
@@ -2878,16 +2915,67 @@ def run_text_llm_postprocess(
     max_tokens: int = 4096,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """Load the selected MLX VLM-family checkpoint in text-only mode and return validated enrichment."""
+    """Run text-only enrichment on exactly the selected MLX or llama.cpp backend."""
     import gc
-    _vce_configure_mlx_metal("text_llm")
-    from mlx_vlm import load, generate
-    try:
-        from mlx_vlm.generate import stream_generate
-    except Exception:
-        stream_generate = None
-    from mlx_vlm.prompt_utils import apply_chat_template
-    from mlx_vlm.utils import load_config
+    inference_backend = _vce_normalize_inference_backend()
+    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        _vce_require_llama_metal()
+        from llama_cpp import Llama
+
+        def load(path):
+            model_file = _vce_hf_gguf_file(DEFAULT_TEXT_LLM_REPO_GGUF, path)
+            instance = Llama(
+                model_path=model_file,
+                n_gpu_layers=-1,
+                n_ctx=int(setting("llama_cpp_text_context", 32768)),
+                verbose=True,
+            )
+            VCE_BACKEND_DIAGNOSTICS["text_llm"] = {
+                "backend": "llama.cpp",
+                "accelerator": "Metal",
+                "model": model_file,
+                "gpu_layers_requested": -1,
+                "gpu_offload_supported": True,
+                "metal_offload_requested": True,
+            }
+            print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
+            return instance, object()
+
+        def load_config(_path):
+            return None
+
+        def apply_chat_template(_processor, _config, prompt, **_kwargs):
+            return prompt
+
+        def _llama_completion(instance, prompt, max_tokens, temperature, stream):
+            return instance.create_chat_completion(
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                stream=stream,
+            )
+
+        def stream_generate(instance, _processor, prompt, max_tokens, temperature=0.1, **_kwargs):
+            for chunk in _llama_completion(instance, prompt, max_tokens, temperature, True):
+                choices = chunk.get("choices") or []
+                delta = (choices[0].get("delta") or {}) if choices else {}
+                piece = delta.get("content")
+                if piece:
+                    yield str(piece)
+
+        def generate(instance, _processor, prompt, max_tokens, temperature=0.1, **_kwargs):
+            response = _llama_completion(instance, prompt, max_tokens, temperature, False)
+            choices = response.get("choices") or []
+            return str((choices[0].get("message") or {}).get("content") or "") if choices else ""
+    else:
+        _vce_configure_mlx_metal("text_llm")
+        from mlx_vlm import load, generate
+        try:
+            from mlx_vlm.generate import stream_generate
+        except Exception:
+            stream_generate = None
+        from mlx_vlm.prompt_utils import apply_chat_template
+        from mlx_vlm.utils import load_config
 
     model = processor = config = None
     try:
@@ -3105,11 +3193,12 @@ def run_text_llm_postprocess(
         processor = None
         config = None
         gc.collect()
-        try:
-            import mlx.core as mx
-            mx.clear_cache()
-        except Exception:
-            pass
+        if inference_backend == VCE_INFERENCE_BACKEND_MLX:
+            try:
+                import mlx.core as mx
+                mx.clear_cache()
+            except Exception:
+                pass
 
 
 def format_text_llm_report(payload: Dict[str, Any]) -> str:
@@ -3338,7 +3427,7 @@ async def lifespan(app: FastAPI):
     if RAM_MODE == "ram+":
         print("🚀 RAM+ mode: préchargement des modèles...")
         try:
-            vlm_engine.load_model(str(setting("vlm_model", ACTIVE_DEFAULT_VLM)))
+            vlm_engine.load_model(_vce_selected_vlm_model())
         except Exception as e:
             print(f"⚠️ Impossible de précharger le VLM par défaut: {e}")
         try:
@@ -3513,6 +3602,11 @@ async def get_ui_settings():
         "enable_stage_timing": False,
         "enable_adaptive_keyframes": False,
         "enable_ocr_cache": False,
+        "inference_backend": VCE_INFERENCE_BACKEND_MLX,
+        "llama_cpp_vlm_model": DEFAULT_VLM_MODEL_GGUF,
+        "llama_cpp_vlm_mmproj": DEFAULT_MMPROJ_GGUF,
+        "llama_cpp_text_llm_model": DEFAULT_TEXT_LLM_MODEL_GGUF,
+        "llama_cpp_text_context": 32768,
         "enable_mlx_whisper": False,
         "enable_fast_scene_detection": False,
         "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
@@ -3546,6 +3640,7 @@ async def save_ui_settings(payload: Dict[str, Any]):
         raise HTTPException(500, f"Не удалось прочитать настройки: {exc}")
 
     int_ranges = {
+        "llama_cpp_text_context": (4096, 65536),
         "ffmpeg_ocr_workers": (1, 8),
         "ffmpeg_ocr_interval": (1, 60),
         "vlm_resolution": (128, 2048), "keyframes_per_scene": (1, 5),
@@ -3569,6 +3664,17 @@ async def save_ui_settings(payload: Dict[str, Any]):
     for key, value in payload.items():
         if key == "analysis_mode":
             if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
+        elif key == "inference_backend":
+            if value not in {VCE_INFERENCE_BACKEND_MLX, VCE_INFERENCE_BACKEND_LLAMA_CPP}:
+                raise HTTPException(422, "Недопустимый inference backend")
+        elif key in {"llama_cpp_vlm_model", "llama_cpp_vlm_mmproj", "llama_cpp_text_llm_model"}:
+            allowed_gguf = {
+                "llama_cpp_vlm_model": {DEFAULT_VLM_MODEL_GGUF},
+                "llama_cpp_vlm_mmproj": {DEFAULT_MMPROJ_GGUF},
+                "llama_cpp_text_llm_model": {DEFAULT_TEXT_LLM_MODEL_GGUF},
+            }
+            if value not in allowed_gguf[key]:
+                raise HTTPException(422, f"Недопустимая GGUF-модель: {key}")
         elif key == "vlm_model":
             if value not in allowed_vlm: raise HTTPException(422, "Недопустимая VLM-модель")
         elif key == "whisper_model":
@@ -4780,14 +4886,20 @@ async def analyze_video(
     job_id = (job_id or "").strip() or f"api_{time.time_ns()}"
     cancel_event = CANCEL_EVENTS.setdefault(job_id, threading.Event())
     request_start_time = time.time()
+    inference_backend = _vce_normalize_inference_backend()
+    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+        text_llm_model = str(setting("llama_cpp_text_llm_model", DEFAULT_TEXT_LLM_MODEL_GGUF))
     _vce_text_llm_model_cached = True
     if text_llm_enabled:
-        try:
-            from huggingface_hub import snapshot_download
-            snapshot_download(repo_id=text_llm_model, local_files_only=True)
-            _vce_text_llm_model_cached = True
-        except Exception:
-            _vce_text_llm_model_cached = False
+        if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+            _vce_text_llm_model_cached = Path(text_llm_model).expanduser().is_file()
+        else:
+            try:
+                from huggingface_hub import snapshot_download
+                snapshot_download(repo_id=text_llm_model, local_files_only=True)
+                _vce_text_llm_model_cached = True
+            except Exception:
+                _vce_text_llm_model_cached = False
     set_job_progress(job_id, "starting", 1, "Задание принято; готовим видео", stage_index=1, stage_count=6, model_cached=_vce_text_llm_model_cached)
 
     whisper_infer_time = 0.0
@@ -4799,9 +4911,14 @@ async def analyze_video(
     _vce_vlm_scene_started_at = None
     _vce_vlm_scene_finished_at = None
 
+    global vlm_engine
     target_whisper = whisper_model
     whisper_device = resolve_whisper_device(whisper_acceleration)
-    target_vlm = vlm_model
+    target_vlm = (
+        str(setting("llama_cpp_vlm_model", DEFAULT_VLM_MODEL_GGUF))
+        if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP
+        else vlm_model
+    )
     temp_path = None
     cap = None
     owns_temp_path = False
@@ -5064,7 +5181,18 @@ async def analyze_video(
                     release_accelerator_memory('before VLM load')
                     set_job_progress(job_id, "load_vlm", None, "Загружаем визуальную модель Qwen3-VL", indeterminate=True, stage_index=3, stage_count=6)
                     t0 = time.time()
-                    await _vce_mlx_run(vlm_engine.load_model, target_vlm)
+                    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP and not isinstance(vlm_engine, LlamaCppEngine):
+                        if vlm_engine is not None:
+                            vlm_engine.unload_model()
+                        vlm_engine = LlamaCppEngine()
+                    elif inference_backend == VCE_INFERENCE_BACKEND_MLX and platform.system() == "Darwin" and not isinstance(vlm_engine, MLXEngine):
+                        if vlm_engine is not None:
+                            vlm_engine.unload_model()
+                        vlm_engine = MLXEngine()
+                    if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                        await _vce_backend_run(vlm_engine.load_model, target_vlm)
+                    else:
+                        await _vce_mlx_run(vlm_engine.load_model, target_vlm)
                     t1 = time.time()
                     vlm_load_time = vlm_engine.last_load_time or (t1 - t0)
                 else:
@@ -5228,12 +5356,15 @@ async def analyze_video(
                                         full_visual_prompt += "\n\nДополнительный OCR из FFmpeg/Tesseract (может содержать ошибки):\n" + ffmpeg_scene_ocr_text
                             if run_vlm:  # VCE_ANALYSIS_PROFILES_VLM_GUARD
                                 t_vlm_start = time.time()
-                                raw = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
-                                    vlm_engine,
-                                    images,
-                                    full_visual_prompt,
-                                    vlm_max_tokens_scene,
-                                )
+                                if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                                    raw = await _vce_backend_run(vlm_engine.describe_scene, images, full_visual_prompt, vlm_max_tokens_scene)
+                                else:
+                                    raw = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                                        vlm_engine,
+                                        images,
+                                        full_visual_prompt,
+                                        vlm_max_tokens_scene,
+                                    )
                                 t_vlm_end = time.time()
                                 vlm_infer_time += t_vlm_end - t_vlm_start
                                 if cancel_event.is_set():
@@ -5374,12 +5505,15 @@ async def analyze_video(
 
                     if run_vlm and first_frame_img is not None:
                         t_vlm_start = time.time()
-                        raw_summary = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
-                            vlm_engine,
-                            [first_frame_img],
-                            full_summary_prompt,
-                            vlm_max_tokens_summary,
-                        )
+                        if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                            raw_summary = await _vce_backend_run(vlm_engine.describe_scene, [first_frame_img], full_summary_prompt, vlm_max_tokens_summary)
+                        else:
+                            raw_summary = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                                vlm_engine,
+                                [first_frame_img],
+                                full_summary_prompt,
+                                vlm_max_tokens_summary,
+                            )
                         t_vlm_end = time.time()
                         vlm_infer_time += t_vlm_end - t_vlm_start
                         if cancel_event.is_set():
@@ -5497,7 +5631,7 @@ async def analyze_video(
             try:
                 print(f"🧠 [Text LLM] Улучшение структуры отчёта: {text_llm_model}")
                 async with gpu_lock:
-                    text_llm_result = await _vce_mlx_run(run_text_llm_postprocess,
+                    text_llm_result = await (_vce_backend_run if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP else _vce_mlx_run)(run_text_llm_postprocess,
                         text_llm_model,
                         source_name,
                         video_duration,
@@ -5604,7 +5738,7 @@ async def analyze_video(
                 "model": target_vlm,
                 "load_time": round(vlm_load_time, 3),
                 "inference_time": round(vlm_infer_time, 3),
-                "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {}),
+                "runtime": VCE_BACKEND_DIAGNOSTICS.get("vlm", VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {})),
             },
             "parallelism": {
                 "whisper_backend": "mlx-whisper",
@@ -5681,6 +5815,7 @@ async def analyze_video(
                         "vlm_max_tokens_scene": vlm_max_tokens_scene,
                         "vlm_max_tokens_summary": vlm_max_tokens_summary,
                         "ram_mode": RAM_MODE,
+                        "inference_backend": inference_backend,
                     },
                     "timings": timings,
                 },
@@ -5721,7 +5856,7 @@ async def analyze_video(
             "model": text_llm_model if text_llm_enabled else None,
             "status": text_llm_status,
             "inference_time": round(text_llm_infer_time, 3),
-            "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("text_llm", {}),
+            "runtime": VCE_BACKEND_DIAGNOSTICS.get("text_llm", VCE_MLX_RUNTIME_DIAGNOSTICS.get("text_llm", {})),
             "error": text_llm_error or None,
         }
         set_job_progress(job_id, "completed", 100, "TXT/JSON сформированы; обработка завершена", stage_index=6, stage_count=6, status="done", indeterminate=False)
