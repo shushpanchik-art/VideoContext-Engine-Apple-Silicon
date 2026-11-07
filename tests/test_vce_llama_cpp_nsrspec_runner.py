@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 import hashlib
 import importlib.util
@@ -233,6 +234,50 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         ):
             result = subprocess.run([bash, "-n", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{path}: {result.stderr}")
+
+    def test_production_qwen3vl_constructor_contract_accepts_forwarded_kwargs(self):
+        tree = ast.parse(self.runtime)
+        resolver_node = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_vce_qwen3vl_mmproj_init_keyword"
+        )
+        namespace = {}
+        exec(
+            compile(
+                ast.Module(body=[resolver_node], type_ignores=[]),
+                "VideoContextEngine_v3.19.py",
+                "exec",
+            ),
+            namespace,
+        )
+        resolve = namespace["_vce_qwen3vl_mmproj_init_keyword"]
+
+        class VariadicQwenHandler:
+            def __init__(self, force_reasoning=False, add_vision_id=True, **kwargs):
+                pass
+
+        class ExplicitMmprojHandler:
+            def __init__(self, mmproj_path=None):
+                pass
+
+        class LegacyClipHandler:
+            def __init__(self, clip_model_path=None):
+                pass
+
+        class UnsupportedHandler:
+            def __init__(self, force_reasoning=False):
+                pass
+
+        self.assertEqual(resolve(VariadicQwenHandler), "mmproj_path")
+        self.assertEqual(resolve(ExplicitMmprojHandler), "mmproj_path")
+        self.assertEqual(resolve(LegacyClipHandler), "clip_model_path")
+        with self.assertRaisesRegex(RuntimeError, "nor **kwargs"):
+            resolve(UnsupportedHandler)
+        self.assertIn(
+            "_vce_qwen3vl_mmproj_init_keyword(Qwen3VLChatHandler)",
+            self.runtime,
+        )
 
     def test_runtime_and_observer_source_compile(self):
         compile(self.runtime, str(ROOT / "VideoContextEngine_v3.19.py"), "exec")
