@@ -23,7 +23,7 @@ Whisper не переключается вместе с этим парамет�
 
 ## Установка llama-cpp-python с Metal
 
-Это опциональная зависимость: не добавляйте её в базовый requirements-apple-silicon.txt — MLX baseline не должен зависеть от llama.cpp. Для Qwen3VLChatHandler requirements-llama-cpp-metal.txt указывает на исходную сборку JamePeng fork, а не на произвольный PyPI wheel.
+Это опциональная зависимость: не добавляйте её в базовый requirements-apple-silicon.txt — MLX baseline не должен зависеть от llama.cpp. Для Qwen3VLChatHandler requirements-llama-cpp-metal.txt указывает на исходную сборку JamePeng fork, а не на произвольный PyPI wheel. Код использует новый llama_multimodal API с параметром mmproj_path и сохраняет fallback для прежнего clip_model_path.
 
 В терминале на Apple Silicon:
 
@@ -31,7 +31,7 @@ Whisper не переключается вместе с этим парамет�
 
 После установки обязательно проверьте именно Metal и Qwen3-VL handler:
 
-    python -c "from llama_cpp import llama_cpp; from llama_cpp.llama_chat_format import Qwen3VLChatHandler; assert llama_cpp.llama_supports_gpu_offload(); print('Metal offload + Qwen3VLChatHandler: OK')"
+    python -c "from llama_cpp import llama_cpp; from llama_cpp.llama_multimodal import Qwen3VLChatHandler; assert llama_cpp.llama_supports_gpu_offload(); print('Metal offload + Qwen3VLChatHandler: OK')"
 
 Если Qwen3VLChatHandler отсутствует, установленная сборка не подходит. Не заменяйте его на Llava15ChatHandler: это другой multimodal handler. Runtime завершится понятной ошибкой вместо незаметного CPU fallback.
 
