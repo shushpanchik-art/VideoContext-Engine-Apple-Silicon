@@ -66,18 +66,28 @@ button#stop:disabled { color:#4b4217 !important; }
         </select>
         <span class="hint">Qwen3.5 текстовая постобработка не отключается сценариями: она собирает итог из доступных транскрипта и OCR.</span>
       </label>
-      <label class="setting">VLM-модель
-        <select id="cfg-vlm-model"><option value="mlx-community/Qwen3-VL-8B-Instruct-4bit">Qwen3-VL-8B · качество</option><option value="mlx-community/Qwen3-VL-4B-Instruct-4bit">Qwen3-VL-4B · быстрее</option></select>
+      <label class="setting">VLM-модель / путь к GGUF
+        <input id="cfg-vlm-model" type="text" value="mlx-community/Qwen3-VL-8B-Instruct-4bit">
+      </label>
+      <label class="setting">Qwen3-VL mmproj GGUF (только llama.cpp)
+        <input id="cfg-vlm-mmproj-model" type="text" placeholder="/путь/к/mmproj-F16.gguf">
       </label>
       <label class="setting">Whisper-модель
         <select id="cfg-whisper-model"><option>large</option><option>medium</option><option>small</option><option>base</option><option>tiny</option></select>
       </label>
-      <label class="setting">Профиль выполнения
+      <label class="setting">Профиль выполнения Whisper
         <select id="cfg-runtime-profile">
-          <option value="baseline_mps_sequential">Baseline — PyTorch Whisper/MPS → VLM → Text LLM последовательно</option>
-          <option value="mlx_parallel">MLX parallel — Whisper/CPU параллельно с VLM/Metal</option>
+          <option value="baseline_mps_sequential">Baseline — PyTorch Whisper/MPS последовательно</option>
+          <option value="mlx_parallel">MLX parallel — Whisper/CPU параллельно</option>
         </select>
-        <span class="hint">По умолчанию используется baseline. В обоих профилях VLM Qwen3-VL и Text LLM Qwen3.5 остаются на MLX/Metal.</span>
+        <span class="hint">Это только профиль Whisper/планирования; он не выбирает VLM/Text LLM backend.</span>
+      </label>
+      <label class="setting">Backend VLM + Text LLM
+        <select id="cfg-inference-backend">
+          <option value="mlx_metal">MLX / Metal (baseline)</option>
+          <option value="llama_cpp_metal">llama.cpp / Metal (GGUF experiment)</option>
+        </select>
+        <span class="hint">Отдельный переключатель архитектуры. Изменение применяется после перезапуска приложения; CPU fallback запрещён. Whisper и OCR не меняются.</span>
       </label>
       <label class="setting">Разрешение Qwen (px)<input id="cfg-vlm-resolution" type="number" min="128" max="2048" step="64" value="1280"></label>
       <label class="setting">Порог смены сцены<input id="cfg-scene-threshold" type="number" min="0.01" max="1" step="0.01" value="0.15"></label>
@@ -87,8 +97,8 @@ button#stop:disabled { color:#4b4217 !important; }
       <label class="setting">Токенов на сцену<input id="cfg-scene-tokens" type="number" min="16" max="1024" step="16" value="1024"></label>
       <label class="setting">Токенов на резюме<input id="cfg-summary-tokens" type="number" min="16" max="2048" step="16" value="2048"></label>
     </div>
-      <label class="setting">Текстовая LLM-модель
-        <input id="cfg-text-llm-model" type="text" value="mlx-community/Qwen3.5-9B-MLX-4bit" readonly>
+      <label class="setting">Text LLM-модель / путь к GGUF
+        <input id="cfg-text-llm-model" type="text" value="mlx-community/Qwen3.5-9B-MLX-4bit">
       </label>
       <label class="setting">Макс. токенов текстовой LLM<input id="cfg-text-llm-max-tokens" type="number" min="1024" max="4096" step="256" value="4096"></label>
     <div class="setting-checks">
@@ -176,6 +186,8 @@ button#stop:disabled { color:#4b4217 !important; }
     enable_adaptive_keyframes: document.getElementById('cfg-adaptive-keyframes').checked,
     enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked,
     runtime_profile: document.getElementById('cfg-runtime-profile').value,
+    inference_backend: document.getElementById('cfg-inference-backend').value,
+    vlm_mmproj_model: document.getElementById('cfg-vlm-mmproj-model').value.trim(),
     enable_fast_scene_detection: document.getElementById('cfg-fast-scene-detection').checked,
     analysis_mode: document.getElementById('cfg-analysis-mode').value,
     vlm_model: document.getElementById('cfg-vlm-model').value,
@@ -206,7 +218,7 @@ button#stop:disabled { color:#4b4217 !important; }
       'cfg-analysis-mode':'analysis_mode',
       'cfg-ffmpeg-ocr-interval':'ffmpeg_ocr_interval',
       'cfg-ffmpeg-ocr-workers':'ffmpeg_ocr_workers',
-      'cfg-vlm-model':'vlm_model','cfg-whisper-model':'whisper_model','cfg-runtime-profile':'runtime_profile','cfg-vlm-resolution':'vlm_resolution',
+      'cfg-vlm-model':'vlm_model','cfg-vlm-mmproj-model':'vlm_mmproj_model','cfg-whisper-model':'whisper_model','cfg-runtime-profile':'runtime_profile','cfg-inference-backend':'inference_backend','cfg-vlm-resolution':'vlm_resolution',
       'cfg-scene-threshold':'scene_threshold','cfg-min-scene-duration':'min_scene_duration',
       'cfg-max-scene-duration':'max_scene_duration','cfg-keyframes':'keyframes_per_scene',
       'cfg-scene-tokens':'vlm_max_tokens_scene','cfg-summary-tokens':'vlm_max_tokens_summary',
