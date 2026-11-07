@@ -3685,6 +3685,8 @@ async def get_ui_settings():
         "enable_adaptive_keyframes": False,
         "enable_ocr_cache": False,
         "runtime_profile": VCE_RUNTIME_PROFILE_BASELINE,
+        "inference_backend": VCE_INFERENCE_BACKEND_MLX,
+        "vlm_mmproj_model": "",
         "enable_mlx_whisper": False,  # legacy API compatibility; runtime_profile is authoritative
         "enable_fast_scene_detection": False,
         "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
@@ -5928,6 +5930,7 @@ async def analyze_video(
                     "global_summary": global_summary_text,
                     "scene_count": len(final_segments),
                     "runtime_profile": runtime_profile,
+                    "inference_backend": inference_backend,
                     "models": {
                         "vlm": target_vlm,
                         "whisper": target_whisper,
@@ -5953,6 +5956,7 @@ async def analyze_video(
                         "whisper_acceleration": whisper_acceleration,
                         "whisper_device": whisper_device,
                         "runtime_profile": runtime_profile,
+                        "inference_backend": inference_backend,
                         "enable_audio_features": enable_audio_features,
                         "word_timestamps": word_timestamps,
                         "generate_json": generate_json,
