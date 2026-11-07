@@ -41,7 +41,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('rclone copyto "$ARCHIVE" "$REMOTE_FILE"', self.launcher)
         self.assertIn('rclone size "$REMOTE_FILE" --json', self.launcher)
         self.assertIn("DROPBOX_UPLOAD=SUCCESS", self.launcher)
-        self.assertIn("No video was submitted", self.launcher)
+        self.assertIn("no video was submitted", self.launcher)
         self.assertNotIn("rclone copyto \"$VIDEO\"", self.launcher)
         self.assertIn("does not upload video/results", self.watchdog)
 
