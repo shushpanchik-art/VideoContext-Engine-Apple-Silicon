@@ -3273,7 +3273,7 @@ def run_text_llm_postprocess(
 
 
 def format_text_llm_report(payload: Dict[str, Any]) -> str:
-    lines = ["", "=" * 56, "СМЫСЛОВОЙ АНАЛИЗ И СТРУКТУРИРОВАНИЕ (Qwen3.5-9B-MLX-4bit)", "=" * 56]
+    lines = ["", "=" * 56, "СМЫСЛОВОЙ АНАЛИЗ И СТРУКТУРИРОВАНИЕ (Text LLM)", "=" * 56]
     if payload.get("executive_summary"):
         lines.extend(["", "КРАТКОЕ РЕЗЮМЕ", payload["executive_summary"]])
     if payload.get("topics"):
