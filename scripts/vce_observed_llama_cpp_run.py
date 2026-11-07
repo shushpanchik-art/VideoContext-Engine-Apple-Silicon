@@ -478,6 +478,29 @@ def save_timing_outputs(run_dir: Path, data: Any) -> dict[str, Any]:
     timings = meta.get("timings") or data.get("timings") or {}
     if not isinstance(timings, dict):
         timings = {}
+    text_llm = timings.get("text_llm")
+    if isinstance(text_llm, dict):
+        primary = str(text_llm.get("raw_excerpt") or "")
+        repair = str(text_llm.get("repair_raw_excerpt") or "")
+        if primary or repair:
+            diagnostic_lines = [
+                "VCE Text LLM raw generation diagnostics",
+                "Excerpts are truncated to 2000 characters each.",
+                "",
+                "=== Primary generation ===",
+                primary or "(not captured)",
+                "",
+                "=== Repair-pass generation ===",
+                repair or "(not captured)",
+                "",
+                "=== Parse errors ===",
+                "Primary: " + str(text_llm.get("primary_parse_error") or "(not recorded)"),
+                "Repair: " + str(text_llm.get("repair_parse_error") or "(not recorded)"),
+            ]
+            (run_dir / "text_llm_raw.txt").write_text(
+                "\n".join(diagnostic_lines) + "\n", encoding="utf-8"
+            )
+            text_llm["raw_diagnostic_file"] = "text_llm_raw.txt"
     write_json(run_dir / "stage_timings.json", timings)
     rows = flatten_timing_metrics(timings)
     with (run_dir / "stage_timings.csv").open("w", newline="", encoding="utf-8") as f:
@@ -862,7 +885,7 @@ def main() -> int:
     print_timing_summary(response_data, response_state["http_status"], elapsed_total)
     print("\n=== Наблюдение завершено ===")
     print("Результаты сохранены локально:", run_dir)
-    print("Файлы: response.json, stage_timings.json/csv, progress_trace.jsonl, system_samples.jsonl, server_events.jsonl, server_log_key_lines.txt, run_metadata.json")
+    print("Файлы: response.json, stage_timings.json/csv, progress_trace.jsonl, system_samples.jsonl, server_events.jsonl, server_log_key_lines.txt, run_metadata.json; text_llm_raw.txt создаётся при ошибке JSON")
     print("Публично ничего не загружалось. Backend settings временно применены через API; A/B orchestrator восстановит исходный settings JSON после обоих прогонов.")
     if response_state["error"]:
         print("TRANSPORT_ERROR:", response_state["error"])
