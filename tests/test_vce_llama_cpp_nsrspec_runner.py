@@ -2,11 +2,13 @@ import ast
 from pathlib import Path
 import hashlib
 import importlib.util
+import json
 import re
+import tempfile
 import shutil
 import subprocess
 import unittest
-from typing import Any
+from typing import Any, Dict
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -284,6 +286,112 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         compile(self.runtime, str(ROOT / "VideoContextEngine_v3.19.py"), "exec")
         compile(self.observer, str(OBSERVER_PATH), "exec")
 
+
+    def test_qwen35_llama_completion_uses_native_json_grammar_and_zero_reasoning_budget(self):
+        tree = ast.parse(self.runtime)
+        helper_node = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_vce_llama_json_completion"
+        )
+        namespace = {}
+        exec(
+            compile(ast.Module(body=[helper_node], type_ignores=[]),
+                    "VideoContextEngine_v3.19.py", "exec"),
+            namespace,
+        )
+        complete = namespace["_vce_llama_json_completion"]
+
+        class FakeLlama:
+            def __init__(self):
+                self.calls = []
+
+            def create_chat_completion(self, **kwargs):
+                self.calls.append(kwargs)
+                return {"choices": []}
+
+        fake = FakeLlama()
+        for stream in (False, True):
+            complete(fake, "prompt", 2048, 0.0, stream)
+        self.assertEqual([call["stream"] for call in fake.calls], [False, True])
+        for call in fake.calls:
+            self.assertEqual(call["response_format"], {"type": "json_object"})
+            self.assertEqual(call["reasoning_budget"], 0)
+            self.assertEqual(call["reasoning_start"], "<think>")
+            self.assertEqual(call["reasoning_end"], "</think>")
+            self.assertTrue(call["reasoning_start_in_prompt"])
+        self.assertIn("_vce_llama_json_completion(instance, prompt, max_tokens, temperature, stream)", self.runtime)
+
+    def test_qwen35_json_parser_skips_prose_and_closed_thinking_blocks(self):
+        tree = ast.parse(self.runtime)
+        helper_node = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_text_llm_extract_json_object"
+        )
+        namespace = {"Any": Any, "Dict": Dict, "json": json, "re": re}
+        exec(
+            compile(ast.Module(body=[helper_node], type_ignores=[]),
+                    "VideoContextEngine_v3.19.py", "exec"),
+            namespace,
+        )
+        extract = namespace["_text_llm_extract_json_object"]
+        result = extract(
+            "<think>Scratch {not JSON}</think>\n"
+            "I will now answer:\n"
+            '{"executive_summary":"валидный результат","topics":[]}'
+        )
+        self.assertEqual(result["executive_summary"], "валидный результат")
+
+    def test_qwen35_json_parser_rejects_json_like_text_inside_unterminated_thinking(self):
+        tree = ast.parse(self.runtime)
+        helper_node = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_text_llm_extract_json_object"
+        )
+        namespace = {"Any": Any, "Dict": Dict, "json": json, "re": re}
+        exec(
+            compile(ast.Module(body=[helper_node], type_ignores=[]),
+                    "VideoContextEngine_v3.19.py", "exec"),
+            namespace,
+        )
+        extract = namespace["_text_llm_extract_json_object"]
+        with self.assertRaises(ValueError):
+            extract('<think>unfinished thoughts {"executive_summary":"not final"}')
+
+    def test_observer_saves_bounded_text_llm_raw_diagnostic_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run_dir = Path(directory)
+            timings = {
+                "text_llm": {
+                    "raw_excerpt": '{"executive_summary":',
+                    "repair_raw_excerpt": "{'executive_summary':",
+                    "primary_parse_error": "invalid first output",
+                    "repair_parse_error": "invalid repair output",
+                }
+            }
+            _OBSERVER.save_timing_outputs(run_dir, {"meta": {"timings": timings}})
+            artifact = run_dir / "text_llm_raw.txt"
+            self.assertTrue(artifact.exists())
+            saved = artifact.read_text(encoding="utf-8")
+            self.assertIn("Primary generation", saved)
+            self.assertIn("Repair-pass generation", saved)
+            self.assertIn("invalid repair output", saved)
+            self.assertEqual(timings["text_llm"]["raw_diagnostic_file"], "text_llm_raw.txt")
+
+    def test_text_llm_raw_diagnostics_are_bounded_and_exposed_in_api_timing(self):
+        self.assertIn('failure.raw_excerpt = _text_llm_clip(raw, 2000)', self.runtime)
+        self.assertIn('failure.repair_raw_excerpt = _text_llm_clip(repaired_raw, 2000)', self.runtime)
+        self.assertIn('"raw_excerpt": text_llm_raw_excerpt or None', self.runtime)
+        self.assertIn('"repair_raw_excerpt": text_llm_repair_raw_excerpt or None', self.runtime)
+
+    def test_text_llm_reasoning_metadata_matches_selected_backend(self):
+        self.assertIn(
+            '"thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX)',
+            self.runtime,
+        )
+        self.assertIn('512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0', self.runtime)
 
     def test_http_200_with_failed_text_llm_is_not_a_pass(self):
         verdict = _OBSERVER.classify_backend_failure(

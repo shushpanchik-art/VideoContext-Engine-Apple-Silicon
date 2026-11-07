@@ -2611,6 +2611,24 @@ TEXT_LLM_DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
 TEXT_LLM_DEFAULT_MAX_TOKENS = 4096
 
 
+def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperature: float, stream: bool):
+    """Use JSON grammar and the pinned fork's native reasoning-budget controls."""
+    return instance.create_chat_completion(
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stream=stream,
+        response_format={"type": "json_object"},
+        # Qwen3.5's GGUF chat template already inserts <think> by default.
+        # This pinned fork supports reasoning_budget=0 to close that block
+        # immediately, without relying on unsupported per-call template kwargs.
+        reasoning_budget=0,
+        reasoning_start="<think>",
+        reasoning_end="</think>",
+        reasoning_start_in_prompt=True,
+    )
+
+
 def _text_llm_clip(value: Any, limit: int) -> str:
     text = str(value or "").strip()
     if len(text) <= limit:
@@ -2628,16 +2646,41 @@ def _text_llm_normalize_list(value: Any, item_limit: int = 24) -> List[str]:
     return out
 
 
+def _text_llm_extract_json_object(raw: str) -> Dict[str, Any]:
+    """Find the first complete analysis object, ignoring prose and closed reasoning blocks."""
+    text = str(raw or "").strip()
+    while True:
+        opening = re.search(r"<think\b[^>]*>", text, flags=re.IGNORECASE)
+        if opening is None:
+            break
+        closing = re.search(r"</think\s*>", text[opening.end():], flags=re.IGNORECASE)
+        if closing is None:
+            # An unterminated reasoning block is not JSON evidence. Do not parse braces
+            # that may merely be examples or scratch text inside that block.
+            text = text[:opening.start()].strip()
+            break
+        close_end = opening.end() + closing.end()
+        text = (text[:opening.start()] + text[close_end:]).strip()
+    text = re.sub(r"^\s*\x60{3}(?:json)?\s*|\s*\x60{3}\s*$", "", text, flags=re.IGNORECASE).strip()
+
+    decoder = json.JSONDecoder()
+    for start, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            payload, _end = decoder.raw_decode(text[start:])
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, dict):
+            continue
+        summary = payload.get("executive_summary")
+        if isinstance(summary, str) and summary.strip():
+            return payload
+    raise ValueError("Не найден полный JSON-объект с непустым executive_summary.")
+
+
 def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
-    text = (raw or "").strip()
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
-    start, end = text.find("{"), text.rfind("}")
-    if start < 0 or end <= start:
-        raise ValueError("Текстовая LLM не вернула JSON-объект.")
-    payload = json.loads(text[start:end + 1])
-    if not isinstance(payload, dict):
-        raise ValueError("Ответ текстовой LLM должен быть JSON-объектом.")
+    payload = _text_llm_extract_json_object(raw)
     summary = payload.get("executive_summary")
     if not isinstance(summary, str) or not summary.strip():
         raise ValueError("В JSON текстовой LLM отсутствует executive_summary.")
@@ -3094,12 +3137,7 @@ def run_text_llm_postprocess(
             return prompt
 
         def _llama_completion(instance, prompt, max_tokens, temperature, stream):
-            return instance.create_chat_completion(
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stream=stream,
-            )
+            return _vce_llama_json_completion(instance, prompt, max_tokens, temperature, stream)
 
         def stream_generate(instance, _processor, prompt, max_tokens, temperature=0.1, **_kwargs):
             for chunk in _llama_completion(instance, prompt, max_tokens, temperature, True):
@@ -3327,7 +3365,23 @@ def run_text_llm_postprocess(
                 try:
                     parsed = _text_llm_parse_json(repaired_raw)
                 except Exception as second_error:
-                    raise ValueError(f"Qwen3.5 вернул некорректный JSON даже после одной попытки исправления: {second_error}") from second_error
+                    failure = ValueError(
+                        f"Qwen3.5 вернул некорректный JSON даже после одной попытки исправления: {second_error}"
+                    )
+                    failure.raw_excerpt = _text_llm_clip(raw, 2000)
+                    failure.repair_raw_excerpt = _text_llm_clip(repaired_raw, 2000)
+                    failure.primary_parse_error = str(parse_error)[:500]
+                    failure.repair_parse_error = str(second_error)[:500]
+                    print(
+                        "[VCE Text LLM raw diagnostic] " + json.dumps({
+                            "primary_excerpt": failure.raw_excerpt,
+                            "repair_excerpt": failure.repair_raw_excerpt,
+                            "primary_parse_error": failure.primary_parse_error,
+                            "repair_parse_error": failure.repair_parse_error,
+                        }, ensure_ascii=False),
+                        flush=True,
+                    )
+                    raise failure from second_error
         parsed = reconcile_text_llm_result(parsed, segments, existing_summary)
         parsed = _vce_canonicalize_confirmed_standard_names(parsed, segments)
         parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)
@@ -5805,6 +5859,10 @@ async def analyze_video(
         text_llm_result = None
         text_llm_infer_time = 0.0
         text_llm_error = ""
+        text_llm_raw_excerpt = ""
+        text_llm_repair_raw_excerpt = ""
+        text_llm_primary_parse_error = ""
+        text_llm_repair_parse_error = ""
         text_llm_status = "disabled"
         if text_llm_enabled:
             text_llm_status = "failed"
@@ -5887,6 +5945,10 @@ async def analyze_video(
             except Exception as exc:
                 text_llm_infer_time = time.time() - llm_started_at
                 text_llm_error = str(exc)[:500]
+                text_llm_raw_excerpt = str(getattr(exc, "raw_excerpt", "") or "")[:2000]
+                text_llm_repair_raw_excerpt = str(getattr(exc, "repair_raw_excerpt", "") or "")[:2000]
+                text_llm_primary_parse_error = str(getattr(exc, "primary_parse_error", "") or "")[:500]
+                text_llm_repair_parse_error = str(getattr(exc, "repair_parse_error", "") or "")[:500]
                 text_llm_result = None
                 text_llm_status = "failed"
                 # Keep the complete exception chain in the server log; the forensic
@@ -6064,10 +6126,16 @@ async def analyze_video(
                     "load_download_time": round(locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0), 3),
                     "generation_time": round(max(0.0, text_llm_infer_time - locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0)), 3),
                     "model_cached_before_run": bool(locals().get("_vce_text_llm_model_cached", True)) if text_llm_enabled else None,
-                    "thinking_enabled": bool(text_llm_enabled),
-                    "thinking_budget": 512 if text_llm_enabled else None,
+                    "thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX),
+                    "thinking_budget": (
+                        512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0
+                    ) if text_llm_enabled else None,
                     "max_output_tokens": int(text_llm_max_tokens or 4096) if text_llm_enabled else None,
                     "error": text_llm_error or None,
+                    "raw_excerpt": text_llm_raw_excerpt or None,
+                    "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
+                    "primary_parse_error": text_llm_primary_parse_error or None,
+                    "repair_parse_error": text_llm_repair_parse_error or None,
                 },
                 "segments": final_segments,
                 "txt_filename": txt_output_name,
@@ -6111,6 +6179,10 @@ async def analyze_video(
             "inference_time": round(text_llm_infer_time, 3),
             "runtime": text_llm_backend_info,
             "error": text_llm_error or None,
+            "raw_excerpt": text_llm_raw_excerpt or None,
+            "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
+            "primary_parse_error": text_llm_primary_parse_error or None,
+            "repair_parse_error": text_llm_repair_parse_error or None,
         }
         set_job_progress(job_id, "completed", 100, "TXT/JSON сформированы; обработка завершена", stage_index=6, stage_count=6, status="done", indeterminate=False)
         if response_format == "text":
