@@ -36,9 +36,22 @@ BRANCH="fix/qwen3vl-kwargs-mtmd-preflight-handoff-20261107"
   exit 2
 }
 git -C "$ROOT" status --short --branch
-git -C "$ROOT" stash push -u -m "pre-NSRSPEC-AB-20261107"
-git -C "$ROOT" fetch origin "$BRANCH"
 
+# Preserve the current API settings file outside the stash; it is machine-local state.
+SETTINGS="$ROOT/videocontext_settings.json"
+SETTINGS_BACKUP=""
+if [[ -f "$SETTINGS" ]]; then
+  SETTINGS_BACKUP="$(mktemp "${TMPDIR:-/tmp}/vce-settings.XXXXXX")"
+  cp -p "$SETTINGS" "$SETTINGS_BACKUP"
+fi
+
+git -C "$ROOT" stash push -u -m "pre-NSRSPEC-AB-20261107"
+if [[ -n "$SETTINGS_BACKUP" ]]; then
+  cp -p "$SETTINGS_BACKUP" "$SETTINGS"
+  rm -f "$SETTINGS_BACKUP"
+fi
+
+git -C "$ROOT" fetch origin "$BRANCH"
 if git -C "$ROOT" show-ref --verify --quiet "refs/heads/$BRANCH"; then
   git -C "$ROOT" switch "$BRANCH"
 else
