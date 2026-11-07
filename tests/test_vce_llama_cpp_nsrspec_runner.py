@@ -386,6 +386,13 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('"raw_excerpt": text_llm_raw_excerpt or None', self.runtime)
         self.assertIn('"repair_raw_excerpt": text_llm_repair_raw_excerpt or None', self.runtime)
 
+    def test_text_llm_reasoning_metadata_matches_selected_backend(self):
+        self.assertIn(
+            '"thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX)',
+            self.runtime,
+        )
+        self.assertIn('512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0', self.runtime)
+
     def test_http_200_with_failed_text_llm_is_not_a_pass(self):
         verdict = _OBSERVER.classify_backend_failure(
             200,
