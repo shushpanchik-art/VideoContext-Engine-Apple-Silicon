@@ -12,9 +12,24 @@ PY="$ROOT/.venv/bin/python"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/vce-nsrspec-patch.XXXXXX")"
 BACKUP="$HOME/Downloads/VCE_patch_backups_NSRSPEC_AB/$STAMP"
+PATCH_INSTALL_STARTED=0
+REGRESSION_TESTS_PASSED=0
 
 fail() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 2; }
-cleanup() { rm -rf "$STAGE"; }
+cleanup() {
+  local status=$?
+  if [[ "$PATCH_INSTALL_STARTED" == "1" && "$REGRESSION_TESTS_PASSED" != "1" && -d "$BACKUP" ]]; then
+    printf '\nRegression validation failed; restoring original files from %s\n' "$BACKUP" >&2
+    while IFS=" " read -r REL SHA; do
+      [[ -n "$REL" ]] || continue
+      if [[ -f "$BACKUP/$REL" ]]; then
+        /usr/bin/install -m 0644 "$BACKUP/$REL" "$ROOT/$REL" || status=2
+      fi
+    done <<< "$FILES"
+  fi
+  rm -rf "$STAGE"
+  return "$status"
+}
 trap cleanup EXIT
 
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Нужен macOS на Apple Silicon."
@@ -60,8 +75,13 @@ done <<< "$FILES"
 mkdir -p "$BACKUP"
 while IFS=" " read -r REL SHA; do
   [[ -n "$REL" ]] || continue
-  mkdir -p "$BACKUP/$(dirname "$REL")" "$ROOT/$(dirname "$REL")"
+  mkdir -p "$BACKUP/$(dirname "$REL")"
   cp -p "$ROOT/$REL" "$BACKUP/$REL"
+done <<< "$FILES"
+
+PATCH_INSTALL_STARTED=1
+while IFS=" " read -r REL SHA; do
+  [[ -n "$REL" ]] || continue
   /usr/bin/install -m 0644 "$STAGE/$REL" "$ROOT/$REL"
 done <<< "$FILES"
 chmod 755 "$ROOT/scripts/vce_run_nsrspec_ab.command" "$ROOT/scripts/vce_run_nsrspec_llama_cpp.command"
@@ -73,7 +93,10 @@ cd "$ROOT"
 bash -n "$ROOT/scripts/vce_run_nsrspec_ab.command"
 bash -n "$ROOT/scripts/vce_run_nsrspec_llama_cpp.command"
 printf '\nREGRESSION_TESTS=PASSED\n\n'
+REGRESSION_TESTS_PASSED=1
 
 # The A/B launcher installs the venv-scoped MTMD resolver, performs real MTMD preflight,
 # runs MLX baseline first, then llama.cpp comparison, restores settings and uploads ZIP.
-exec /bin/bash "$ROOT/scripts/vce_run_nsrspec_ab.command"
+rm -rf "$STAGE"
+trap - EXIT
+/bin/bash "$ROOT/scripts/vce_run_nsrspec_ab.command"
