@@ -5653,7 +5653,7 @@ async def analyze_video(
 
                     if run_vlm and first_frame_img is not None:
                         t_vlm_start = time.time()
-                        raw_summary = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                        raw_summary = await _vce_inference_run(_vce_describe_scene_with_memory_fallback,
                             vlm_engine,
                             [first_frame_img],
                             full_summary_prompt,
