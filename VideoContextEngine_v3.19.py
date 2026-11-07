@@ -1833,6 +1833,29 @@ def _vce_require_llama_metal():
     return native
 
 
+def _vce_qwen3vl_mmproj_init_keyword(handler_class: Any) -> str:
+    """Resolve the projector keyword, including constructors forwarding **kwargs."""
+    import inspect
+
+    signature = inspect.signature(handler_class.__init__)
+    parameters = signature.parameters
+    if "mmproj_path" in parameters:
+        return "mmproj_path"
+    if "clip_model_path" in parameters:
+        return "clip_model_path"
+    if any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    ):
+        # Qwen3VLChatHandler in the pinned fork forwards **kwargs to
+        # MTMDBaseHandler, whose canonical projector argument is mmproj_path.
+        return "mmproj_path"
+    raise RuntimeError(
+        "Qwen3VLChatHandler.__init__ accepts neither mmproj_path, "
+        "clip_model_path, nor **kwargs: " + str(signature)
+    )
+
+
 class LlamaCppEngine(VLMProvider):
     """Explicit Qwen3-VL GGUF backend. It is never selected by the MLX baseline."""
     def __init__(self):
@@ -1867,16 +1890,7 @@ class LlamaCppEngine(VLMProvider):
             DEFAULT_VLM_REPO_GGUF, model_path, revision=DEFAULT_VLM_GGUF_REVISION
         )
         handler_signature = inspect.signature(Qwen3VLChatHandler.__init__)
-        handler_parameters = handler_signature.parameters
-        if "mmproj_path" in handler_parameters:
-            handler_init_keyword = "mmproj_path"
-        elif "clip_model_path" in handler_parameters:
-            handler_init_keyword = "clip_model_path"
-        else:
-            raise RuntimeError(
-                "Qwen3VLChatHandler.__init__ не содержит mmproj_path или clip_model_path: "
-                + str(handler_signature)
-            )
+        handler_init_keyword = _vce_qwen3vl_mmproj_init_keyword(Qwen3VLChatHandler)
         print("[VCE llama.cpp] " + json.dumps({
             "llama_cpp_version": getattr(llama_cpp, "__version__", None),
             "libllama_path": str(Path(llama_core._lib._name).resolve()),
