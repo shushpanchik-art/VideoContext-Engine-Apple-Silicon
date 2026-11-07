@@ -143,14 +143,15 @@ fi
 REMOTE_TYPE="$(rclone config show "$DROPBOX_REMOTE" 2>/dev/null | awk -F ' = ' '$1 == "type" {print $2; exit}')"
 [[ "$REMOTE_TYPE" == dropbox ]] || fail "Remote $DROPBOX_REMOTE не является Dropbox."
 
-note "Скачиваю watchdog, observer и mtmd-патч из одного pinned-коммита $TOOLS_COMMIT."
+note "Скачиваю watchdog и mtmd installer из pinned-коммита $TOOLS_COMMIT; проверяю установленный observer patch."
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$TOOLS_COMMIT/scripts"
 curl -fsSL "$BASE_URL/vce_runtime_watchdog.py" -o "$TOOLS_DIR/vce_runtime_watchdog.py"
-curl -fsSL "$BASE_URL/vce_observed_llama_cpp_run.py" -o "$TOOLS_DIR/vce_observed_llama_cpp_run.py"
 curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
 [[ "$(git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py")" == "50e91ffabcf2cb6174b068a12eea0b6b909cba5e" ]] || fail "Не прошла проверка целостности watchdog."
-[[ "$(git hash-object "$TOOLS_DIR/vce_observed_llama_cpp_run.py")" == "55f8f0b561577b90d1525f6c960359e21f74c27b" ]] || fail "Не прошла проверка целостности observer."
 [[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
+RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-39fff57545c50500c3ce241fcb10ae3004204c0c}}"
+[[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден patched observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
+[[ "$(git -C "$ROOT" hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py")" == "$RUNNER_BLOB_SHA" ]] || fail "Observer patch не установлен или blob SHA не совпадает; запускай scripts/vce_patch_test_run_nsrspec_ab.command."
 
 # Install the .pth hook only while the app/API is fully stopped. Download and
 # verify the pinned tools first, so a broken checksum is reported before app-state checks.
@@ -459,7 +460,7 @@ run_backend() {
   pass_dir="$2"
   mkdir -p "$pass_dir"
   note "Стартую $backend; Whisper остаётся PyTorch/MPS, OCR cache ON, FFmpeg OCR 5s/3 workers."
-  "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$TOOLS_DIR/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --powermetrics --vmmap --sample-stacks
+  "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --powermetrics --vmmap --sample-stacks
 }
 
 if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then
