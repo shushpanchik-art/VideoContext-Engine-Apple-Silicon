@@ -22,8 +22,8 @@ class LlamaCppMetalBackendTests(unittest.TestCase):
     def test_vlm_uses_qwen3_vl_handler_and_8b_projector_pair(self):
         self.assertIn("Qwen3VLChatHandler", self.runtime)
         self.assertNotIn("Llava15ChatHandler", self.runtime)
-        self.assertIn("Qwen3-VL-8B-Instruct-Q4_K_M.gguf", self.runtime)
-        self.assertIn("mmproj-Qwen3-VL-8B-Instruct-f16.gguf", self.runtime)
+        self.assertIn("Qwen3VL-8B-Instruct-Q4_K_M.gguf", self.runtime)
+        self.assertIn("mmproj-Qwen3VL-8B-Instruct-F16.gguf", self.runtime)
 
     def test_text_llm_has_a_separate_llama_cpp_generation_path(self):
         self.assertIn("DEFAULT_TEXT_LLM_MODEL_GGUF", self.runtime)
