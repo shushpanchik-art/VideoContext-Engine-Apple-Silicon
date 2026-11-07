@@ -3660,7 +3660,9 @@ async def save_ui_settings(payload: Dict[str, Any]):
     allowed_whisper = {"tiny", "base", "small", "medium", "large"}
     merged = dict(current)
     for key, value in payload.items():
-        if key == "inference_backend":
+        if key == "analysis_mode":
+            if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
+        elif key == "inference_backend":
             if value not in {VCE_INFERENCE_BACKEND_MLX, VCE_INFERENCE_BACKEND_LLAMA_CPP}:
                 raise HTTPException(422, "Недопустимый inference backend")
         elif key in {"llama_cpp_vlm_model", "llama_cpp_vlm_mmproj", "llama_cpp_text_llm_model"}:
@@ -3671,8 +3673,6 @@ async def save_ui_settings(payload: Dict[str, Any]):
             }
             if value not in allowed_gguf[key]:
                 raise HTTPException(422, f"Недопустимая GGUF-модель: {key}")
-        elif key == "analysis_mode":
-            if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
         elif key == "vlm_model":
             if value not in allowed_vlm: raise HTTPException(422, "Недопустимая VLM-модель")
         elif key == "whisper_model":
