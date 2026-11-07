@@ -200,7 +200,7 @@ if "runtime_profile" not in props:
     raise SystemExit("STOP: API lacks runtime_profile; no video was submitted.")
 settings = get("/api/v1/ui-settings")
 required = {
-    "inference_backend", "llama_cpp_vlm_model", "llama_cpp_vlm_mmproj",
+    "inference_backend", "enable_ocr_cache", "llama_cpp_vlm_model", "llama_cpp_vlm_mmproj",
     "llama_cpp_text_llm_model", "vlm_model", "text_llm_model",
 }
 missing = sorted(required - set(settings))
@@ -459,7 +459,7 @@ run_backend() {
   backend="$1"
   pass_dir="$2"
   mkdir -p "$pass_dir"
-  note "Стартую $backend; Whisper остаётся PyTorch/MPS, OCR cache ON, FFmpeg OCR 5s/3 workers."
+  note "Стартую $backend; Whisper остаётся PyTorch/MPS, OCR cache OFF (подтверждается observer перед upload), FFmpeg OCR 5s/3 workers."
   "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --powermetrics --vmmap --sample-stacks
 }
 
@@ -519,7 +519,8 @@ data = {
         {"pass": 2, "inference_backend": "llama_cpp_metal", "role": "comparison backend", "exit_code": run2_exit, "directory": "run2_llama_cpp_metal", "skipped_reason": run2_skipped_reason},
     ],
     "settings_restored": True,
-    "note": "Both passes use baseline_mps_sequential Whisper/PyTorch-MPS. GGUF selectors are only in llama_cpp_*; vlm_model/text_llm_model remain MLX identifiers.",
+    "ocr_cache_enabled_during_runs": False,
+    "note": "Both passes use baseline_mps_sequential Whisper/PyTorch-MPS with enable_ocr_cache=false to avoid warm-cache bias. Original OCR cache setting is restored and verified after both passes. GGUF selectors are only in llama_cpp_*; vlm_model/text_llm_model remain MLX identifiers.",
 }
 Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(data, ensure_ascii=False))

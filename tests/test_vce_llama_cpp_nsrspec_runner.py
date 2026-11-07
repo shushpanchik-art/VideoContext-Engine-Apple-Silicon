@@ -103,6 +103,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         for settings in (mlx, llama):
             self.assertEqual(settings["runtime_profile"], "baseline_mps_sequential")
             self.assertFalse(settings["enable_mlx_whisper"])
+            self.assertIs(settings["enable_ocr_cache"], False)
             self.assertEqual(settings["whisper_model"], "large")
             self.assertEqual(settings["vlm_model"], "mlx-community/Qwen3-VL-8B-Instruct-4bit")
             self.assertEqual(settings["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
@@ -114,6 +115,12 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertNotIn("llama_cpp_text_llm_model", mlx)
         with self.assertRaises(ValueError):
             _OBSERVER.build_backend_settings("unknown")
+
+    def test_observer_disables_ocr_cache_and_fails_closed_before_video_upload(self):
+        self.assertIn('"enable_ocr_cache": False', self.observer)
+        self.assertIn('if active_settings.get("enable_ocr_cache") is not False:', self.observer)
+        self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
+        self.assertIn('"enable_ocr_cache"', self.launcher)
 
     def test_runtime_records_mps_device_with_index_as_verified(self):
         self.assertIn("def _vce_device_type_name(value: Any) -> str:", self.runtime)

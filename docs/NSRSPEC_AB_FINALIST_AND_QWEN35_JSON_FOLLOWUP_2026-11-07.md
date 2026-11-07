@@ -99,6 +99,14 @@ The pinned runtime dependency is `llama-cpp-python 0.4.6` at fork commit `1dd04b
 
 Raw excerpts can include user video-derived text. They are diagnostic artifacts for the user's local/private forensic run and must not be added to public issues, pull requests, or public repositories. The A/B launcher may include them only in the private forensic archive.
 
+## Follow-up: unbiased OCR cache handling for the next A/B run
+
+The recorded 2026-11-07 pass 1 used the previously configured OCR cache. That historical result is preserved as evidence, but a sequential comparison can be biased if pass 2 reuses OCR entries produced by pass 1.
+
+The A/B follow-up therefore forces `enable_ocr_cache=false` in the common backend settings for **both** MLX and llama.cpp. The observer reads `/api/v1/ui-settings` after applying each pass settings and refuses to submit the video unless the active value is exactly boolean `false`. The original OCR-cache setting is restored and verified after both passes, including error exits. The per-run settings snapshots and `ab_summary.json` record this policy.
+
+This prevents the second pass from receiving a warm OCR-cache advantage. It does not clear or alter the user's saved OCR-cache preference permanently, and the historical 321.959 s result should not be treated as a cache-matched measurement against the new run.
+
 ## Validation still required
 
 The code and regression tests in this follow-up branch have not yet been rerun on the target M1 Max after the changes above.
