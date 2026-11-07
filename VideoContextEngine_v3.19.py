@@ -98,6 +98,20 @@ async def _vce_mlx_run(fn, *args, **kwargs):
     call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)
     return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
 
+
+_VCE_LLAMA_CPP_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="vce-llama-cpp-metal"
+)
+
+
+async def _vce_inference_run(fn, *args, **kwargs):
+    """Run on an architecture-specific worker; never import MLX on the llama.cpp path."""
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_MLX:
+        return await _vce_mlx_run(fn, *args, **kwargs)
+    loop = asyncio.get_running_loop()
+    call = _vce_mlx_functools.partial(fn, *args, **kwargs)
+    return await loop.run_in_executor(_VCE_LLAMA_CPP_EXECUTOR, call)
+
 # VCE_MLX_VLM_RUNTIME_TRACE_V1
 import sys as _vce_mlx_trace_sys
 import threading as _vce_mlx_trace_threading
@@ -1488,21 +1502,21 @@ def release_accelerator_memory(stage: str = "") -> None:
             torch.mps.empty_cache()
     except Exception as exc:
         print(f"⚠️ Не удалось очистить кэш PyTorch MPS ({stage}): {exc}")
-    try:
-        import mlx.core as mx
-        clear_cache = getattr(mx, "clear_cache", None)
-        if callable(clear_cache):
-            clear_cache()
-        else:
-            # Compatibility fallback for versions exposing this only under mx.metal.
-            metal_api = getattr(mx, "metal", None)
-            metal_clear_cache = getattr(metal_api, "clear_cache", None)
-            if callable(metal_clear_cache):
-                metal_clear_cache()
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_MLX:
+        try:
+            import mlx.core as mx
+            clear_cache = getattr(mx, "clear_cache", None)
+            if callable(clear_cache):
+                clear_cache()
             else:
-                raise RuntimeError("В этой версии MLX нет доступного clear_cache API")
-    except Exception as exc:
-        print(f"⚠️ Не удалось очистить кэш MLX ({stage}): {exc}")
+                metal_api = getattr(mx, "metal", None)
+                metal_clear_cache = getattr(metal_api, "clear_cache", None)
+                if callable(metal_clear_cache):
+                    metal_clear_cache()
+                else:
+                    raise RuntimeError("В этой версии MLX нет доступного clear_cache API")
+        except Exception as exc:
+            print(f"⚠️ Не удалось очистить кэш MLX ({stage}): {exc}")
     gc.collect()
 
 
@@ -4447,14 +4461,13 @@ def _vce_clear_metal_memory_caches():
         gc.collect()
     except Exception:
         pass
-    try:
-        import mlx.core as mx
-        # Wait for outstanding work before releasing unused cached buffers.
-        mx.synchronize()
-        # MLX documents clear_cache() as the public cache-management API.
-        mx.clear_cache()
-    except Exception:
-        pass
+    if _vce_normalize_inference_backend() == VCE_INFERENCE_BACKEND_MLX:
+        try:
+            import mlx.core as mx
+            mx.synchronize()
+            mx.clear_cache()
+        except Exception:
+            pass
     try:
         import torch
         mps = getattr(torch, "mps", None)
@@ -5313,7 +5326,7 @@ async def analyze_video(
                     release_accelerator_memory('before VLM load')
                     set_job_progress(job_id, "load_vlm", None, "Загружаем визуальную модель Qwen3-VL", indeterminate=True, stage_index=3, stage_count=6)
                     t0 = time.time()
-                    await _vce_mlx_run(vlm_engine.load_model, target_vlm)
+                    await _vce_inference_run(vlm_engine.load_model, target_vlm)
                     t1 = time.time()
                     vlm_load_time = vlm_engine.last_load_time or (t1 - t0)
                 else:
@@ -5477,7 +5490,7 @@ async def analyze_video(
                                         full_visual_prompt += "\n\nДополнительный OCR из FFmpeg/Tesseract (может содержать ошибки):\n" + ffmpeg_scene_ocr_text
                             if run_vlm:  # VCE_ANALYSIS_PROFILES_VLM_GUARD
                                 t_vlm_start = time.time()
-                                raw = await _vce_mlx_run(_vce_describe_scene_with_memory_fallback,
+                                raw = await _vce_inference_run(_vce_describe_scene_with_memory_fallback,
                                     vlm_engine,
                                     images,
                                     full_visual_prompt,
@@ -5751,7 +5764,7 @@ async def analyze_video(
             try:
                 print(f"🧠 [Text LLM] Улучшение структуры отчёта: {text_llm_model}")
                 async with gpu_lock:
-                    text_llm_result = await _vce_mlx_run(run_text_llm_postprocess,
+                    text_llm_result = await _vce_inference_run(run_text_llm_postprocess,
                         text_llm_model,
                         source_name,
                         video_duration,
