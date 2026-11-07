@@ -40,16 +40,27 @@ FORM_EXCLUDE = {"video_file", "local_video_token", "video_url", "job_id"}
 # The analyze endpoint's Form max_length limits can be shorter than saved prompts.
 # The local compare runner omits unchanged prompt fields and lets VCE use its persisted prompts.
 PERSISTED_PROMPT_FIELDS = {"visual_user_prompt", "summary_user_prompt"}
-PERSISTED_BACKEND_SETTINGS = {
-    "inference_backend": "llama_cpp_metal",
-    "llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
-    "llama_cpp_vlm_mmproj": "mmproj-Qwen3VL-8B-Instruct-F16.gguf",
-    "llama_cpp_text_llm_model": "qwen3.5-9b-Q4_K_M.gguf",
-    "llama_cpp_text_context": 32768,
+COMMON_BACKEND_SETTINGS = {
+    "runtime_profile": "baseline_mps_sequential",
+    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+    "whisper_model": "large",
+    "whisper_acceleration": True,
+    "word_timestamps": True,
+    "vlm_resolution": 1280,
     "enable_ocr_cache": True,
     "enable_ffmpeg_ocr": True,
     "ffmpeg_ocr_interval": 5,
     "ffmpeg_ocr_workers": 3,
+    "enable_apple_ocr": True,
+    "enable_stage_timing": True,
+    "text_llm_enabled": True,
+}
+LLAMA_CPP_MODEL_SETTINGS = {
+    "llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+    "llama_cpp_vlm_mmproj": "mmproj-Qwen3VL-8B-Instruct-F16.gguf",
+    "llama_cpp_text_llm_model": "qwen3.5-9b-Q4_K_M.gguf",
+    "llama_cpp_text_context": 32768,
 }
 
 SAFETY_OVERRIDES = {
@@ -426,7 +437,17 @@ def main() -> int:
     parser.add_argument("--out-root", default=str(Path.home() / "Downloads" / "VCE_observed_runs"))
     parser.add_argument("--server-log", default=None, help="Явный путь к логу сервера; по умолчанию ищется известный лог.")
     parser.add_argument("--interval", type=float, default=2.0, help="Интервал опроса прогресса/ресурсов в секундах.")
+    parser.add_argument(
+        "--inference-backend",
+        choices=("mlx_metal", "llama_cpp_metal"),
+        required=True,
+        help="Backend for this A/B pass; both passes keep baseline_mps_sequential Whisper/MPS.",
+    )
     args = parser.parse_args()
+    backend_settings = dict(COMMON_BACKEND_SETTINGS)
+    backend_settings["inference_backend"] = args.inference_backend
+    if args.inference_backend == "llama_cpp_metal":
+        backend_settings.update(LLAMA_CPP_MODEL_SETTINGS)
 
     if platform.system() != "Darwin":
         print("STOP: этот наблюдатель рассчитан на macOS.")
@@ -460,14 +481,14 @@ def main() -> int:
             raise RuntimeError(f"OpenAPI HTTP {api_status}")
         backend_status, backend_result = post_json(
             args.api_url.rstrip("/") + "/api/v1/ui-settings",
-            PERSISTED_BACKEND_SETTINGS,
+            backend_settings,
         )
         if backend_status != 200 or not isinstance(backend_result, dict) or not backend_result.get("ok"):
             raise RuntimeError(
-                "Не удалось применить llama.cpp/Metal и OCR настройки через /api/v1/ui-settings: "
+                f"Не удалось применить {args.inference_backend} и общие MPS/OCR настройки через /api/v1/ui-settings: "
                 f"HTTP {backend_status}; {backend_result}"
             )
-        settings.update(PERSISTED_BACKEND_SETTINGS)
+        settings.update(backend_settings)
         active_status, active_settings = request_json(args.api_url.rstrip("/") + "/api/v1/ui-settings")
         if active_status != 200 or not isinstance(active_settings, dict):
             raise RuntimeError(
@@ -528,6 +549,9 @@ def main() -> int:
         "field_origins": origins,
         "effective_fields": fields,
         "forced_overrides": SAFETY_OVERRIDES,
+        "backend_settings": backend_settings,
+        "inference_backend": args.inference_backend,
+        "runtime_profile": "baseline_mps_sequential",
         "job_id": job_id,
     })
     # Rebuild multipart separately so file bytes are not included in the JSON settings snapshot.
@@ -564,6 +588,9 @@ def main() -> int:
         "openapi_path": "/api/v1/analyze",
         "form_field_names": sorted(k for k in fields_for_upload),
         "safety_overrides": SAFETY_OVERRIDES,
+        "inference_backend": args.inference_backend,
+        "backend_settings": backend_settings,
+        "runtime_profile": "baseline_mps_sequential",
         "result_directory": str(run_dir),
         "note": "generate_txt/generate_json disabled for this request to avoid overwriting existing files; full API JSON is saved here. Other pipeline stages follow the saved settings except explicit full-analysis overrides.",
     }
@@ -611,7 +638,7 @@ def main() -> int:
     print(f"Size: {metadata['video_mib']} MiB; duration: {video_duration if video_duration is not None else 'unknown'} s")
     print(f"Server PID(s): {pids or 'not found by lsof'}")
     print(f"Server log: {log_path or 'not found; progress/resource monitoring still enabled'}")
-    print("Настройки отправки сверены с активным GET /api/v1/ui-settings.")
+    print(f"Настройки сверены с GET /api/v1/ui-settings: inference_backend={args.inference_backend}; runtime_profile=baseline_mps_sequential.")
     print("Длинные visual_user_prompt/summary_user_prompt не отправляются повторно; VCE использует активные сохранённые промпты.")
     print(f"Job ID: {job_id}")
     print("Full audio + visual analysis and summary requested; this may take several minutes.")
@@ -698,6 +725,8 @@ def main() -> int:
         "request_end": response_state["request_end"],
         "transport_error": response_state["error"],
         "api_error_detail": response_data.get("detail") if isinstance(response_data, dict) else None,
+        "inference_backend": args.inference_backend,
+        "runtime_profile": "baseline_mps_sequential",
         "video_scene_count": response_data.get("meta", {}).get("scene_count") if isinstance(response_data, dict) else None,
         "video_process_time": response_data.get("meta", {}).get("process_time") if isinstance(response_data, dict) else None,
     })
@@ -707,6 +736,8 @@ def main() -> int:
         "client_wall_seconds": round(elapsed_total, 3),
         "http_status": response_state["http_status"],
         "transport_error": response_state["error"],
+        "inference_backend": args.inference_backend,
+        "runtime_profile": "baseline_mps_sequential",
         "result_scene_count": response_data.get("meta", {}).get("scene_count") if isinstance(response_data, dict) else None,
         "result_process_time_seconds": response_data.get("meta", {}).get("process_time") if isinstance(response_data, dict) else None,
     })
@@ -731,7 +762,7 @@ def main() -> int:
     print("\n=== Наблюдение завершено ===")
     print("Результаты сохранены локально:", run_dir)
     print("Файлы: response.json, stage_timings.json/csv, progress_trace.jsonl, system_samples.jsonl, server_events.jsonl, server_log_key_lines.txt, run_metadata.json")
-    print("Публично ничего не загружалось. Настройки VCE на диске не изменялись.")
+    print("Публично ничего не загружалось. Backend settings временно применены через API; A/B orchestrator восстановит исходный settings JSON после обоих прогонов.")
     if response_state["error"]:
         print("TRANSPORT_ERROR:", response_state["error"])
         return 3
