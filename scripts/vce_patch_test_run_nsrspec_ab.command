@@ -10,7 +10,7 @@ PATCH_COMMIT="506e36021e2de629f0eae1776f439319a94f8fbb"
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_COMMIT"
 PY="$ROOT/.venv/bin/python"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
-STAGE="$(mktemp -d "\${TMPDIR:-/tmp}/vce-nsrspec-patch.XXXXXX")"
+STAGE="$(mktemp -d "${TMPDIR:-/tmp}/vce-nsrspec-patch.XXXXXX")"
 BACKUP="$HOME/Downloads/VCE_patch_backups_NSRSPEC_AB/$STAMP"
 
 fail() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 2; }
@@ -18,7 +18,7 @@ cleanup() { rm -rf "$STAGE"; }
 trap cleanup EXIT
 
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Нужен macOS на Apple Silicon."
-[[ -d "$ROOT/.git" ]] || fail "Не найден Git checkout: $ROOT"
+[[ "$(git -C "$ROOT" rev-parse --is-inside-work-tree 2>/dev/null || true)" == true ]] || fail "Не найден Git checkout: $ROOT"
 [[ -x "$PY" ]] || fail "Не найден project Python: $PY"
 command -v curl >/dev/null 2>&1 || fail "Не найден curl."
 command -v git >/dev/null 2>&1 || fail "Не найден git."
@@ -28,8 +28,8 @@ command -v bash >/dev/null 2>&1 || fail "Не найден bash."
 API_PIDS="$(/usr/sbin/lsof -nP -tiTCP:7555 -sTCP:LISTEN 2>/dev/null || true)"
 APP_PIDS="$(/usr/bin/pgrep -f "$APP/Contents/MacOS/" 2>/dev/null || true)"
 if [[ -n "$API_PIDS" || -n "$APP_PIDS" ]] || curl -fsS --max-time 2 "$API/openapi.json" >/dev/null 2>&1; then
-  printf 'API listener PID(s): %s\n' "\${API_PIDS:-не обнаружены}"
-  printf 'VideoContext Engine PID(s): %s\n' "\${APP_PIDS:-не обнаружены}"
+  printf 'API listener PID(s): %s\n' "${API_PIDS:-не обнаружены}"
+  printf 'VideoContext Engine PID(s): %s\n' "${APP_PIDS:-не обнаружены}"
   fail "Сначала полностью заверши VideoContext Engine через Quit (⌘Q) и дождись закрытия API на порту 7555."
 fi
 
@@ -44,12 +44,13 @@ scripts/vce_run_nsrspec_llama_cpp.command 31356e628780a37470d3d3c7c4321c45a3cbae
 tests/test_vce_llama_cpp_nsrspec_runner.py dfa9573f5e0a6e67fee82d90d483500a524488e8
 requirements-llama-cpp-metal.txt e0a8628d8d41510e17dc8c771330323c26a1d90e
 "
-while read -r REL SHA; do
+while IFS=" " read -r REL SHA; do
   [[ -n "$REL" ]] || continue
   git -C "$ROOT" ls-files --error-unmatch "$REL" >/dev/null 2>&1 || fail "Файл не отслеживается Git; не перезаписываю его автоматически: $REL"
   if ! git -C "$ROOT" diff --quiet -- "$REL" || ! git -C "$ROOT" diff --cached --quiet -- "$REL"; then
     fail "Есть локальные изменения в $REL. Сохрани их отдельно/закоммить и повтори запуск."
   fi
+  [[ -f "$ROOT/$REL" ]] || fail "Не найден локальный файл для безопасного backup: $ROOT/$REL"
   mkdir -p "$STAGE/$(dirname "$REL")"
   curl -fsSL "$BASE_URL/$REL" -o "$STAGE/$REL"
   ACTUAL="$(git -C "$ROOT" hash-object "$STAGE/$REL")"
@@ -57,7 +58,7 @@ while read -r REL SHA; do
 done <<< "$FILES"
 
 mkdir -p "$BACKUP"
-while read -r REL SHA; do
+while IFS=" " read -r REL SHA; do
   [[ -n "$REL" ]] || continue
   mkdir -p "$BACKUP/$(dirname "$REL")" "$ROOT/$(dirname "$REL")"
   cp -p "$ROOT/$REL" "$BACKUP/$REL"
