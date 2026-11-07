@@ -4905,7 +4905,11 @@ async def analyze_video(
     global vlm_engine
     target_whisper = whisper_model
     whisper_device = resolve_whisper_device(whisper_acceleration)
-    target_vlm = _vce_selected_vlm_model()
+    target_vlm = (
+        str(setting("llama_cpp_vlm_model", DEFAULT_VLM_MODEL_GGUF))
+        if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP
+        else vlm_model
+    )
     temp_path = None
     cap = None
     owns_temp_path = False
