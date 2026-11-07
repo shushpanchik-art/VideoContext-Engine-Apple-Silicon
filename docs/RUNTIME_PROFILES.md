@@ -25,7 +25,7 @@ The `inference_backend` setting is orthogonal to `runtime_profile`:
 - `mlx_metal` is the default and preserves the MLX VLM + MLX Text LLM implementation.
 - `llama_cpp_metal` selects llama.cpp for both VLM and Text LLM. It requires local GGUF paths for `vlm_model`, `vlm_mmproj_model`, and `text_llm_model`, plus a llama-cpp-python build with Metal/GPU offload support.
 
-Whisper scheduling remains controlled only by `runtime_profile`. To compare architectures, keep `runtime_profile=baseline_mps_sequential` in both runs and change only `inference_backend` plus the corresponding model files. Apple Vision OCR and FFmpeg/Tesseract OCR settings are independent and unchanged.
+Whisper scheduling remains controlled only by `runtime_profile`. The llama.cpp backend is deliberately restricted to `runtime_profile=baseline_mps_sequential`, so the alternative run uses PyTorch Whisper/MPS and does not load MLX Whisper. To compare architectures, keep `runtime_profile=baseline_mps_sequential` in both runs and change only `inference_backend` plus the corresponding model files. Apple Vision OCR and FFmpeg/Tesseract OCR settings are independent and unchanged.
 
 Install the optional binding in the engine's Python environment (do not add it to the default MLX requirements):
 
