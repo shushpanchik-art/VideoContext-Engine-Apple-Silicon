@@ -106,6 +106,13 @@ bash -n "$ROOT/scripts/vce_run_nsrspec_llama_cpp.command"
 printf '\nREGRESSION_TESTS=PASSED\n\n'
 REGRESSION_TESTS_PASSED=1
 
+# Allow safe patch + regression validation without immediately loading multi-GB models.
+# The full A/B is started separately after the operator confirms the environment is ready.
+if [[ "${VCE_SKIP_AB:-0}" == "1" ]]; then
+  printf '\\nVCE_SKIP_AB=1; patch and regression checks completed; A/B was not started.\\n'
+  exit 0
+fi
+
 # The A/B launcher installs the venv-scoped MTMD resolver, performs real MTMD preflight,
 # runs MLX baseline first, then llama.cpp comparison, restores settings and uploads ZIP.
 rm -rf "$STAGE"
