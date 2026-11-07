@@ -44,6 +44,7 @@ class LlamaCppMetalBackendTests(unittest.TestCase):
     def test_metal_is_required_without_silent_cpu_fallback(self):
         self.assertIn("llama_supports_gpu_offload", self.runtime)
         self.assertIn("n_gpu_layers=-1", self.runtime)
+        self.assertIn("verbose=True", self.runtime)
         self.assertIn("llama.cpp/Metal доступен только на macOS с Apple Silicon", self.runtime)
 
 
