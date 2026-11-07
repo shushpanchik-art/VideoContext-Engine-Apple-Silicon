@@ -1,5 +1,7 @@
 from pathlib import Path
+import hashlib
 import importlib.util
+import re
 import shutil
 import subprocess
 import unittest
@@ -13,32 +15,56 @@ assert _SPEC and _SPEC.loader
 _SPEC.loader.exec_module(_OBSERVER)
 
 
+def git_blob_sha(path: Path) -> str:
+    data = path.read_bytes()
+    header = b"blob " + str(len(data)).encode("ascii") + b"\0"
+    return hashlib.sha1(header + data).hexdigest()
+
+
 class TestLlamaCppNsrspecRunner(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.launcher = (ROOT / "scripts/vce_run_nsrspec_ab.command").read_text(encoding="utf-8")
+        cls.launcher_path = ROOT / "scripts/vce_run_nsrspec_ab.command"
+        cls.launcher = cls.launcher_path.read_text(encoding="utf-8")
         cls.legacy_launcher = (ROOT / "scripts/vce_run_nsrspec_llama_cpp.command").read_text(encoding="utf-8")
         cls.observer = OBSERVER_PATH.read_text(encoding="utf-8")
         cls.watchdog = (ROOT / "scripts/vce_runtime_watchdog.py").read_text(encoding="utf-8")
         cls.runtime = (ROOT / "VideoContextEngine_v3.19.py").read_text(encoding="utf-8")
+        cls.installer = (ROOT / "scripts/install_vce_mtmd_loader_fix.py").read_text(encoding="utf-8")
 
     def test_ab_launcher_runs_both_explicit_backends_in_order(self):
-        self.assertIn('run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"', self.launcher)
-        self.assertIn('run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"', self.launcher)
-        self.assertLess(
-            self.launcher.index('run_backend "mlx_metal"'),
-            self.launcher.index('run_backend "llama_cpp_metal"'),
-        )
+        mlx = 'run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"'
+        llama = 'run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"'
+        self.assertIn(mlx, self.launcher)
+        self.assertIn(llama, self.launcher)
+        self.assertLess(self.launcher.index(mlx), self.launcher.index(llama))
         self.assertIn("--inference-backend", self.watchdog)
         self.assertIn("required=True", self.observer)
-        self.assertIn('choices=SUPPORTED_INFERENCE_BACKENDS', self.observer)
+        self.assertIn("choices=SUPPORTED_INFERENCE_BACKENDS", self.observer)
         self.assertIn('open -a "$APP"', self.launcher)
         self.assertNotIn('open "$API', self.launcher)
         self.assertIn("🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4", self.launcher)
 
-    def test_mtmd_installer_is_pinned_downloaded_and_run_before_app_start(self):
+    def test_pinned_tool_hashes_match_repository_blobs(self):
+        expected = {
+            "watchdog": "50e91ffabcf2cb6174b068a12eea0b6b909cba5e",
+            "observer": "55f8f0b561577b90d1525f6c960359e21f74c27b",
+            "installer": "934739bd0b5f70dc26665adc115a181d365330e0",
+        }
+        actual = {
+            "watchdog": git_blob_sha(ROOT / "scripts/vce_runtime_watchdog.py"),
+            "observer": git_blob_sha(OBSERVER_PATH),
+            "installer": git_blob_sha(ROOT / "scripts/install_vce_mtmd_loader_fix.py"),
+        }
+        self.assertEqual(actual, expected)
+        for sha in expected.values():
+            self.assertIn(sha, self.launcher)
+        self.assertNotIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
+
+    def test_mtmd_installer_is_pinned_and_runs_before_app_start(self):
         pin_line = next(line for line in self.launcher.splitlines() if line.startswith("TOOLS_COMMIT="))
-        self.assertRegex(pin_line, r'^TOOLS_COMMIT="[0-9a-f]{40}"        self.assertIn('curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py"', self.launcher)
+        self.assertRegex(pin_line, r'^TOOLS_COMMIT="[0-9a-f]{40}"$')
+        self.assertIn('curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py"', self.launcher)
         self.assertIn('"$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"', self.launcher)
         self.assertLess(
             self.launcher.index('install_vce_mtmd_loader_fix.py" --report'),
@@ -46,9 +72,18 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         )
         self.assertIn("import llama_cpp.mtmd_cpp as mtmd_cpp", self.launcher)
         self.assertIn('ctypes.util.find_library("mtmd") is not None', self.launcher)
-        self.assertIn("50e91ffabcf2cb6174b068a12eea0b6b909cba5e", self.launcher)
-        self.assertIn("55f8f0b561577b90d1525f6c960359e21f74c27b", self.launcher)
-        self.assertIn("934739bd0b5f70dc26665adc115a181d365330e0", self.launcher)
+
+    def test_tool_integrity_is_checked_before_live_server_guard(self):
+        check = self.launcher.index('git hash-object "$TOOLS_DIR/vce_observed_llama_cpp_run.py"')
+        server_guard = self.launcher.index('API_PIDS=')
+        installer = self.launcher.index('install_vce_mtmd_loader_fix.py" --report')
+        app_start = self.launcher.index('open -a "$APP"')
+        self.assertLess(check, server_guard)
+        self.assertLess(server_guard, installer)
+        self.assertLess(installer, app_start)
+        self.assertIn("lsof -nP -tiTCP:7555", self.launcher)
+        self.assertIn("pgrep -f", self.launcher)
+        self.assertIn("дождись закрытия API на порту 7555", self.launcher)
 
     def test_observer_backend_argument_builds_separate_mlx_and_gguf_settings(self):
         mlx = _OBSERVER.build_backend_settings("mlx_metal")
@@ -87,7 +122,6 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
     def test_legacy_llama_launcher_routes_to_ab_launcher(self):
         self.assertIn('exec "$SCRIPT_DIR/vce_run_nsrspec_ab.command"', self.legacy_launcher)
 
-
     def test_real_mmproj_preflight_downloads_pinned_pair_and_initializes_mtmd_context(self):
         self.assertIn("VLM_HF_REPO_REVISION", self.launcher)
         self.assertIn("revision=hf_revision", self.launcher)
@@ -119,47 +153,29 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("mmproj.gguf", verdict["error_text"])
 
     def test_mtmd_hook_keeps_llama_and_mtmd_from_one_venv_bundle(self):
-        installer = (ROOT / "scripts/install_vce_mtmd_loader_fix.py").read_text(encoding="utf-8")
         for library_name in ('"mtmd", "llama", "ggml", "ggml-base", "ggml-metal", "ggml-cpu"'):
-            self.assertIn(library_name, installer)
-        self.assertIn('os.environ.pop("LLAMA_CPP_LIB_PATH", None)', installer)
-        self.assertIn("import llama_cpp.llama_cpp as llama_core", installer)
-        self.assertIn('llama_core._lib._name', installer)
-        self.assertIn('mtmd_cpp._libmtmd._name', installer)
-        self.assertIn("expected the same venv bundle directory", installer)
-        self.assertIn("does not parse the real mmproj/model weights", installer)
-
+            self.assertIn(library_name, self.installer)
+        self.assertIn('os.environ.pop("LLAMA_CPP_LIB_PATH", None)', self.installer)
+        self.assertIn("import llama_cpp.llama_cpp as llama_core", self.installer)
+        self.assertIn("llama_core._lib._name", self.installer)
+        self.assertIn("mtmd_cpp._libmtmd._name", self.installer)
+        self.assertIn("expected the same venv bundle directory", self.installer)
+        self.assertIn("does not parse the real mmproj/model weights", self.installer)
 
     def test_bash_syntax_for_both_launchers(self):
         bash = shutil.which("bash")
         if not bash:
             self.skipTest("bash is not installed")
         for path in (
-            ROOT / "scripts/vce_run_nsrspec_ab.command",
+            self.launcher_path,
             ROOT / "scripts/vce_run_nsrspec_llama_cpp.command",
         ):
             result = subprocess.run([bash, "-n", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{path}: {result.stderr}")
 
-    def test_runtime_source_compiles_without_importing_platform_dependencies(self):
+    def test_runtime_and_observer_source_compile(self):
         compile(self.runtime, str(ROOT / "VideoContextEngine_v3.19.py"), "exec")
-
-
-if __name__ == "__main__":
-    unittest.main()
-)
-        self.assertIn('curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py"', self.launcher)
-        self.assertIn('"$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"', self.launcher)
-        self.assertLess(
-            self.launcher.index('install_vce_mtmd_loader_fix.py" --report'),
-            self.launcher.index('open -a "$APP"'),
-        )
-        self.assertIn("import llama_cpp.mtmd_cpp as mtmd_cpp", self.launcher)
-        self.assertIn('ctypes.util.find_library("mtmd") is not None', self.launcher)
-        self.assertIn("50e91ffabcf2cb6174b068a12eea0b6b909cba5e", self.launcher)
-        self.assertIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
-        self.assertIn("934739bd0b5f70dc26665adc115a181d365330e0", self.launcher)
-
+        compile(self.observer, str(OBSERVER_PATH), "exec")
 
 
 if __name__ == "__main__":
