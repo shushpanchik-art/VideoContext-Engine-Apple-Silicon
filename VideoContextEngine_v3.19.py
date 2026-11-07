@@ -1785,7 +1785,7 @@ class LlamaCppEngine(VLMProvider):
             chat_handler=self.chat_handler,
             n_gpu_layers=-1,
             n_ctx=8192,
-            verbose=False,
+            verbose=True,
         )
         self.current_model_path = cache_key
         self.mmproj_path = mmproj_path
@@ -1797,6 +1797,7 @@ class LlamaCppEngine(VLMProvider):
             "mmproj": mmproj_path,
             "gpu_layers_requested": -1,
             "gpu_offload_supported": True,
+            "metal_offload_requested": True,
             "load_seconds": round(self.last_load_time, 3),
         }
         print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
@@ -2927,7 +2928,7 @@ def run_text_llm_postprocess(
                 model_path=model_file,
                 n_gpu_layers=-1,
                 n_ctx=int(setting("llama_cpp_text_context", 32768)),
-                verbose=False,
+                verbose=True,
             )
             VCE_BACKEND_DIAGNOSTICS["text_llm"] = {
                 "backend": "llama.cpp",
@@ -2935,6 +2936,7 @@ def run_text_llm_postprocess(
                 "model": model_file,
                 "gpu_layers_requested": -1,
                 "gpu_offload_supported": True,
+                "metal_offload_requested": True,
             }
             print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
             return instance, object()
