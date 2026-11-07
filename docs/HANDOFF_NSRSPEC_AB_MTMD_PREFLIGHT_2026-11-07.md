@@ -75,7 +75,7 @@ echo "PATCH_AND_REGRESSION=PASSED"
 echo "Patch log: $LOG"
 VCE_PATCH_ONLY
 PATCH_STATUS=$?
-printf '\\nPatch/setup shell exit code: %s\\n' "$PATCH_STATUS"
+printf '\nPatch/setup shell exit code: %s\n' "$PATCH_STATUS"
 printf 'Полный лог: ~/Desktop/VCE_NSRSPEC_patch_*.log\\n'
 ```
 
@@ -101,7 +101,7 @@ echo "A/B log: $LOG"
 exit "$LAUNCHER_STATUS"
 VCE_AB_RUN
 AB_STATUS=$?
-printf '\\nA/B shell exit code: %s\\n' "$AB_STATUS"
+printf '\nA/B shell exit code: %s\n' "$AB_STATUS"
 printf 'Лог на рабочем столе: ~/Desktop/VCE_NSRSPEC_AB_*.log\\n'
 ```
 
