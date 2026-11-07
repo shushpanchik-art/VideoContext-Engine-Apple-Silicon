@@ -5830,6 +5830,7 @@ async def analyze_video(
             "vlm_max_tokens_summary": vlm_max_tokens_summary,
             "ram_mode": RAM_MODE,
             "runtime_profile": runtime_profile,
+            "inference_backend": inference_backend,
             "audio_track_available": audio_track_available,
             "audio_auto_skipped": audio_auto_skipped,
             "audio_status": audio_probe_message,
@@ -5860,6 +5861,7 @@ async def analyze_video(
 
         timings = {
             "runtime_profile": runtime_profile,
+            "inference_backend": inference_backend,
             "total_process_time": round(process_duration, 3),
             "total_request_time": round(total_request_time, 3),
             "whisper": {
@@ -5872,6 +5874,8 @@ async def analyze_video(
                 "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
             },
             "vlm": {
+                "backend": "mlx-vlm" if inference_backend == VCE_INFERENCE_BACKEND_MLX else "llama.cpp",
+                "device_target": "Metal" if platform.system() == "Darwin" else "CPU",
                 "model": target_vlm,
                 "load_time": round(vlm_load_time, 3),
                 "inference_time": round(vlm_infer_time, 3),
