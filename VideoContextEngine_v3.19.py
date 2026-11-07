@@ -463,11 +463,11 @@ WHISPER_CACHE: Dict[str, Any] = {}
 PORT_SERVEUR = 7555
 
 DEFAULT_VLM_MODEL_MLX = "mlx-community/Qwen3-VL-8B-Instruct-4bit"
-DEFAULT_VLM_REPO_GGUF = "bartowski/Qwen_Qwen3-VL-8B-Instruct-GGUF"
-DEFAULT_VLM_MODEL_GGUF = "Qwen3-VL-8B-Instruct-Q4_K_M.gguf"
-DEFAULT_MMPROJ_GGUF = "mmproj-Qwen3-VL-8B-Instruct-f16.gguf"
-DEFAULT_TEXT_LLM_REPO_GGUF = "bartowski/Qwen_Qwen3.5-9B-GGUF"
-DEFAULT_TEXT_LLM_MODEL_GGUF = "Qwen3.5-9B-Q4_K_M.gguf"
+DEFAULT_VLM_REPO_GGUF = "Qwen/Qwen3-VL-8B-Instruct-GGUF"
+DEFAULT_VLM_MODEL_GGUF = "Qwen3VL-8B-Instruct-Q4_K_M.gguf"
+DEFAULT_MMPROJ_GGUF = "mmproj-Qwen3VL-8B-Instruct-F16.gguf"
+DEFAULT_TEXT_LLM_REPO_GGUF = "gguf/Qwen3.5-9B-GGUF"
+DEFAULT_TEXT_LLM_MODEL_GGUF = "qwen3.5-9b-Q4_K_M.gguf"
 VCE_INFERENCE_BACKEND_MLX = "mlx_metal"
 VCE_INFERENCE_BACKEND_LLAMA_CPP = "llama_cpp_metal"
 VCE_BACKEND_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
