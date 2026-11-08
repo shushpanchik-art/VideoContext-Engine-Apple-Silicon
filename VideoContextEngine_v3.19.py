@@ -2608,7 +2608,7 @@ TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT = r'''
 '''.strip()
 
 TEXT_LLM_DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
-TEXT_LLM_DEFAULT_MAX_TOKENS = 4096
+TEXT_LLM_DEFAULT_MAX_TOKENS = 8192
 
 
 VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: Dict[str, Any] = {}
@@ -2742,6 +2742,26 @@ def _text_llm_extract_json_object(raw: str) -> Dict[str, Any]:
         if isinstance(summary, str) and summary.strip():
             return payload
     raise ValueError("Не найден полный JSON-объект с непустым executive_summary.")
+
+
+def _text_llm_find_json_candidate_offset(raw: str) -> int:
+    """Find a schema-shaped root object; arbitrary braces in prose are not repair input."""
+    text = str(raw or "")
+    root_prefix = re.compile(
+        r'^\{\s*"(?:executive_summary|topics|key_points|entities|scene_enrichment|uncertainties)"\s*:',
+        re.IGNORECASE,
+    )
+    think_open = re.compile(r"<think\b[^>]*>", re.IGNORECASE)
+    think_close = re.compile(r"</think\s*>", re.IGNORECASE)
+    for match in re.finditer(r"\{", text):
+        prefix = text[:match.start()]
+        openings = list(think_open.finditer(prefix))
+        closings = list(think_close.finditer(prefix))
+        if openings and (not closings or openings[-1].start() > closings[-1].start()):
+            continue
+        if root_prefix.match(text[match.start():]):
+            return match.start()
+    return -1
 
 
 def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
@@ -3314,7 +3334,7 @@ def run_text_llm_postprocess(
             formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
         if progress_callback:
             progress_callback("generating", 0, 0.0)
-        generation_limit = max(1024, min(int(max_tokens), 4096))
+        generation_limit = max(1024, min(int(max_tokens), 8192))
         raw = ""
         if stream_generate is not None:
             chunks = []
@@ -3392,10 +3412,11 @@ def run_text_llm_postprocess(
                 )
             if not isinstance(raw, str):
                 raw = getattr(raw, "text", None) or str(raw)
-        first_brace_offset = raw.find("{")
+        first_brace_offset = _text_llm_find_json_candidate_offset(raw)
         VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.update({
             "raw_length": len(raw),
             "first_brace_offset": first_brace_offset,
+            "first_literal_brace_offset": raw.find("{"),
             "raw_tail_excerpt": _text_llm_clip(raw[-1500:], 1500),
             "raw_head_excerpt": _text_llm_clip(raw, 2000),
         })
@@ -3422,7 +3443,7 @@ def run_text_llm_postprocess(
             repaired_payload = None
             try:
                 from json_repair import repair_json
-                repaired_payload = repair_json(raw, return_objects=True)
+                repaired_payload = repair_json(raw[first_brace_offset:], return_objects=True)
                 if not isinstance(repaired_payload, dict):
                     repaired_payload = None
             except Exception:
@@ -3446,9 +3467,9 @@ def run_text_llm_postprocess(
                 except TypeError:
                     repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0)
                 try:
-                    repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=4096, temperature=0.0, verbose=False, enable_thinking=False)
+                    repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=generation_limit, temperature=0.0, verbose=False, enable_thinking=False)
                 except TypeError:
-                    repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=4096, temperature=0.0, verbose=False)
+                    repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=generation_limit, temperature=0.0, verbose=False)
                 if not isinstance(repaired_raw, str):
                     repaired_raw = getattr(repaired_raw, "text", None) or str(repaired_raw)
                 try:
@@ -3958,7 +3979,7 @@ async def save_ui_settings(payload: Dict[str, Any]):
         "ffmpeg_ocr_interval": (1, 60),
         "vlm_resolution": (128, 2048), "keyframes_per_scene": (1, 5),
         "vlm_max_tokens_scene": (16, 1024), "vlm_max_tokens_summary": (16, 2048),
-        "text_llm_max_tokens": (1024, 4096),
+        "text_llm_max_tokens": (1024, 8192),
     }
     float_ranges = {
         "scene_threshold": (0.01, 1.0), "min_scene_duration": (0.5, 60.0),
@@ -5168,7 +5189,7 @@ async def analyze_video(
     ),
     text_llm_enabled: bool = Form(bool(setting("text_llm_enabled", True))),
     text_llm_model: str = Form(str(setting("text_llm_model", TEXT_LLM_DEFAULT_MODEL))),
-    text_llm_max_tokens: int = Form(int(setting("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)), ge=1024, le=4096),
+    text_llm_max_tokens: int = Form(int(setting("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)), ge=1024, le=8192),
     analysis_mode: str = Form(str(setting("analysis_mode", "full")), description="full | whisper_ocr | ocr_only"),
     enable_ffmpeg_ocr: bool = Form(bool(setting("enable_ffmpeg_ocr", False)), description="Дополнительный OCR через FFmpeg/Tesseract"),
     ffmpeg_ocr_interval: int = Form(int(setting("ffmpeg_ocr_interval", 5)), ge=1, le=60, description="Интервал выборки FFmpeg OCR, секунд"),

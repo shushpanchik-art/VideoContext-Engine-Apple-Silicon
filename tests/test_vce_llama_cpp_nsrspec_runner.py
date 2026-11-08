@@ -116,11 +116,22 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         with self.assertRaises(ValueError):
             _OBSERVER.build_backend_settings("unknown")
 
-    def test_observer_disables_ocr_cache_and_fails_closed_before_video_upload(self):
-        self.assertIn('"enable_ocr_cache": False', self.observer)
+    def test_observer_uses_active_ocr_cache_value_in_effective_multipart_fields(self):
+        properties = {
+            "enable_ocr_cache": {"type": "boolean"},
+            "response_format": {"type": "string"},
+        }
+        fields_off, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": False, "response_format": "json"}, properties
+        )
+        fields_on, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": True, "response_format": "json"}, properties
+        )
+        self.assertIs(fields_off["enable_ocr_cache"], False)
+        self.assertIs(fields_on["enable_ocr_cache"], True)
+        self.assertNotIn("enable_ocr_cache", _OBSERVER.SAFETY_OVERRIDES)
         self.assertIn('if active_settings.get("enable_ocr_cache") is not False:', self.observer)
         self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
-        self.assertIn('"enable_ocr_cache"', self.launcher)
 
     def test_runtime_records_mps_device_with_index_as_verified(self):
         self.assertIn("def _vce_device_type_name(value: Any) -> str:", self.runtime)
@@ -385,6 +396,34 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertTrue(diagnostics["streaming"])
         self.assertIn("stream_text_characters", diagnostics)
 
+    def test_json_candidate_finder_ignores_unrelated_braces_in_prose(self):
+        helper_node = next(
+            node for node in ast.parse(self.runtime).body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_text_llm_find_json_candidate_offset"
+        )
+        namespace = {"re": re}
+        exec(
+            compile(ast.Module(body=[helper_node], type_ignores=[]),
+                    "VideoContextEngine_v3.19.py", "exec"),
+            namespace,
+        )
+        find_candidate = namespace["_text_llm_find_json_candidate_offset"]
+        self.assertEqual(find_candidate("Reasoning with {an example} but no JSON follows"), -1)
+        raw = 'Reasoning {not a schema object}; final: {"executive_summary":'
+        self.assertEqual(find_candidate(raw), raw.index('{"executive_summary"'))
+        self.assertEqual(
+            find_candidate('<think>example {"executive_summary":"not final"}'),
+            -1,
+        )
+
+    def test_text_llm_generation_cap_is_consistent_at_8192(self):
+        self.assertIn("TEXT_LLM_DEFAULT_MAX_TOKENS = 8192", self.runtime)
+        self.assertIn("min(int(max_tokens), 8192)", self.runtime)
+        self.assertIn('"text_llm_max_tokens": (1024, 8192)', self.runtime)
+        self.assertIn("le=8192", self.runtime)
+        self.assertIn("max_tokens=generation_limit", self.runtime)
+
     def test_qwen35_no_brace_generation_skips_repair_and_records_tail_diagnostics(self):
         no_brace_gate = self.runtime.index("if first_brace_offset < 0:")
         repair_import = self.runtime.index("from json_repair import repair_json")
@@ -453,7 +492,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
                 }
             }
             _OBSERVER.save_timing_outputs(run_dir, {"meta": {"timings": timings}})
-            artifact = run_dir / "text_llm_raw.txt"
+            artifact = run_dir / "text_llm_generation_diagnostics.txt"
             self.assertTrue(artifact.exists())
             saved = artifact.read_text(encoding="utf-8")
             self.assertIn("Primary generation", saved)
@@ -463,7 +502,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.assertIn("first_brace_offset: -1", saved)
             self.assertIn("finish_reason: length", saved)
             self.assertIn("tail without a brace", saved)
-            self.assertEqual(timings["text_llm"]["raw_diagnostic_file"], "text_llm_raw.txt")
+            self.assertEqual(timings["text_llm"]["raw_diagnostic_file"], "text_llm_generation_diagnostics.txt")
 
     def test_text_llm_raw_diagnostics_are_bounded_and_exposed_in_api_timing(self):
         self.assertIn('failure.raw_excerpt = _text_llm_clip(raw, 2000)', self.runtime)

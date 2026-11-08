@@ -160,7 +160,6 @@ SAFETY_OVERRIDES = {
     "vlm_resolution": 1280,
     "text_llm_enabled": True,
     "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
-    "enable_ocr_cache": True,
     "enable_ffmpeg_ocr": True,
     "ffmpeg_ocr_interval": 5,
     "ffmpeg_ocr_workers": 3,
@@ -511,10 +510,10 @@ def save_timing_outputs(run_dir: Path, data: Any) -> dict[str, Any]:
                 "Primary: " + str(text_llm.get("primary_parse_error") or "(not recorded)"),
                 "Repair: " + str(text_llm.get("repair_parse_error") or "(not recorded)"),
             ]
-            (run_dir / "text_llm_raw.txt").write_text(
+            (run_dir / "text_llm_generation_diagnostics.txt").write_text(
                 "\n".join(diagnostic_lines) + "\n", encoding="utf-8"
             )
-            text_llm["raw_diagnostic_file"] = "text_llm_raw.txt"
+            text_llm["raw_diagnostic_file"] = "text_llm_generation_diagnostics.txt"
     write_json(run_dir / "stage_timings.json", timings)
     rows = flatten_timing_metrics(timings)
     with (run_dir / "stage_timings.csv").open("w", newline="", encoding="utf-8") as f:
@@ -905,7 +904,7 @@ def main() -> int:
     print_timing_summary(response_data, response_state["http_status"], elapsed_total)
     print("\n=== Наблюдение завершено ===")
     print("Результаты сохранены локально:", run_dir)
-    print("Файлы: response.json, stage_timings.json/csv, progress_trace.jsonl, system_samples.jsonl, server_events.jsonl, server_log_key_lines.txt, run_metadata.json; text_llm_raw.txt создаётся при ошибке JSON")
+    print("Файлы: response.json, stage_timings.json/csv, progress_trace.jsonl, system_samples.jsonl, server_events.jsonl, server_log_key_lines.txt, run_metadata.json; text_llm_generation_diagnostics.txt создаётся при ошибке JSON")
     print("Публично ничего не загружалось. Backend settings временно применены через API; A/B orchestrator восстановит исходный settings JSON после обоих прогонов.")
     if response_state["error"]:
         print("TRANSPORT_ERROR:", response_state["error"])
