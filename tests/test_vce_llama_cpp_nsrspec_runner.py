@@ -94,8 +94,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("printf 'API listener PID(s): %s", self.launcher)
 
     def test_observer_backend_argument_builds_separate_mlx_and_gguf_settings(self):
-        mlx = _OBSERVER.build_backend_settings("mlx_metal")
-        llama = _OBSERVER.build_backend_settings("llama_cpp_metal")
+        mlx = _OBSERVER.build_backend_settings("mlx_metal", "nsrspec")
+        llama = _OBSERVER.build_backend_settings("llama_cpp_metal", "nsrspec")
         self.assertEqual(mlx["inference_backend"], "mlx_metal")
         self.assertEqual(llama["inference_backend"], "llama_cpp_metal")
         # 2026-10-25 documented baseline: Qwen3-VL + Qwen3.5 use MLX/Metal;
@@ -111,6 +111,9 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(llama["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
         self.assertEqual(llama["llama_cpp_vlm_model"], "Qwen3VL-8B-Instruct-Q4_K_M.gguf")
         self.assertEqual(llama["llama_cpp_text_llm_model"], "qwen3.5-9b-Q4_K_M.gguf")
+        current = _OBSERVER.build_backend_settings("mlx_metal", "current")
+        self.assertEqual(current, {"inference_backend": "mlx_metal"})
+        self.assertFalse(set(_OBSERVER.SAFETY_OVERRIDES) & set(_OBSERVER.COMMON_BACKEND_SETTINGS))
         self.assertNotIn("llama_cpp_vlm_model", mlx)
         self.assertNotIn("llama_cpp_text_llm_model", mlx)
         with self.assertRaises(ValueError):
@@ -132,6 +135,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertNotIn("enable_ocr_cache", _OBSERVER.SAFETY_OVERRIDES)
         self.assertIn('if active_settings.get("enable_ocr_cache") is not False:', self.observer)
         self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
+        self.assertIn('parser.add_argument("--profile", choices=("current", "nsrspec"), default="current"', self.observer)
 
     def test_context_and_result_limits_are_settings_backed(self):
         for key in ("text_llm_context_max_chars", "text_llm_context_max_scenes",

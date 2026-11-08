@@ -67,11 +67,13 @@ LLAMA_CPP_MODEL_SETTINGS = {
 
 SUPPORTED_INFERENCE_BACKENDS = ("mlx_metal", "llama_cpp_metal")
 
-def build_backend_settings(inference_backend: str) -> dict[str, Any]:
-    """Build one explicit A/B pass; MLX selectors remain MLX even for the GGUF pass."""
+def build_backend_settings(inference_backend: str, profile: str = "nsrspec") -> dict[str, Any]:
+    """Build backend selectors; only the named nsrspec profile applies a fixed comparison baseline."""
     if inference_backend not in SUPPORTED_INFERENCE_BACKENDS:
         raise ValueError(f"Unsupported inference backend: {inference_backend}")
-    settings = dict(COMMON_BACKEND_SETTINGS)
+    if profile not in {"current", "nsrspec"}:
+        raise ValueError(f"Unsupported observer profile: {profile}")
+    settings = dict(COMMON_BACKEND_SETTINGS) if profile == "nsrspec" else {}
     settings["inference_backend"] = inference_backend
     if inference_backend == "llama_cpp_metal":
         settings.update(LLAMA_CPP_MODEL_SETTINGS)
@@ -151,27 +153,15 @@ def classify_backend_failure(
 
 
 SAFETY_OVERRIDES = {
+    # Request-scoped controls only. Backend/configuration settings come from active UI settings
+    # unless the explicit --profile nsrspec comparison preset is selected.
     "analysis_mode": "full",
-    "runtime_profile": "baseline_mps_sequential",
-    "enable_mlx_whisper": False,
-    "whisper_model": "large",
-    "whisper_acceleration": True,
-    "word_timestamps": True,
-    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
-    "vlm_resolution": 1280,
-    "text_llm_enabled": True,
-    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
-    "enable_ffmpeg_ocr": True,
-    "ffmpeg_ocr_interval": 5,
-    "ffmpeg_ocr_workers": 3,
-    "enable_apple_ocr": True,
     "skip_audio": False,
     "skip_visual": False,
     "generate_summary": True,
     "generate_txt": False,
     "generate_json": False,
     "response_format": "json",
-    "enable_stage_timing": True,
 }
 
 
@@ -560,6 +550,7 @@ def main() -> int:
     parser.add_argument("--out-root", default=str(Path.home() / "Downloads" / "VCE_observed_runs"))
     parser.add_argument("--server-log", default=None, help="Явный путь к логу сервера; по умолчанию ищется известный лог.")
     parser.add_argument("--interval", type=float, default=2.0, help="Интервал опроса прогресса/ресурсов в секундах.")
+    parser.add_argument("--profile", choices=("current", "nsrspec"), default="current", help="current сохраняет действующие настройки; nsrspec применяет воспроизводимый пресет.")
     parser.add_argument(
         "--inference-backend",
         choices=SUPPORTED_INFERENCE_BACKENDS,
@@ -567,7 +558,7 @@ def main() -> int:
         help="Explicit backend for this A/B pass; both passes keep baseline_mps_sequential Whisper/MPS.",
     )
     args = parser.parse_args()
-    backend_settings = build_backend_settings(args.inference_backend)
+    backend_settings = build_backend_settings(args.inference_backend, args.profile)
     llama_runtime_info = collect_llama_runtime_info(args.inference_backend)
 
     if platform.system() != "Darwin":
@@ -606,7 +597,7 @@ def main() -> int:
         )
         if backend_status != 200 or not isinstance(backend_result, dict) or not backend_result.get("ok"):
             raise RuntimeError(
-                f"Не удалось применить {args.inference_backend} и общие MPS/OCR настройки через /api/v1/ui-settings: "
+                f"Не удалось применить backend settings для профиля {args.profile!r} через /api/v1/ui-settings: "
                 f"HTTP {backend_status}; {backend_result}"
             )
         settings.update(backend_settings)
@@ -616,7 +607,7 @@ def main() -> int:
                 f"Не удалось получить активные настройки VCE: GET /api/v1/ui-settings вернул HTTP {active_status}. "
                 "Останавливаюсь, чтобы не запускать тест с неподтверждёнными настройками."
             )
-        if active_settings.get("enable_ocr_cache") is not False:
+        if args.profile == "nsrspec" and active_settings.get("enable_ocr_cache") is not False:
             raise RuntimeError(
                 "A/B requires enable_ocr_cache=false for both passes; "
                 f"active API value is {active_settings.get('enable_ocr_cache')!r}. "
@@ -720,10 +711,11 @@ def main() -> int:
         "machine": platform.machine(),
         "openapi_path": "/api/v1/analyze",
         "form_field_names": sorted(k for k in fields_for_upload),
+        "observer_profile": args.profile,
         "safety_overrides": SAFETY_OVERRIDES,
         "inference_backend": args.inference_backend,
         "backend_settings": backend_settings,
-        "runtime_profile": "baseline_mps_sequential",
+        "runtime_profile": active_settings.get("runtime_profile"),
         **llama_runtime_info,
         "result_directory": str(run_dir),
         "note": "generate_txt/generate_json disabled for this request to avoid overwriting existing files; full API JSON is saved here. Other pipeline stages follow the saved settings except explicit full-analysis overrides.",
