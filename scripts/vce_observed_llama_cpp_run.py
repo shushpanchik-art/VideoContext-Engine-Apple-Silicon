@@ -56,6 +56,7 @@ COMMON_BACKEND_SETTINGS = {
     "enable_apple_ocr": True,
     "enable_stage_timing": True,
     "text_llm_enabled": True,
+    "domain_profile": "nsrspec",
 }
 LLAMA_CPP_MODEL_SETTINGS = {
     "llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",

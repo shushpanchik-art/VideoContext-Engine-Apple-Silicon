@@ -1437,11 +1437,13 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         if spoken_result_end_card:
             summary += " Финальный экран содержит только «THE END»; параметр нарушения визуально не указан."
         summary_words = summary.split()
-        if len(summary_words) > 105:
-            summary = " ".join(summary_words[:105]).rstrip(" ,;:") + "…"
+        summary_max_words = max(1, int(setting("text_llm_summary_max_words", 105)))
+        if len(summary_words) > summary_max_words:
+            summary = " ".join(summary_words[:summary_max_words]).rstrip(" ,;:") + "…"
         payload["executive_summary"] = summary
 
-    payload["key_points"] = sorted(clean_points.values(), key=lambda p: (float(source_by_id[p["scene_id"]].get("start", 0) or 0), p["scene_id"]))[:18]
+    max_key_points = max(1, int(setting("text_llm_max_key_points", 18)))
+    payload["key_points"] = sorted(clean_points.values(), key=lambda p: (float(source_by_id[p["scene_id"]].get("start", 0) or 0), p["scene_id"]))[:max_key_points]
     return payload
 
 LOCAL_VIDEO_SELECTIONS: Dict[str, str] = {}
@@ -2771,7 +2773,7 @@ def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
         raise ValueError("В JSON текстовой LLM отсутствует executive_summary.")
 
     payload["executive_summary"] = summary.strip()[:8000]
-    payload["topics"] = _text_llm_normalize_list(payload.get("topics"), 30)
+    payload["topics"] = _text_llm_normalize_list(payload.get("topics"), max(1, int(setting("text_llm_max_topics", 15))))
     payload["uncertainties"] = _text_llm_normalize_list(payload.get("uncertainties"), 30)
 
     clean_points = []
@@ -2791,7 +2793,7 @@ def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
             "text": text_value.strip()[:700],
             "evidence": _text_llm_normalize_list(item.get("evidence"), 6),
         })
-        if len(clean_points) >= 24:
+        if len(clean_points) >= max(1, int(setting("text_llm_max_key_points", 18))):
             break
     payload["key_points"] = clean_points
 
@@ -3282,25 +3284,38 @@ def run_text_llm_postprocess(
             }
 
         limits = (600, 650, 650)
+        context_max_chars = max(0, int(setting("text_llm_context_max_chars", 47000) or 0))
+        context_max_scenes = max(0, int(setting("text_llm_context_max_scenes", 80) or 0))
         context = make_context(limits)
         context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         for smaller in ((360, 400, 400), (220, 250, 250), (140, 160, 160)):
-            if len(context_json) <= 47000:
+            if context_max_chars == 0 or len(context_json) <= context_max_chars:
                 break
             context = make_context(smaller)
             context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         coverage_note = "Все сцены включены в контекст."
-        if len(context_json) > 47000 and len(context.get("scenes", [])) > 80:
+        if (
+            context_max_chars > 0 and len(context_json) > context_max_chars
+            and context_max_scenes > 0 and len(context.get("scenes", [])) > context_max_scenes
+        ):
             all_scenes = context["scenes"]
-            indices = sorted({round(i * (len(all_scenes) - 1) / 79) for i in range(80)})
+            sample_count = min(context_max_scenes, len(all_scenes))
+            indices = ([0] if sample_count == 1 else sorted({
+                round(i * (len(all_scenes) - 1) / (sample_count - 1))
+                for i in range(sample_count)
+            }))
             context["scenes"] = [all_scenes[i] for i in indices]
             context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-            coverage_note = f"Для смысловой разметки переданы 80 репрезентативных сцен из {len(all_scenes)}; исходные сцены в основном JSON не изменены."
+            coverage_note = f"Для смысловой разметки переданы {len(context['scenes'])} сцен из {len(all_scenes)}; лимит задаётся text_llm_context_max_scenes."
 
 
 
 
 
+        summary_min_words = max(0, int(setting("text_llm_summary_min_words", 50)))
+        summary_max_words = max(summary_min_words, int(setting("text_llm_summary_max_words", 105)))
+        max_key_points = max(1, int(setting("text_llm_max_key_points", 18)))
+        max_topics = max(1, int(setting("text_llm_max_topics", 15)))
         instruction = (
             "Ты — редактор и аналитик видеоконспектов. Верни только один валидный JSON-объект без Markdown и без текста вне JSON. "
             "Все формулировки пиши на русском языке; сохраняй точное написание брендов, имён, стандартов, файлов, команд и технических терминов. "
@@ -3308,11 +3323,11 @@ def run_text_llm_postprocess(
             "Не изменяй исходные аудиорасшифровки, OCR, визуальные описания и таймкоды. Они являются доказательным слоем. "
             "OCR — основной источник точного написания видимых названий, нормативных обозначений, атрибутов, дат и чисел, если текст читаем и однозначен. Не позволяй фонетическому варианту ASR переопределить чёткую экранную подпись; сопоставляй источники по смыслу и близости сцен. OCR тоже может ошибаться: при нечитабельной или противоречивой надписи сохраняй неопределённость. "
             "Если речь содержит фонетическое «Белчат/Белчата», а связанный по контексту OCR чётко показывает BuildChat, нормализуй производные аналитические поля к BuildChat и не добавляй ложную неопределённость. Исходные transcript/OCR не переписывай. "
-            "Executive_summary: 50–90 слов, самостоятельный синтез цели, последовательности этапов, конкретных параметров и фактического результата. Не повторяй базовую сводку и не добавляй общие фразы о профессиональной атмосфере. Разделяй то, что сказано в аудио, и то, что показано на экране. "
+            f"Executive_summary: {summary_min_words}–{summary_max_words} слов, самостоятельный синтез цели, последовательности этапов, конкретных параметров и фактического результата. Не повторяй базовую сводку и не добавляй общие фразы. Разделяй то, что сказано в аудио, и то, что показано на экране. "
             "Если в финальном аудио произносится несоответствие, а на экране только THE END/КОНЕЦ, сообщи, что это сказано в аудио, и не приписывай вывод изображению. Не считай окно «Проверка коллизий» доказательством результата проверки уклона, если связь не подтверждена. "
-            "Key_points: максимум 18 коротких аналитических тезисов, обычно до 30 слов. Не копируй длинные OCR-строки или обрывки транскрипта. Не дублируй смысл между соседними сценами: выделяй конкретное изменение, этап, атрибут, функцию или результат, только если он подтверждён сценой. Не добавляй речевые обрывки вроде «а затем выгрузить» как самостоятельный тезис. "
+            f"Key_points: максимум {max_key_points} коротких аналитических тезисов, обычно до 30 слов. Не копируй длинные OCR-строки или обрывки транскрипта. Не дублируй смысл между соседними сценами: выделяй конкретное изменение, этап, атрибут, функцию или результат, только если он подтверждён сценой. "
             "Evidence — строгая привязка: speech указывай только если тезис подтверждается аудио; ocr — только если подтверждается читаемым текстом; visual — если подтверждается описанием изображения; tags — если следует из visual_tags. Не добавляй источник только потому, что он существует. THE END подтверждает заставку, но не несоответствие. "
-            "Topics — не более 15 разных тем. Entities — только подтверждённые именованные сущности с реальными scene_ids. Типы: person, organization, product, software, tool, standard, regulation, document, concept, classification_system, other. ГОСТ/СП/СНиП/ISO — standard; КСИ — classification_system; nanoCAD и CADLib — software. Не включай обычные подписи вроде «ИИ помощник» как именованные сущности. "
+            f"Topics — не более {max_topics} разных тем. Entities — только подтверждённые именованные сущности с реальными scene_ids. Типы: person, organization, product, software, tool, standard, regulation, document, concept, classification_system, other. Не включай обычные подписи интерфейса как именованные сущности. "
             "Scene_enrichment: для каждой сцены короткая тема, улучшенное описание в 1–2 предложениях (ориентир до 45 слов) и 0–3 тезиса. Не вставляй в improved_description метки «Визуально:», «Речь:», «Текст на экране:», дампы OCR, временные заголовки [Кадр ...] или объединённые блоки исходных данных. Перескажи значимый экранный факт своими словами; сохраняй точные числа/названия, если они важны. Сцены похожего интерфейса должны различаться тем, что изменилось или какая функция показана. "
             "Uncertainties: включай только реальные расхождения или явную проблему распознавания. Не называй неопределённостью ситуацию, когда аудио и экран описывают разные, но совместимые вещи. Если OCR явно содержит полное значение, не помечай его как обрезанное. Если сомнений нет, верни []. Не делай выводов об архитектуре по localhost/порту/названию базы. "
             "Не включай chain-of-thought, черновые рассуждения или служебные поля. Строго соблюдай структуру: "
@@ -3928,7 +3943,7 @@ async def get_ui_settings():
         raise HTTPException(500, f"Не удалось прочитать настройки: {exc}")
     # VCE_FFMPEG_OCR_WORKERS_SETTING_V1
     defaults = {
-        "analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,
+        "analysis_mode": "full", "domain_profile": "generic", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,
         "ffmpeg_ocr_workers": 2,
         "enable_stage_timing": False,
         "enable_adaptive_keyframes": False,
@@ -3953,6 +3968,12 @@ async def get_ui_settings():
     defaults.setdefault("text_llm_enabled", True)
     defaults.setdefault("text_llm_model", TEXT_LLM_DEFAULT_MODEL)
     defaults.setdefault("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)
+    defaults.setdefault("text_llm_context_max_chars", 47000)
+    defaults.setdefault("text_llm_context_max_scenes", 80)
+    defaults.setdefault("text_llm_summary_min_words", 50)
+    defaults.setdefault("text_llm_summary_max_words", 105)
+    defaults.setdefault("text_llm_max_key_points", 18)
+    defaults.setdefault("text_llm_max_topics", 15)
     defaults.setdefault("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)
     result = {key: persisted.get(key, defaults[key]) for key in defaults}
     if "runtime_profile" not in persisted and bool(persisted.get("enable_mlx_whisper", False)):
@@ -3980,6 +4001,12 @@ async def save_ui_settings(payload: Dict[str, Any]):
         "vlm_resolution": (128, 2048), "keyframes_per_scene": (1, 5),
         "vlm_max_tokens_scene": (16, 1024), "vlm_max_tokens_summary": (16, 2048),
         "text_llm_max_tokens": (1024, 8192),
+        "text_llm_context_max_chars": (0, 1000000),
+        "text_llm_context_max_scenes": (0, 10000),
+        "text_llm_summary_min_words": (0, 1000),
+        "text_llm_summary_max_words": (1, 2000),
+        "text_llm_max_key_points": (1, 500),
+        "text_llm_max_topics": (1, 200),
     }
     float_ranges = {
         "scene_threshold": (0.01, 1.0), "min_scene_duration": (0.5, 60.0),
@@ -3999,6 +4026,9 @@ async def save_ui_settings(payload: Dict[str, Any]):
     for key, value in payload.items():
         if key == "analysis_mode":
             if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
+        elif key == "domain_profile":
+            if value not in {"generic", "nsrspec"}:
+                raise HTTPException(422, "Недопустимый доменный профиль")
         elif key == "runtime_profile":
             if value not in VCE_RUNTIME_PROFILES:
                 raise HTTPException(422, "Недопустимый профиль выполнения")
@@ -4049,6 +4079,9 @@ async def save_ui_settings(payload: Dict[str, Any]):
     if "runtime_profile" in payload:
         # Keep the old boolean key in sync for older local clients; the profile is canonical.
         merged["enable_mlx_whisper"] = payload["runtime_profile"] == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+
+    if int(merged.get("text_llm_summary_min_words", 50)) > int(merged.get("text_llm_summary_max_words", 105)):
+        raise HTTPException(422, "text_llm_summary_min_words не может превышать text_llm_summary_max_words")
 
     temp_path = config_path.with_name(config_path.name + ".tmp")
     try:
@@ -5190,6 +5223,7 @@ async def analyze_video(
     text_llm_enabled: bool = Form(bool(setting("text_llm_enabled", True))),
     text_llm_model: str = Form(str(setting("text_llm_model", TEXT_LLM_DEFAULT_MODEL))),
     text_llm_max_tokens: int = Form(int(setting("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)), ge=1024, le=8192),
+    domain_profile: str = Form(str(setting("domain_profile", "generic")), description="generic | nsrspec"),
     analysis_mode: str = Form(str(setting("analysis_mode", "full")), description="full | whisper_ocr | ocr_only"),
     enable_ffmpeg_ocr: bool = Form(bool(setting("enable_ffmpeg_ocr", False)), description="Дополнительный OCR через FFmpeg/Tesseract"),
     ffmpeg_ocr_interval: int = Form(int(setting("ffmpeg_ocr_interval", 5)), ge=1, le=60, description="Интервал выборки FFmpeg OCR, секунд"),

@@ -133,6 +133,15 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('if active_settings.get("enable_ocr_cache") is not False:', self.observer)
         self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
 
+    def test_context_and_result_limits_are_settings_backed(self):
+        for key in ("text_llm_context_max_chars", "text_llm_context_max_scenes",
+                    "text_llm_summary_min_words", "text_llm_summary_max_words",
+                    "text_llm_max_key_points", "text_llm_max_topics"):
+            self.assertIn(key, self.runtime)
+
+    def test_observer_uses_explicit_nsrspec_profile(self):
+        self.assertIn('"domain_profile": "nsrspec"', self.observer)
+
     def test_runtime_records_mps_device_with_index_as_verified(self):
         self.assertIn("def _vce_device_type_name(value: Any) -> str:", self.runtime)
         self.assertIn("_vce_device_type_name(observed_device) == _vce_device_type_name(device)", self.runtime)
