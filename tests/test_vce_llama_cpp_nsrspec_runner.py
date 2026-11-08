@@ -35,6 +35,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         cls.watchdog = (ROOT / "scripts/vce_runtime_watchdog.py").read_text(encoding="utf-8")
         cls.runtime = (ROOT / "VideoContextEngine_v3.19.py").read_text(encoding="utf-8")
         cls.installer = (ROOT / "scripts/install_vce_mtmd_loader_fix.py").read_text(encoding="utf-8")
+        cls.patch_installer = (ROOT / "scripts/vce_patch_test_run_nsrspec_json.command").read_text(encoding="utf-8")
+        cls.legacy_patch_installer = (ROOT / "scripts/vce_patch_test_run_nsrspec_ab.command").read_text(encoding="utf-8")
 
     def test_ab_launcher_runs_both_explicit_backends_in_order(self):
         mlx = 'run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"'
@@ -168,6 +170,28 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('setting("domain_profile", "generic")', self.runtime)
         self.assertIn('from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS', self.runtime)
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
+
+    def test_patch_installers_share_one_pinned_manifest(self):
+        self.assertIn('PATCH_COMMIT="cb1455af08b0938bbaa3c6ca3e652032d84c9ca1"', self.patch_installer)
+        for entry in (
+            "VideoContextEngine_v3.19.py 1cb66fd944021a6fba1b0dc3470cd524ffdda542",
+            "scripts/vce_observed_llama_cpp_run.py fa8bf83a48d519559a499d51f8de3d67abddbf51",
+            "scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0",
+            "scripts/vce_runtime_watchdog.py 4cf0c6db9c9ab855532c704acd75d5f880095a4a",
+            "domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098",
+        ):
+            self.assertIn(entry, self.patch_installer)
+        self.assertIn('exec /bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_json.command" "$@"', self.legacy_patch_installer)
+        self.assertNotIn("PATCH_COMMIT=", self.legacy_patch_installer)
+        self.assertNotIn("/Users/", self.patch_installer)
+        self.assertIn('if ! command -v rclone >/dev/null 2>&1; then', self.patch_installer)
+        self.assertIn("validation archive kept locally", self.patch_installer)
+        self.assertIn('if [[ "$SKIP_AB" == "1" ]]; then', self.patch_installer)
+
+    def test_patch_installer_uses_full_pytest_suite_and_profiles(self):
+        self.assertIn('"$PY" -m pytest -q tests', self.patch_installer)
+        self.assertIn('"$ROOT/domain_profiles/nsrspec.py"', self.patch_installer)
+        self.assertIn('export VCE_ROOT="$ROOT" VCE_VIDEO="$VIDEO" VCE_APP="$APP" VCE_API_URL="$API"', self.patch_installer)
 
     def test_runtime_records_mps_device_with_index_as_verified(self):
         self.assertIn("def _vce_device_type_name(value: Any) -> str:", self.runtime)

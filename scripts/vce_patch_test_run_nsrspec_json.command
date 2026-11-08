@@ -31,14 +31,14 @@ ROOT="$(cd "$ROOT" 2>/dev/null && pwd)" || { echo "Project root not found: $ROOT
 PY="$ROOT/.venv/bin/python"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/vce-qwen35-json-patch.XXXXXX")"
-STAGE="$(mktemp -d "${TMPDIR:-/tmp}/vce-qwen35-json-patch.XXXXXX")"
 LOG_DIR="$LOG_PARENT/patch_validation_$STAMP"
 RUN_LOG="$LOG_DIR/patch_install.log"
 BACKUP="$HOME/Downloads/VCE_patch_backups_NSRSPEC_AB/$STAMP"
 PATCH_INSTALL_STARTED=0
 REGRESSION_TESTS_PASSED=0
 AB_STARTED=0
-MISSING_FILES="
+MISSING_FILES=""
+FILES="
 VideoContextEngine_v3.19.py 1cb66fd944021a6fba1b0dc3470cd524ffdda542
 scripts/vce_observed_llama_cpp_run.py fa8bf83a48d519559a499d51f8de3d67abddbf51
 scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0
@@ -48,7 +48,6 @@ tests/test_vce_llama_cpp_nsrspec_runner.py c26d0df8a8fa08b99b42845149e1582b9387b
 domain_profiles/__init__.py 00c837b7966783e071ec17ebfecf347cfe6dd12d
 domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098
 "
-"
 
 upload_patch_validation_logs() {
   [[ -d "$LOG_DIR" ]] || return 0
@@ -56,39 +55,39 @@ upload_patch_validation_logs() {
   local archive="$LOG_PARENT/VCE_PATCH_VALIDATION_$STAMP.zip"
   /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$LOG_DIR" "$archive" || return 1
   if ! command -v rclone >/dev/null 2>&1; then
-    printf "Patch validation archive kept locally: %s\\n" "$archive"
+    printf "Patch validation archive kept locally: %s\n" "$archive"
     return 0
   fi
   local remote="${VCE_DROPBOX_REMOTE:-}"
   if [[ -z "$remote" ]]; then
     local remotes
     remotes="$(rclone listremotes 2>/dev/null || true)"
-    if printf '%s\\n' "$remotes" | grep -Fxq 'vce-dropbox:'; then
+    if printf '%s\n' "$remotes" | grep -Fxq 'vce-dropbox:'; then
       remote="vce-dropbox"
-    elif printf '%s\\n' "$remotes" | grep -Fxq 'dropbox:'; then
+    elif printf '%s\n' "$remotes" | grep -Fxq 'dropbox:'; then
       remote="dropbox"
     else
-      printf "No Dropbox remote; validation archive kept locally: %s\\n" "$archive"
+      printf "No Dropbox remote; validation archive kept locally: %s\n" "$archive"
       return 0
     fi
   fi
   if [[ "$(rclone config show "$remote" 2>/dev/null | awk -F ' = ' '$1 == "type" {print $2; exit}')" != "dropbox" ]]; then
-    printf "Remote %s is not Dropbox; validation archive kept locally: %s\\n" "$remote" "$archive"
+    printf "Remote %s is not Dropbox; validation archive kept locally: %s\n" "$remote" "$archive"
     return 0
   fi
   local dest="$remote:20261104_224554_1f098d/VCE_forensic_runs_NSRSPEC_AB/$(basename "$archive")"
   if ! rclone copyto "$archive" "$dest" --progress; then
-    printf "Dropbox upload failed; validation archive kept locally: %s\\n" "$archive"
+    printf "Dropbox upload failed; validation archive kept locally: %s\n" "$archive"
     return 0
   fi
   local local_size remote_size
   local_size="$(stat -f '%z' "$archive")"
-  remote_size="$(rclone size "$dest" --json 2>/dev/null | sed -nE 's/.*"bytes"[[:space:]]*:[[:space:]]*([0-9]+).*/\\1/p')"
+  remote_size="$(rclone size "$dest" --json 2>/dev/null | sed -nE 's/.*"bytes"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p')"
   if [[ -z "$remote_size" || "$remote_size" != "$local_size" ]]; then
-    printf "Dropbox verification failed; local validation archive retained: %s\\n" "$archive"
+    printf "Dropbox verification failed; local validation archive retained: %s\n" "$archive"
     return 0
   fi
-  printf 'PATCH_VALIDATION_DROPBOX_UPLOAD=SUCCESS\\nPATCH_VALIDATION_DROPBOX_PATH=%s\\nPATCH_VALIDATION_DROPBOX_SIZE=%s\\n' "$dest" "$remote_size"
+  printf 'PATCH_VALIDATION_DROPBOX_UPLOAD=SUCCESS\nPATCH_VALIDATION_DROPBOX_PATH=%s\nPATCH_VALIDATION_DROPBOX_SIZE=%s\n' "$dest" "$remote_size"
 }
 cleanup() {
   local status=$?
@@ -214,7 +213,7 @@ rm -rf "$STAGE"
 trap - EXIT
 export VCE_ROOT="$ROOT" VCE_VIDEO="$VIDEO" VCE_APP="$APP" VCE_API_URL="$API" VCE_OUT_PARENT="$LOG_PARENT" VCE_PREFLIGHT_LOG="$COMBINED_LOG"
 if [[ "$SKIP_AB" == "1" ]]; then
-  printf "VCE_SKIP_AB=1; installer validation completed; analysis launch skipped.\\n"
+  printf "VCE_SKIP_AB=1; installer validation completed; analysis launch skipped.\n"
   exit 0
 fi
 /bin/bash "$ROOT/scripts/vce_run_nsrspec_ab.command"
