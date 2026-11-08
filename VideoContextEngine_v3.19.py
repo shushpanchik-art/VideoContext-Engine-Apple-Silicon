@@ -553,6 +553,32 @@ USER_SETTINGS = load_user_settings()
 def setting(name: str, fallback: Any) -> Any:
     return USER_SETTINGS.get(name, fallback)
 
+
+def _vce_dev_docs_enabled() -> bool:
+    return os.getenv("VCE_DEV_DOCS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _vce_media_conversion_timeout_seconds() -> int:
+    try:
+        configured = int(setting("media_conversion_timeout", 3600))
+    except (TypeError, ValueError):
+        configured = 3600
+    return max(60, min(configured, 7200))
+
+
+def _vce_validate_legacy_mlx_whisper_flag(
+    legacy_flag: Optional[bool], runtime_profile: str
+) -> None:
+    """Reject conflicting deprecated API input instead of silently ignoring it."""
+    if legacy_flag is None:
+        return
+    selected_parallel = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+    if bool(legacy_flag) != selected_parallel:
+        raise HTTPException(
+            422,
+            "enable_mlx_whisper больше не выбирает профиль; передайте согласованный runtime_profile.",
+        )
+
 WHISPER_CACHE: Dict[str, Any] = {}
 
 # --- CONFIGURATION GLOBALE ---
@@ -1634,6 +1660,7 @@ def ensure_opencv_compatible_video(file_path: str) -> str:
     import os
     os.close(fd)
     os.unlink(proxy_path)  # FFmpeg creates the output file itself.
+    conversion_timeout = _vce_media_conversion_timeout_seconds()
     command = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path),
         "-map", "0:v:0", "-map", "0:a:0?",
@@ -1644,7 +1671,7 @@ def ensure_opencv_compatible_video(file_path: str) -> str:
     try:
         converted = subprocess.run(
             command, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            check=False, timeout=7200,
+            check=False, timeout=conversion_timeout,
         )
         if converted.returncode != 0 or not Path(proxy_path).is_file() or Path(proxy_path).stat().st_size == 0:
             details = (converted.stderr or "").strip()[-1000:]
@@ -3894,8 +3921,8 @@ app = FastAPI(
     version="3.19",
     lifespan=lifespan,
     # Swagger/ReDoc are developer tools; /openapi.json remains available to the bench.
-    docs_url="/docs" if os.getenv("VCE_DEV_DOCS") else None,
-    redoc_url="/redoc" if os.getenv("VCE_DEV_DOCS") else None,
+    docs_url="/docs" if _vce_dev_docs_enabled() else None,
+    redoc_url="/redoc" if _vce_dev_docs_enabled() else None,
 )
 
 def custom_openapi():
@@ -4042,6 +4069,7 @@ async def get_ui_settings():
         "llama_cpp_vlm_model": DEFAULT_VLM_MODEL_GGUF,
         "llama_cpp_vlm_mmproj": DEFAULT_MMPROJ_GGUF,
         "llama_cpp_vlm_context": 8192,
+        "media_conversion_timeout": 3600,
         "llama_cpp_text_llm_model": DEFAULT_TEXT_LLM_MODEL_GGUF,
         "llama_cpp_text_context": 32768,
         "enable_mlx_whisper": False,  # legacy API compatibility; runtime_profile is authoritative
@@ -4084,6 +4112,7 @@ async def save_ui_settings(payload: Dict[str, Any]):
 
     int_ranges = {
         "llama_cpp_vlm_context": (4096, 65536),
+        "media_conversion_timeout": (60, 7200),
         "llama_cpp_text_context": (4096, 65536),
         "ffmpeg_ocr_workers": (1, 8),
         "ffmpeg_ocr_interval": (1, 60),
@@ -5332,8 +5361,8 @@ async def analyze_video(
     enable_adaptive_keyframes: bool = Form(bool(setting("enable_adaptive_keyframes", False)), description="Адаптивно уменьшать число кадров на коротких сценах"),
     enable_ocr_cache: bool = Form(bool(setting("enable_ocr_cache", False)), description="Кэшировать OCR для повторяющихся кадров"),
     runtime_profile: str = Form(str(setting("runtime_profile", "")), description="baseline_mps_sequential | mlx_parallel"),
-    enable_mlx_whisper: bool = Form(bool(setting("enable_mlx_whisper", False)), description="Устаревший API-флаг; для новых клиентов используйте runtime_profile"),
-    enable_fast_scene_detection: bool = Form(bool(setting("enable_fast_scene_detection", False)), description="Экспериментальная ускоренная детекция сцен с выборкой 1 кадр/сек"),
+    enable_mlx_whisper: Optional[bool] = Form(None, description="Устаревший API-флаг; если передан, должен совпадать с runtime_profile"),
+    enable_fast_scene_detection: bool = Form(bool(setting("enable_fast_scene_detection", False)), description="Ускоренная детекция сцен с выборкой 1 кадр/сек; может пропустить короткие переходы"),
 ):
     requested_runtime_profile = str(runtime_profile or "").strip().lower()
     if requested_runtime_profile:
@@ -5345,6 +5374,7 @@ async def analyze_video(
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
     # Keep the legacy flag derived from the canonical profile; it no longer selects a separate backend.
+    _vce_validate_legacy_mlx_whisper_flag(enable_mlx_whisper, runtime_profile)
     enable_mlx_whisper = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
     if runtime_profile == VCE_RUNTIME_PROFILE_BASELINE:
         print("[VCE execution] baseline_mps_sequential: PyTorch Whisper/MPS (CPU fallback) -> MLX/Metal VLM -> MLX/Metal Text LLM", flush=True)

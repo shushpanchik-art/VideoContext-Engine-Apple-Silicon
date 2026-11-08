@@ -3,6 +3,12 @@ import unittest
 from pathlib import Path
 
 
+class _TestHTTPException(Exception):
+    def __init__(self, status_code, detail):
+        super().__init__(detail)
+        self.status_code = status_code
+
+
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "VideoContextEngine_v3.19.py"
 UI = ROOT / "videocontext_web_ui.html"
@@ -31,6 +37,29 @@ class TestRuntimeProfiles(unittest.TestCase):
         self.assertNotIn("enable_mlx_whisper", normalize)
         analyze = self.function_source("analyze_video")
         self.assertNotIn("if enable_mlx_whisper:", analyze)
+
+    def test_explicit_legacy_whisper_flag_must_match_runtime_profile(self):
+        helper = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_vce_validate_legacy_mlx_whisper_flag"
+        )
+        namespace = {
+            "Optional": __import__("typing").Optional,
+            "HTTPException": _TestHTTPException,
+            "VCE_RUNTIME_PROFILE_MLX_PARALLEL": "mlx_parallel",
+        }
+        module = ast.Module(body=[helper], type_ignores=[])
+        exec(compile(module, str(ENGINE), "exec"), namespace)
+        validate = namespace["_vce_validate_legacy_mlx_whisper_flag"]
+        validate(None, "baseline_mps_sequential")
+        validate(False, "baseline_mps_sequential")
+        validate(True, "mlx_parallel")
+        for legacy_flag, profile in ((True, "baseline_mps_sequential"), (False, "mlx_parallel")):
+            with self.assertRaises(_TestHTTPException) as raised:
+                validate(legacy_flag, profile)
+            self.assertEqual(raised.exception.status_code, 422)
+        self.assertIn('enable_mlx_whisper: Optional[bool] = Form(None', self.source)
 
     def test_whisper_loader_selects_pytorch_mps_or_mlx(self):
         resolver = self.function_source("resolve_whisper_device")
@@ -74,11 +103,12 @@ class TestRuntimeProfiles(unittest.TestCase):
         for key in (
             "analysis_mode", "enable_ffmpeg_ocr", "ffmpeg_ocr_interval",
             "enable_stage_timing", "enable_adaptive_keyframes", "enable_ocr_cache",
-            "runtime_profile", "enable_mlx_whisper", "enable_fast_scene_detection",
+            "runtime_profile", "enable_fast_scene_detection",
         ):
             self.assertIn(f'setting("{key}",', self.source)
         self.assertIn('setting("ram_mode", "ram-")', self.source)
         self.assertIn('setting("llama_cpp_vlm_context", 8192)', self.source)
+        self.assertIn('enable_mlx_whisper: Optional[bool] = Form(None', self.source)
 
     def test_obsolete_default_constants_are_removed(self):
         for name in ("DEFAULT_MAX_DURATION", "DEFAULT_RESOLUTION", "DEFAULT_KEYFRAMES_PER_SCENE"):

@@ -182,7 +182,7 @@ def add_form_fields(source: str) -> str:
         '    enable_adaptive_keyframes: bool = Form(False, description="Адаптивно уменьшать число кадров на коротких сценах"),\n'
         '    enable_ocr_cache: bool = Form(False, description="Кэшировать OCR для повторяющихся кадров"),\n'
         '    enable_mlx_whisper: bool = Form(False, description="Использовать опциональный MLX Whisper вместо PyTorch Whisper"),\n'
-        '    enable_fast_scene_detection: bool = Form(False, description="Экспериментальная ускоренная детекция сцен с выборкой 1 кадр/сек"),\n'
+        '    enable_fast_scene_detection: bool = Form(False, description="Ускоренная детекция сцен с выборкой 1 кадр/сек; может пропустить короткие переходы"),\n'
     )
     names = ("enable_stage_timing", "enable_adaptive_keyframes", "enable_ocr_cache",
              "enable_mlx_whisper", "enable_fast_scene_detection")
@@ -1044,12 +1044,12 @@ def patch_ui(ui: str) -> str:
 
     controls = '''  <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->
   <div class="setting-checks" id="vce-optimization-checkboxes">
-    <strong style="grid-column:1 / -1">Экспериментальные оптимизации (все выключены по умолчанию)</strong>
+    <strong style="grid-column:1 / -1">Дополнительные параметры анализа (выключены по умолчанию)</strong>
     <label><input id="cfg-stage-timing" type="checkbox"> Подробные тайминги этапов в JSON</label>
     <label><input id="cfg-adaptive-keyframes" type="checkbox"> Адаптивное число кадров на сцену (настройка количества кадров — верхний предел)</label>
     <label><input id="cfg-ocr-cache" type="checkbox"> Кэш OCR Apple Vision для повторяющихся кадров</label>
     <label><input id="cfg-mlx-whisper" type="checkbox"> MLX Whisper вместо PyTorch Whisper (нужен пакет mlx-whisper и совместимая MLX-модель)</label>
-    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропускать короткие переходы</label>
+    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропустить короткие переходы</label>
   </div>
 '''
 
@@ -1094,12 +1094,12 @@ def patch_ui(ui: str) -> str:
         ):
             inner = (
                 '    <strong id="vce-optimization-title" style="grid-column:1 / -1">'
-                'Экспериментальные оптимизации (все выключены по умолчанию)</strong>\n'
+                'Дополнительные параметры анализа (выключены по умолчанию)</strong>\n'
                 '    <label><input id="cfg-stage-timing" type="checkbox"> Подробные тайминги этапов в JSON</label>\n'
                 '    <label><input id="cfg-adaptive-keyframes" type="checkbox"> Адаптивное число кадров на сцену (настройка количества кадров — верхний предел)</label>\n'
                 '    <label><input id="cfg-ocr-cache" type="checkbox"> Кэш OCR Apple Vision для повторяющихся кадров</label>\n'
                 '    <label><input id="cfg-mlx-whisper" type="checkbox"> MLX Whisper вместо PyTorch Whisper (нужен пакет mlx-whisper и совместимая MLX-модель)</label>\n'
-                '    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропускать короткие переходы</label>\n'
+                '    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропустить короткие переходы</label>\n'
                 '    <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->\n'
             )
             indent_match = re.match(r"(?m)^([ \t]*)", ui[grid_start:label_start])

@@ -13,6 +13,7 @@
   "scene_threshold": 0.15,
   "min_scene_duration": 1.5,
   "max_scene_duration": 20,
+  "media_conversion_timeout": 3600,
   "keyframes_per_scene": 1,
   "vlm_max_tokens_scene": 1024,
   "vlm_max_tokens_summary": 2048,
