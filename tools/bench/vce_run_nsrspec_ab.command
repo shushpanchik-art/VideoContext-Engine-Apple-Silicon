@@ -31,6 +31,7 @@ done
 ROOT="$(cd "$ROOT" 2>/dev/null && pwd)" || fail "Не найден каталог проекта: $ROOT"
 SETTINGS="${SETTINGS_OVERRIDE:-${VCE_SETTINGS:-$ROOT/videocontext_settings.json}}"
 PY="$ROOT/.venv/bin/python"
+OBSERVER="$ROOT/tools/bench/vce_observed_llama_cpp_run.py"
 
 MTMD_INSTALLER="$ROOT/tools/bench/install_vce_mtmd_loader_fix.py"
 MTMD_INSTALLER_BLOB_SHA="934739bd0b5f70dc26665adc115a181d365330e0"
@@ -51,10 +52,27 @@ RUN2_DIAGNOSTIC=0
 DROPBOX_AVAILABLE=0
 
 restore_settings() {
-  if [[ "$API_READY" != "1" || ! -f "$ORIGINAL_API_SETTINGS" ]]; then
+  if [[ ! -f "$ORIGINAL_API_SETTINGS" ]]; then
     RESTORE_DONE=1
     RESTORE_STATUS="not_needed"
     return 0
+  fi
+  if [[ ! -f "$SETTINGS" ]]; then
+    RESTORE_DONE=0
+    RESTORE_STATUS="failed"
+    note "Не найден локальный settings-файл для резервного восстановления: $SETTINGS"
+    return 1
+  fi
+  if [[ "$API_READY" != "1" ]]; then
+    note "API недоступен; восстанавливаю исходные настройки напрямую в локальном JSON."
+    if "$PY" "$OBSERVER" --restore-settings-offline --settings "$SETTINGS" --restore-from "$ORIGINAL_API_SETTINGS" --restore-report "$OUT_ROOT/settings_restore_report.json"; then
+      RESTORE_DONE=1
+      RESTORE_STATUS="restored_offline"
+      return 0
+    fi
+    RESTORE_DONE=0
+    RESTORE_STATUS="failed"
+    return 1
   fi
   note "Восстанавливаю исходные API-настройки (недопустимые старые GGUF в vlm_model/text_llm_model нормализуются в MLX)."
   if "$PY" - "$API" "$ORIGINAL_API_SETTINGS" "$OUT_ROOT/settings_restore_report.json" <<'PY'
@@ -112,6 +130,12 @@ PY
     RESTORE_DONE=1
     RESTORE_STATUS="passed"
   else
+    note "API-восстановление не удалось; перехожу к резервному восстановлению локального JSON."
+    if "$PY" "$OBSERVER" --restore-settings-offline --settings "$SETTINGS" --restore-from "$ORIGINAL_API_SETTINGS" --restore-report "$OUT_ROOT/settings_restore_report.json"; then
+      RESTORE_DONE=1
+      RESTORE_STATUS="restored_offline"
+      return 0
+    fi
     RESTORE_DONE=0
     RESTORE_STATUS="failed"
     return 1
@@ -193,7 +217,7 @@ finish() {
   local restore_status=0
   local upload_status=0
   trap - EXIT
-  if [[ "$RESTORE_DONE" != "1" && "$API_READY" == "1" ]]; then
+  if [[ "$RESTORE_DONE" != "1" ]]; then
     set +e
     restore_settings
     restore_status=$?
@@ -574,7 +598,7 @@ run_backend() {
   pass_dir="$2"
   mkdir -p "$pass_dir"
   note "Стартую $backend с воспроизводимым NSR профилем; активная настройка OCR cache сохраняется и записывается observer."
-  "$PY" "$WATCHDOG" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/tools/bench/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
+  "$PY" "$WATCHDOG" --video "$VIDEO" --settings "$SETTINGS" --runner "$OBSERVER" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
 }
 
 if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then

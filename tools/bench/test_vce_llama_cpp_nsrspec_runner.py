@@ -49,7 +49,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn(llama, self.launcher)
         self.assertLess(self.launcher.index(mlx), self.launcher.index(llama))
         self.assertIn("--inference-backend", self.watchdog)
-        self.assertIn("required=True", self.observer)
+        self.assertIn('if not args.video or not args.inference_backend:', self.observer)
         self.assertIn("choices=SUPPORTED_INFERENCE_BACKENDS", self.observer)
         self.assertIn('open -a "$APP"', self.launcher)
         self.assertNotIn('open "$API', self.launcher)
@@ -248,8 +248,35 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('Path(snapshot).write_text(json.dumps(settings', self.launcher)
         self.assertIn('payload = {key: value for key, value in original.items() if key in current_before', self.launcher)
         self.assertIn('"domain_profile": "generic"', self.runtime)
+        self.assertIn('--restore-settings-offline --settings "$SETTINGS" --restore-from "$ORIGINAL_API_SETTINGS"', self.launcher)
+        self.assertIn('if [[ "$API_READY" != "1" ]]; then', self.launcher)
+        self.assertIn('API-восстановление не удалось; перехожу к резервному восстановлению локального JSON.', self.launcher)
+        self.assertNotIn('RESTORE_DONE" != "1" && "$API_READY" == "1"', self.launcher)
         finish = self.launcher[self.launcher.index("finish() {"):self.launcher.index("trap finish EXIT")]
         self.assertIn("restore_settings", finish)
+
+    def test_offline_settings_restore_restores_snapshot_and_preserves_unknown_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings_path = root / "videocontext_settings.json"
+            snapshot_path = root / "active_settings_before.json"
+            settings_path.write_text(json.dumps({
+                "domain_profile": "nsrspec",
+                "inference_backend": "llama_cpp_metal",
+                "future_private_setting": "preserve",
+            }), encoding="utf-8")
+            snapshot_path.write_text(json.dumps({
+                "domain_profile": "generic",
+                "inference_backend": "mlx_metal",
+            }), encoding="utf-8")
+
+            report = _OBSERVER.restore_settings_file(settings_path, snapshot_path)
+
+            restored = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "restored_offline")
+            self.assertEqual(restored["domain_profile"], "generic")
+            self.assertEqual(restored["inference_backend"], "mlx_metal")
+            self.assertEqual(restored["future_private_setting"], "preserve")
 
     def test_patch_installer_manifest_does_not_depend_on_git_history(self):
         self.assertIn('PATCH_REF="${VCE_PATCH_REF:-main}"', self.patch_installer)

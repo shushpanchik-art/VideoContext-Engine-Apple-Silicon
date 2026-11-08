@@ -14,6 +14,7 @@ import json
 import os
 import platform
 import re
+import stat
 import shutil
 import socket
 import subprocess
@@ -170,6 +171,28 @@ def now_iso() -> str:
 
 def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
+
+
+def restore_settings_file(settings_path: Path, snapshot_path: Path) -> dict[str, Any]:
+    """Restore API-visible settings from a snapshot without requiring the server."""
+    live = json.loads(settings_path.read_text(encoding="utf-8"))
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    if not isinstance(live, dict) or not isinstance(snapshot, dict):
+        raise ValueError("settings and snapshot roots must be JSON objects")
+    live.update(snapshot)
+    mode = stat.S_IMODE(settings_path.stat().st_mode)
+    temporary = settings_path.with_name(settings_path.name + f".restore-{os.getpid()}")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(live, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, settings_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {"status": "restored_offline", "restored_keys": sorted(snapshot)}
 
 
 def append_jsonl(path: Path, value: Any) -> None:
@@ -558,8 +581,11 @@ def print_timing_summary(data: Any, http_status: int | None, request_wall_second
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--video", required=True, help="Путь к исходному видео.")
+    parser.add_argument("--video", default=None, help="Путь к исходному видео.")
     parser.add_argument("--settings", default=str(DEFAULT_SETTINGS), help="Локальный videocontext_settings.json.")
+    parser.add_argument("--restore-settings-offline", action="store_true", help="Восстановить настройки из снимка без работающего API.")
+    parser.add_argument("--restore-from", default=None, help="JSON-снимок настроек для офлайн-восстановления.")
+    parser.add_argument("--restore-report", default=None, help="Куда записать отчёт офлайн-восстановления.")
     parser.add_argument("--api-url", default=DEFAULT_API)
     parser.add_argument("--out-root", default=str(Path.home() / "Downloads" / "VCE_observed_runs"))
     parser.add_argument("--server-log", default=None, help="Явный путь к логу сервера; по умолчанию ищется известный лог.")
@@ -568,10 +594,23 @@ def main() -> int:
     parser.add_argument(
         "--inference-backend",
         choices=SUPPORTED_INFERENCE_BACKENDS,
-        required=True,
         help="Explicit backend for this A/B pass; both passes keep baseline_mps_sequential Whisper/MPS.",
     )
     args = parser.parse_args()
+    if args.restore_settings_offline:
+        if not args.restore_from:
+            parser.error("--restore-settings-offline requires --restore-from")
+        try:
+            report = restore_settings_file(Path(args.settings).expanduser(), Path(args.restore_from).expanduser())
+            if args.restore_report:
+                write_json(Path(args.restore_report).expanduser(), report)
+            print(json.dumps(report, ensure_ascii=False))
+            return 0
+        except Exception as exc:
+            print(f"ERROR: offline settings restore failed: {exc}")
+            return 2
+    if not args.video or not args.inference_backend:
+        parser.error("--video and --inference-backend are required unless --restore-settings-offline is used")
     backend_settings = build_backend_settings(args.inference_backend, args.profile)
     llama_runtime_info = collect_llama_runtime_info(args.inference_backend)
 
