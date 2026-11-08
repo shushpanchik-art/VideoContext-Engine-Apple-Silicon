@@ -49,7 +49,7 @@ button#stop:disabled { color:#4b4217 !important; }
 </head>
 <body>
 <main>
-  <div class="topline"><span class="pill">локальная обработка · Apple Silicon / MLX</span><a class="hint" href="/docs">API и настройки (Swagger) →</a></div>
+  <div class="topline"><span class="pill">локальная обработка · Apple Silicon / MLX</span></div>
   <h1>VideoContext Engine</h1>
   <p>Выберите видео, добавляйте следующие кнопкой ниже и запускайте пакетную обработку. Файлы анализируются последовательно, у каждого — собственный индикатор загрузки и состояния.</p>
   <details id="settings-disclosure" class="settings-disclosure">
@@ -521,8 +521,8 @@ button#stop:disabled { color:#4b4217 !important; }
         catch (_) { setState(entry, 'error', 'Ошибка: сервер вернул невалидный JSON'); resolve(); return; }
         setState(entry, 'done', data.output_directory ? `Готово · TXT/JSON сохранены в ${data.output_directory}` : 'Готово · TXT и JSON сохранены');
         const links = [];
-        if (data.txt_filename) links.push(['Скачать TXT', data.txt_filename, data.txt_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.txt_download_id) : '/api/v1/output/' + encodeURIComponent(data.txt_filename)]);
-        if (data.json_filename) links.push(['Скачать JSON', data.json_filename, data.json_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.json_download_id) : '/api/v1/output/' + encodeURIComponent(data.json_filename)]);
+        if (data.txt_filename && data.txt_download_id) links.push(['Скачать TXT', data.txt_filename, '/api/v1/output-file/' + encodeURIComponent(data.txt_download_id)]);
+        if (data.json_filename && data.json_download_id) links.push(['Скачать JSON', data.json_filename, '/api/v1/output-file/' + encodeURIComponent(data.json_download_id)]);
         for (const [label, filename, href] of links) {
           const a = document.createElement('a');
 // VCE_URL_REPORT_DOWNLOAD_TARGET_V1

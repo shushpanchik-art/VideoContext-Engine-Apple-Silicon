@@ -72,7 +72,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
-from fastapi.responses import PlainTextResponse, HTMLResponse, FileResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, FileResponse, RedirectResponse
 from fastapi.openapi.utils import get_openapi
 from PIL import Image
 
@@ -3890,9 +3890,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VideoContext Engine",
-    description="Microservice v3.19 (RAM modes + JSON robuste + nettoyage brut)",
+    description="Локальный анализ видео на Apple Silicon: сцены, речь, OCR и текстовый отчёт.",
     version="3.19",
     lifespan=lifespan,
+    # Swagger/ReDoc are developer tools; /openapi.json remains available to the bench.
+    docs_url="/docs" if os.getenv("VCE_DEV_DOCS") else None,
+    redoc_url="/redoc" if os.getenv("VCE_DEV_DOCS") else None,
 )
 
 def custom_openapi():
@@ -3986,6 +3989,11 @@ async def select_local_videos(request: Request):
     return {"files": files, "rejected": rejected, "cancelled": not bool(files)}
 
 
+@app.get("/", include_in_schema=False)
+async def vce_root():
+    return RedirectResponse("/ui")
+
+
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
 async def video_context_web_ui():
     """Friendly local UI for selecting and processing multiple videos sequentially."""
@@ -4008,17 +4016,6 @@ async def download_registered_output(output_id: str):
     if not output_path.is_file():
         raise HTTPException(404, "Файл отчёта больше не существует на диске.")
     return FileResponse(str(output_path), filename=download_name)
-
-
-@app.get("/api/v1/output/{filename}", include_in_schema=False)
-async def download_context_output(filename: str):
-    """Serve only generated *_context.txt / *_context.json files from the working directory."""
-    if Path(filename).name != filename or not filename.endswith(("_context.txt", "_context.json")):
-        raise HTTPException(400, "Invalid output filename")
-    output_path = Path.cwd() / filename
-    if not output_path.is_file():
-        raise HTTPException(404, "Output file not found in the engine working directory")
-    return FileResponse(str(output_path), filename=filename)
 
 
 @app.get("/api/v1/ui-settings", include_in_schema=False)
@@ -4746,7 +4743,7 @@ def _vce_detect_scenes_fast(video_path, threshold, min_duration, max_duration):
 
 
 # VCE_LOCAL_SERVER_SHUTDOWN_ENDPOINT_V1
-@app.post("/api/v1/server/shutdown")
+@app.post("/api/v1/server/shutdown", include_in_schema=False)
 async def _vce_shutdown_server(request: Request):
     # This control is intended only for the local desktop UI, not remote callers.
     client_host = request.client.host if request.client else ""
