@@ -54,14 +54,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('"video_path": video_path', self.launcher)
 
     def test_pinned_tool_hashes_match_repository_blobs(self):
-        expected = {
-            "watchdog": "50e91ffabcf2cb6174b068a12eea0b6b909cba5e",
-            "installer": "934739bd0b5f70dc26665adc115a181d365330e0",
-        }
-        actual = {
-            "watchdog": git_blob_sha(ROOT / "scripts/vce_runtime_watchdog.py"),
-            "installer": git_blob_sha(ROOT / "scripts/install_vce_mtmd_loader_fix.py"),
-        }
+        expected = {"installer": "934739bd0b5f70dc26665adc115a181d365330e0"}
+        actual = {"installer": git_blob_sha(ROOT / "scripts/install_vce_mtmd_loader_fix.py")}
         self.assertEqual(actual, expected)
         for sha in expected.values():
             self.assertIn(sha, self.launcher)
@@ -84,13 +78,15 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("if resolved is not None:", self.launcher)
 
     def test_tool_integrity_is_checked_before_live_server_guard(self):
-        check = self.launcher.index('git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py"')
+        check = self.launcher.index('git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"')
         server_guard = self.launcher.index('API_PIDS=')
         installer = self.launcher.index('install_vce_mtmd_loader_fix.py" --report')
         app_start = self.launcher.index('open -a "$APP"')
         self.assertLess(check, server_guard)
         self.assertLess(server_guard, installer)
         self.assertLess(installer, app_start)
+        self.assertIn('WATCHDOG="$ROOT/scripts/vce_runtime_watchdog.py"', self.launcher)
+        self.assertNotIn('hash-object "$TOOLS_DIR/vce_runtime_watchdog.py"', self.launcher)
         self.assertIn("lsof -nP -tiTCP:7555", self.launcher)
         self.assertIn("pgrep -f", self.launcher)
         self.assertIn("дождись закрытия API на порту 7555", self.launcher)

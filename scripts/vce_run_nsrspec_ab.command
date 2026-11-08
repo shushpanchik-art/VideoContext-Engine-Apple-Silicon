@@ -261,12 +261,12 @@ else
   note "rclone не установлен; Dropbox upload отключён, будет создан локальный ZIP."
 fi
 
-note "Скачиваю watchdog и mtmd installer из pinned-коммита $TOOLS_COMMIT; проверяю установленный observer patch."
+note "Использую watchdog из текущего checkout; скачиваю только зафиксированный MTMD installer."
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$TOOLS_COMMIT/scripts"
-curl -fsSL "$BASE_URL/vce_runtime_watchdog.py" -o "$TOOLS_DIR/vce_runtime_watchdog.py"
 curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
-[[ "$(git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py")" == "50e91ffabcf2cb6174b068a12eea0b6b909cba5e" ]] || fail "Не прошла проверка целостности watchdog."
 [[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
+WATCHDOG="$ROOT/scripts/vce_runtime_watchdog.py"
+[[ -f "$WATCHDOG" ]] || fail "Не найден watchdog в checkout: $WATCHDOG"
 [[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
 
 # Install the .pth hook only while the app/API is fully stopped. Download and
@@ -576,7 +576,7 @@ run_backend() {
   pass_dir="$2"
   mkdir -p "$pass_dir"
   note "Стартую $backend с воспроизводимым NSR профилем; OCR cache OFF и multipart-поля проверяются observer."
-  "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
+  "$PY" "$WATCHDOG" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
 }
 
 if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then
