@@ -8,7 +8,7 @@ ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 APP="${VCE_APP:-/Applications/VideoContext Engine.app}"
 API="${VCE_API_URL:-http://127.0.0.1:7555}"
 VIDEO="${VCE_VIDEO:-$HOME/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4}"
-PATCH_COMMIT="7a18859f76c7a827fc875bbbd1e1126be4b9a7ae"
+PATCH_COMMIT="f26f8282e0f51517c78394796ae942ca8ff0936d"
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_COMMIT"
 PY="$ROOT/.venv/bin/python"
 LOG_PARENT="${VCE_OUT_PARENT:-$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB}"
@@ -39,12 +39,12 @@ REGRESSION_TESTS_PASSED=0
 AB_STARTED=0
 MISSING_FILES=""
 FILES="
-VideoContextEngine_v3.19.py 6485d05d5be0b5dce4bbed15657ef10b4b216945
+VideoContextEngine_v3.19.py c68b1fae565ff92c7f421ae27e2b920942284cd5
 scripts/vce_observed_llama_cpp_run.py 481f13e7e9f58fc7d440fa4fffc85ddfc9c152fd
 scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0
 scripts/vce_runtime_watchdog.py 4cf0c6db9c9ab855532c704acd75d5f880095a4a
 scripts/vce_llama_json_smoke_test.py dd33e2cba4988894e7142061bf5ec2d77f4cc655
-tests/test_vce_llama_cpp_nsrspec_runner.py 9014ac6a8b523d20dd853dd5c5827980d6f91eb2
+tests/test_vce_llama_cpp_nsrspec_runner.py 14f825c535006035b40561e86a383c08c2fc1b2a
 domain_profiles/__init__.py 00c837b7966783e071ec17ebfecf347cfe6dd12d
 domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098
 "
