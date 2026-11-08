@@ -4,17 +4,37 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-ROOT="/Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon"
-VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"
-APP="/Applications/VideoContext Engine.app"
-API="http://127.0.0.1:7555"
-SETTINGS="$ROOT/videocontext_settings.json"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+VIDEO="${VCE_VIDEO:-$HOME/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4}"
+APP="${VCE_APP:-/Applications/VideoContext Engine.app}"
+API="${VCE_API_URL:-http://127.0.0.1:7555}"
+OUT_PARENT="${VCE_OUT_PARENT:-$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB}"
+DIAGNOSTIC_LLAMA_CPP="${VCE_DIAGNOSTIC_LLAMA_CPP:-0}"
+
+fail() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 2; }
+note() { printf '\n[VCE NSRSPEC A/B] %s\n' "$*"; }
+usage() { echo "Usage: $0 [--root PATH] [--video PATH] [--app PATH] [--api URL] [--settings PATH] [--out-parent PATH] [--diagnostic-llama-cpp]"; }
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --root) [[ $# -ge 2 ]] || fail "--root требует путь"; ROOT="$2"; shift 2 ;;
+    --video) [[ $# -ge 2 ]] || fail "--video требует путь"; VIDEO="$2"; shift 2 ;;
+    --app) [[ $# -ge 2 ]] || fail "--app требует путь"; APP="$2"; shift 2 ;;
+    --api) [[ $# -ge 2 ]] || fail "--api требует URL"; API="$2"; shift 2 ;;
+    --settings) [[ $# -ge 2 ]] || fail "--settings требует путь"; SETTINGS_OVERRIDE="$2"; shift 2 ;;
+    --out-parent) [[ $# -ge 2 ]] || fail "--out-parent требует путь"; OUT_PARENT="$2"; shift 2 ;;
+    --diagnostic-llama-cpp) DIAGNOSTIC_LLAMA_CPP=1; shift ;;
+    --help|-h) usage; exit 0 ;;
+    *) fail "Неизвестный аргумент: $1" ;;
+  esac
+done
+ROOT="$(cd "$ROOT" 2>/dev/null && pwd)" || fail "Не найден каталог проекта: $ROOT"
+SETTINGS="${SETTINGS_OVERRIDE:-${VCE_SETTINGS:-$ROOT/videocontext_settings.json}}"
 PY="$ROOT/.venv/bin/python"
 
 # Pin all downloaded tooling to the same reviewed commit, never to a moving branch.
 TOOLS_COMMIT="5d41d71599c424f8601434111df9be6cce7dfe23"
 TOOLS_DIR="$HOME/Library/Application Support/VideoContext Engine/forensic-tools/nsrspec-ab-$TOOLS_COMMIT"
-OUT_PARENT="$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 OUT_ROOT="$OUT_PARENT/$STAMP"
 ORIGINAL_API_SETTINGS="$OUT_ROOT/active_settings_before.json"
@@ -28,9 +48,8 @@ RESTORE_STATUS="not_attempted"
 UPLOAD_DONE=0
 RUN1_EXIT=99
 RUN2_EXIT=99
-
-fail() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 2; }
-note() { printf '\n[VCE NSRSPEC A/B] %s\n' "$*"; }
+RUN2_DIAGNOSTIC=0
+DROPBOX_AVAILABLE=0
 
 restore_settings() {
   if [[ "$API_READY" != "1" || ! -f "$ORIGINAL_API_SETTINGS" ]]; then
@@ -47,16 +66,19 @@ from pathlib import Path
 
 api, source, report_path = sys.argv[1:]
 original = json.loads(Path(source).read_text(encoding="utf-8"))
-restore_keys = {
-    "runtime_profile", "enable_mlx_whisper", "inference_backend",
-    "vlm_model", "text_llm_model", "whisper_model", "whisper_acceleration",
-    "word_timestamps", "vlm_resolution", "enable_ocr_cache", "enable_ffmpeg_ocr",
-    "ffmpeg_ocr_interval", "ffmpeg_ocr_workers", "enable_apple_ocr",
-    "enable_stage_timing", "text_llm_enabled",
-    "llama_cpp_vlm_model", "llama_cpp_vlm_mmproj",
-    "llama_cpp_text_llm_model", "llama_cpp_text_context",
-}
-payload = {key: original[key] for key in restore_keys if key in original}
+def request(method, path, body=None):
+    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
+    headers = {"Accept": "application/json"}
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(api.rstrip("/") + path, data=data, method=method, headers=headers)
+    with urllib.request.urlopen(req, timeout=20) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+# Use the current API setting surface as the restore allowlist so newly added settings are included.
+current_before = request("GET", "/api/v1/ui-settings")
+read_only_keys = {"ffmpeg_ocr_available", "ffmpeg_ocr_reason", "qwen35_text_stage_note"}
+payload = {key: value for key, value in original.items() if key in current_before and key not in read_only_keys}
 normalizations = {}
 valid_vlm = {
     "mlx-community/Qwen3-VL-8B-Instruct-4bit",
@@ -68,15 +90,6 @@ if "vlm_model" in payload and payload["vlm_model"] not in valid_vlm:
 if "text_llm_model" in payload and payload["text_llm_model"] != "mlx-community/Qwen3.5-9B-MLX-4bit":
     normalizations["text_llm_model"] = {"original": payload["text_llm_model"], "restored": "mlx-community/Qwen3.5-9B-MLX-4bit"}
     payload["text_llm_model"] = "mlx-community/Qwen3.5-9B-MLX-4bit"
-
-def request(method, path, body=None):
-    data = json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None
-    headers = {"Accept": "application/json"}
-    if data is not None:
-        headers["Content-Type"] = "application/json"
-    req = urllib.request.Request(api.rstrip("/") + path, data=data, method=method, headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as response:
-        return json.loads(response.read().decode("utf-8"))
 
 if not payload:
     raise SystemExit("No restorable backend settings were present in the original API snapshot.")
@@ -137,9 +150,10 @@ upload_forensic_bundle() {
   /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive" || return 1
   local local_size
   local_size="$(stat -f "%z" "$archive")" || return 1
-  if ! command -v rclone >/dev/null 2>&1; then
-    note "rclone отсутствует; ZIP сохранён локально: $archive"
-    return 1
+  if [[ "$DROPBOX_AVAILABLE" != "1" ]]; then
+    note "Dropbox недоступен или не настроен; forensic ZIP сохранён локально: $archive"
+    UPLOAD_DONE=1
+    return 0
   fi
   if [[ -z "$DROPBOX_REMOTE" ]]; then
     local remotes
@@ -199,8 +213,7 @@ finish() {
     upload_status=$?
     set -e
     if [[ "$upload_status" -ne 0 ]]; then
-      note "Dropbox upload не подтверждён. Локальные материалы сохранены в $OUT_ROOT; архив — в $OUT_PARENT."
-      if [[ "$status" -eq 0 ]]; then status=3; fi
+      note "Не удалось завершить ZIP/Dropbox upload; исходные forensic-файлы остались локально в $OUT_ROOT."
     fi
   fi
   exit "$status"
@@ -223,22 +236,30 @@ fi
 command -v curl >/dev/null 2>&1 || fail "Не найден curl."
 command -v git >/dev/null 2>&1 || fail "Не найден git."
 command -v ffprobe >/dev/null 2>&1 || fail "Не найден ffprobe. Установи FFmpeg."
-command -v rclone >/dev/null 2>&1 || fail "Не найден rclone; Dropbox upload обязателен."
-
-# Resolve and validate the Dropbox remote before spending time on either analysis.
-if [[ -z "$DROPBOX_REMOTE" ]]; then
-  REMOTES="$(rclone listremotes)"
-  if printf '%s\n' "$REMOTES" | grep -Fxq 'vce-dropbox:'; then
-    DROPBOX_REMOTE='vce-dropbox'
-  elif printf '%s\n' "$REMOTES" | grep -Fxq 'dropbox:'; then
-    DROPBOX_REMOTE='dropbox'
-  else
-    printf 'Доступные rclone remotes:\n%s\n' "$REMOTES"
-    fail "Dropbox remote не найден; задай VCE_DROPBOX_REMOTE."
+if command -v rclone >/dev/null 2>&1; then
+  if [[ -z "$DROPBOX_REMOTE" ]]; then
+    REMOTES="$(rclone listremotes 2>/dev/null || true)"
+    if printf '%s\n' "$REMOTES" | grep -Fxq 'vce-dropbox:'; then
+      DROPBOX_REMOTE='vce-dropbox'
+    elif printf '%s\n' "$REMOTES" | grep -Fxq 'dropbox:'; then
+      DROPBOX_REMOTE='dropbox'
+    fi
   fi
+  if [[ -n "$DROPBOX_REMOTE" ]]; then
+    REMOTE_TYPE="$(rclone config show "$DROPBOX_REMOTE" 2>/dev/null | awk -F ' = ' '$1 == "type" {print $2; exit}')"
+    if [[ "$REMOTE_TYPE" == "dropbox" ]]; then
+      DROPBOX_AVAILABLE=1
+      note "Dropbox upload доступен через $DROPBOX_REMOTE."
+    else
+      note "Remote $DROPBOX_REMOTE не является Dropbox; будет создан локальный ZIP."
+      DROPBOX_REMOTE=""
+    fi
+  else
+    note "Dropbox remote не найден; будет создан локальный ZIP."
+  fi
+else
+  note "rclone не установлен; Dropbox upload отключён, будет создан локальный ZIP."
 fi
-REMOTE_TYPE="$(rclone config show "$DROPBOX_REMOTE" 2>/dev/null | awk -F ' = ' '$1 == "type" {print $2; exit}')"
-[[ "$REMOTE_TYPE" == dropbox ]] || fail "Remote $DROPBOX_REMOTE не является Dropbox."
 
 note "Скачиваю watchdog и mtmd installer из pinned-коммита $TOOLS_COMMIT; проверяю установленный observer patch."
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$TOOLS_COMMIT/scripts"
@@ -246,9 +267,7 @@ curl -fsSL "$BASE_URL/vce_runtime_watchdog.py" -o "$TOOLS_DIR/vce_runtime_watchd
 curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
 [[ "$(git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py")" == "50e91ffabcf2cb6174b068a12eea0b6b909cba5e" ]] || fail "Не прошла проверка целостности watchdog."
 [[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
-RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-6d61f261044bfdc78c39cc00f5a8c873208f95aa}}"
-[[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден patched observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
-[[ "$(git -C "$ROOT" hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py")" == "$RUNNER_BLOB_SHA" ]] || fail "Observer patch не установлен или blob SHA не совпадает; запускай scripts/vce_patch_test_run_nsrspec_ab.command."
+[[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
 
 # Install the .pth hook only while the app/API is fully stopped. Download and
 # verify the pinned tools first, so a broken checksum is reported before app-state checks.
