@@ -49,7 +49,7 @@ COMMON_BACKEND_SETTINGS = {
     "whisper_acceleration": True,
     "word_timestamps": True,
     "vlm_resolution": 1280,
-    "enable_ocr_cache": True,
+    "enable_ocr_cache": False,
     "enable_ffmpeg_ocr": True,
     "ffmpeg_ocr_interval": 5,
     "ffmpeg_ocr_workers": 3,
@@ -601,6 +601,12 @@ def main() -> int:
             raise RuntimeError(
                 f"Не удалось получить активные настройки VCE: GET /api/v1/ui-settings вернул HTTP {active_status}. "
                 "Останавливаюсь, чтобы не запускать тест с неподтверждёнными настройками."
+            )
+        if active_settings.get("enable_ocr_cache") is not False:
+            raise RuntimeError(
+                "A/B requires enable_ocr_cache=false for both passes; "
+                f"active API value is {active_settings.get('enable_ocr_cache')!r}. "
+                "No video was submitted."
             )
 
         properties, progress_template = get_form_schema(openapi)

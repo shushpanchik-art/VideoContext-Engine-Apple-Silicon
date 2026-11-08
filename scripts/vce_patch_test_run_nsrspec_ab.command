@@ -1,12 +1,13 @@
 #!/bin/bash
-# Install the reviewed Text LLM / diagnostics patch, run regression tests, then launch A/B.
+# Install the reviewed NSR A/B + no-OCR-cache patch, run regression/compile checks, then launch A/B.
 set -Eeuo pipefail
 IFS=$'\n\t'
 
 ROOT="/Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon"
 APP="/Applications/VideoContext Engine.app"
 API="http://127.0.0.1:7555"
-PATCH_COMMIT="8b540061edf06727b89728953c2cc854271cfc06"
+VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"
+PATCH_COMMIT="8753fdd8958ebc080a577d3291a85a3c4167befd"
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_COMMIT"
 PY="$ROOT/.venv/bin/python"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -38,6 +39,7 @@ trap cleanup EXIT
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Нужен macOS на Apple Silicon."
 [[ "$(git -C "$ROOT" rev-parse --is-inside-work-tree 2>/dev/null || true)" == true ]] || fail "Не найден Git checkout: $ROOT"
 [[ -x "$PY" ]] || fail "Не найден project Python: $PY"
+[[ -f "$VIDEO" ]] || fail "Не найдено тестовое видео: $VIDEO"
 command -v curl >/dev/null 2>&1 || fail "Не найден curl."
 command -v git >/dev/null 2>&1 || fail "Не найден git."
 command -v bash >/dev/null 2>&1 || fail "Не найден bash."
@@ -53,13 +55,13 @@ fi
 
 # Refuse to overwrite local edits in the exact files being installed.
 FILES="
-VideoContextEngine_v3.19.py 32cc8870f5e77ac72126b6b72b764c1f29cfcc4c
-scripts/vce_observed_llama_cpp_run.py 39fff57545c50500c3ce241fcb10ae3004204c0c
-scripts/vce_run_nsrspec_ab.command a90639ab6f0f5fdec9f8960c8d5318ad35758b62
+VideoContextEngine_v3.19.py b51b9f6e948ed780d95d5f5a7cfcce694b558672
+scripts/vce_observed_llama_cpp_run.py 7364764a3c1c4f9369cc3bfb0f0e59fc7f4e9013
+scripts/vce_run_nsrspec_ab.command a964ff46c3e962d61b944f4931dd01d49fcf8663
 scripts/vce_runtime_watchdog.py 50e91ffabcf2cb6174b068a12eea0b6b909cba5e
 scripts/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
 scripts/vce_run_nsrspec_llama_cpp.command 31356e628780a37470d3d3c7c4321c45a3cbaef4
-tests/test_vce_llama_cpp_nsrspec_runner.py 711901d3fb2a699374990069480fd6d7531ce271
+tests/test_vce_llama_cpp_nsrspec_runner.py cae730bea26f46d429d96daa17d4405d2220ce45
 requirements-llama-cpp-metal.txt e0a8628d8d41510e17dc8c771330323c26a1d90e
 "
 while IFS=" " read -r REL SHA; do
@@ -100,6 +102,11 @@ chmod 755 "$ROOT/scripts/vce_run_nsrspec_ab.command" "$ROOT/scripts/vce_run_nsrs
 printf '\nPATCH_INSTALL=SUCCESS\nPATCH_COMMIT=%s\nPATCH_BACKUP=%s\n' "$PATCH_COMMIT" "$BACKUP"
 printf '\n=== Regression suite ===\n'
 cd "$ROOT"
+"$PY" -m py_compile \
+  "$ROOT/VideoContextEngine_v3.19.py" \
+  "$ROOT/scripts/vce_observed_llama_cpp_run.py" \
+  "$ROOT/scripts/vce_runtime_watchdog.py" \
+  "$ROOT/scripts/install_vce_mtmd_loader_fix.py"
 "$PY" "$ROOT/tests/test_vce_llama_cpp_nsrspec_runner.py"
 bash -n "$ROOT/scripts/vce_run_nsrspec_ab.command"
 bash -n "$ROOT/scripts/vce_run_nsrspec_llama_cpp.command"

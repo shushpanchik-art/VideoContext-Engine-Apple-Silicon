@@ -149,7 +149,7 @@ curl -fsSL "$BASE_URL/vce_runtime_watchdog.py" -o "$TOOLS_DIR/vce_runtime_watchd
 curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
 [[ "$(git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py")" == "50e91ffabcf2cb6174b068a12eea0b6b909cba5e" ]] || fail "Не прошла проверка целостности watchdog."
 [[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
-RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-39fff57545c50500c3ce241fcb10ae3004204c0c}}"
+RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-7364764a3c1c4f9369cc3bfb0f0e59fc7f4e9013}}"
 [[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден patched observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
 [[ "$(git -C "$ROOT" hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py")" == "$RUNNER_BLOB_SHA" ]] || fail "Observer patch не установлен или blob SHA не совпадает; запускай scripts/vce_patch_test_run_nsrspec_ab.command."
 
@@ -200,7 +200,7 @@ if "runtime_profile" not in props:
     raise SystemExit("STOP: API lacks runtime_profile; no video was submitted.")
 settings = get("/api/v1/ui-settings")
 required = {
-    "inference_backend", "llama_cpp_vlm_model", "llama_cpp_vlm_mmproj",
+    "inference_backend", "enable_ocr_cache", "llama_cpp_vlm_model", "llama_cpp_vlm_mmproj",
     "llama_cpp_text_llm_model", "vlm_model", "text_llm_model",
 }
 missing = sorted(required - set(settings))
@@ -459,7 +459,7 @@ run_backend() {
   backend="$1"
   pass_dir="$2"
   mkdir -p "$pass_dir"
-  note "Стартую $backend; Whisper остаётся PyTorch/MPS, OCR cache ON, FFmpeg OCR 5s/3 workers."
+  note "Стартую $backend; Whisper остаётся PyTorch/MPS, OCR cache OFF (подтверждается observer перед upload), FFmpeg OCR 5s/3 workers."
   "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --powermetrics --vmmap --sample-stacks
 }
 
@@ -519,7 +519,8 @@ data = {
         {"pass": 2, "inference_backend": "llama_cpp_metal", "role": "comparison backend", "exit_code": run2_exit, "directory": "run2_llama_cpp_metal", "skipped_reason": run2_skipped_reason},
     ],
     "settings_restored": True,
-    "note": "Both passes use baseline_mps_sequential Whisper/PyTorch-MPS. GGUF selectors are only in llama_cpp_*; vlm_model/text_llm_model remain MLX identifiers.",
+    "ocr_cache_enabled_during_runs": False,
+    "note": "Both passes use baseline_mps_sequential Whisper/PyTorch-MPS with enable_ocr_cache=false to avoid warm-cache bias. Original OCR cache setting is restored and verified after both passes. GGUF selectors are only in llama_cpp_*; vlm_model/text_llm_model remain MLX identifiers.",
 }
 Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(data, ensure_ascii=False))
