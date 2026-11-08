@@ -147,7 +147,7 @@ upload_forensic_bundle() {
     fi
   fi
   local remote_type
-  remote_type="$(rclone config show "$DROPBOX_REMOTE" 2>/dev/null | awk -F " = " '\$1 == "type" {print \$2; exit}')"
+  remote_type="$(rclone config show "$DROPBOX_REMOTE" 2>/dev/null | awk -F " = " '$1 == "type" {print $2; exit}')"
   if [[ "$remote_type" != "dropbox" ]]; then
     note "Remote $DROPBOX_REMOTE не подтверждён как Dropbox; ZIP сохранён локально: $archive"
     return 1
@@ -161,7 +161,7 @@ upload_forensic_bundle() {
   remote_json="$(rclone size "$remote_file" --json)" || return 1
   remote_size="$(printf "%s" "$remote_json" | sed -nE "s/.*\"bytes\"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p")"
   if [[ -z "$remote_size" || "$remote_size" != "$local_size" ]]; then
-    note "Dropbox size mismatch: local=$local_size remote=\${remote_size:-unknown}; ZIP сохранён: $archive"
+    note "Dropbox size mismatch: local=$local_size remote=${remote_size:-unknown}; ZIP сохранён: $archive"
     return 1
   fi
   UPLOAD_DONE=1
