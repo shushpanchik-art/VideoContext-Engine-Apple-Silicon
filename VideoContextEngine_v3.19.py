@@ -793,7 +793,6 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
             "соответствие": "соответств", "соответствия": "соответств", "соответствии": "соответств",
             "несоответствие": "несоответств", "несоответствия": "несоответств",
             "уклона": "уклон", "уклоне": "уклон", "уклону": "уклон", "уклоны": "уклон",
-            "пандусов": "пандус", "пандуса": "пандус", "пандусами": "пандус",
             "требования": "требован", "требованию": "требован", "требований": "требован",
             "нормативу": "норматив", "нормативом": "норматив", "нормативные": "норматив",
             "проверки": "провер", "проверку": "провер", "проверка": "провер", "проверке": "провер",
@@ -802,6 +801,8 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
             "коллизий": "коллиз", "коллизии": "коллиз", "атрибутивным": "атрибут", "атрибутам": "атрибут",
             "объектов": "объект", "объекта": "объект", "объект": "объект",
         }
+        if nsrspec_profile:
+            aliases.update({"пандусов": "пандус", "пандуса": "пандус", "пандусами": "пандус"})
         output = []
         for token in raw:
             if token in _STOP or len(token) < 2:
@@ -813,7 +814,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
 
     result_cues = re.compile(r"не\s*соответ|несоответ|не\s*соответств|нарушен|нарушени|не\s*пройден|ошибк|неверн|не\s*выполн|fail(?:ed)?|error|warning", re.I)
     result_topic_cues = re.compile(r"не\s*соответ|несоответ|нарушен|нарушени|результат|итог|вывод|заключен|ошибк|предупрежден|warning|error|failed|\bfail\b", re.I)
-    technical_cues = re.compile(r"\bxml\b|экспорт|выгруз|интеграц|импорт|\bbim\b|\bcad\b|cadlib|nanocad|модел|сценар|калькулят|провер|функц|продукт|поиск|стандарт|норматив|данн|интерфейс|api\b|атрибут|классифик|требован|пандус|уклон|эвакуац|\bСП\s*\d|\bГОСТ\b|1\s*[:к]\s*20", re.I)
+    technical_cues = re.compile(r"\\bxml\\b|экспорт|выгруз|интеграц|импорт|\\bbim\\b|\\bcad\\b|модел|сценар|калькулят|провер|функц|продукт|поиск|стандарт|норматив|данн|интерфейс|api\\b|атрибут|классифик|требован", re.I)
     end_card_cues = re.compile(r"\bthe\s*end\b|\bend\s*card\b|конец\s+видео|финальн\w*\s+заставк|конец\s+ролика", re.I)
 
     source_by_id: Dict[int, Dict[str, Any]] = {}
@@ -2995,7 +2996,9 @@ def _vce_canonicalize_confirmed_standard_names(payload, segments):
 # VCE_REPORT_INTEGRITY_V4_HELPER
 
 def _vce_v4_evidence_summary(text, segments):
-    """Downgrade model-verified language when the nonconformity is only spoken, not shown."""
+    """Apply NSR-specific spoken-vs-screened-result wording only for the NSR profile."""
+    if str(setting("domain_profile", "generic") or "generic").strip().lower() != "nsrspec":
+        return text
     import re as _vce4_re
     if not isinstance(text, str) or not isinstance(segments, list):
         return text
@@ -3155,7 +3158,8 @@ def _vce_v4_validate_analysis(payload, segments, global_summary=""):
                 if _vce4_id is not None and _vce4_id not in _vce4_valid_ids:
                     _vce4_issues.append(f"{_vce4_key}[{_vce4_idx}] ссылается на неизвестную сцену {_vce4_id!r}")
     _vce4_ocr = " ".join(str(_vce4_seg.get("ocr_text", "") or "") for _vce4_seg in segments if isinstance(_vce4_seg, dict))
-    _vce4_has_canonical_sp = bool(_vce4_re.search(r"(?i)(?<![\w])СП\s*1\.13130\.2020(?!\d)", _vce4_ocr))
+    _vce4_is_nsrspec = str(setting("domain_profile", "generic") or "generic").strip().lower() == "nsrspec"
+    _vce4_has_canonical_sp = _vce4_is_nsrspec and bool(_vce4_re.search(r"(?i)(?<![\w])СП\s*1\.13130\.2020(?!\d)", _vce4_ocr))
     if _vce4_has_canonical_sp:
         _vce4_alias = _vce4_re.compile(r"(?i)(?<![\w])СП\s*1\s*\.\s*13\s*\.\s*132\s*\.\s*0?20(?!\d)")
         if _vce4_alias.search(str(global_summary or "")):
