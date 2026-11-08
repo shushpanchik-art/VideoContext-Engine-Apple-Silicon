@@ -575,7 +575,7 @@ run_backend() {
   backend="$1"
   pass_dir="$2"
   mkdir -p "$pass_dir"
-  note "Стартую $backend с воспроизводимым NSR профилем; OCR cache OFF и multipart-поля проверяются observer."
+  note "Стартую $backend с воспроизводимым NSR профилем; активная настройка OCR cache сохраняется и записывается observer."
   "$PY" "$WATCHDOG" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
 }
 
@@ -611,17 +611,29 @@ fi
 # Restore even if either analysis failed; the trap retries restoration on an early exit.
 restore_settings || fail "Не удалось восстановить исходные API-настройки. Проверь settings_restore_report.json и videocontext_settings.json."
 
-"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$TOOLS_COMMIT" "$MTMD_PREFLIGHT_EXIT" "$VIDEO" "$RUN2_DIAGNOSTIC" <<'PY'
+"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$TOOLS_COMMIT" "$MTMD_PREFLIGHT_EXIT" "$VIDEO" "$RUN2_DIAGNOSTIC" "$OUT_ROOT/run1_mlx_metal" "$OUT_ROOT/run2_llama_cpp_metal" <<'PY'
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
 
-path, run1, run2, commit, preflight_exit, video_path, diagnostic_flag = sys.argv[1:]
+path, run1, run2, commit, preflight_exit, video_path, diagnostic_flag, run1_dir, run2_dir = sys.argv[1:]
 run1_exit = int(run1)
 run2_exit = int(run2)
 preflight_exit_code = int(preflight_exit)
 diagnostic_only = bool(int(diagnostic_flag))
+def read_ocr_cache_enabled(run_dir):
+    try:
+        request = json.loads((Path(run_dir) / "request_settings.json").read_text(encoding="utf-8"))
+        fields = request.get("effective_fields", {})
+        value = fields.get("enable_ocr_cache") if isinstance(fields, dict) else None
+        return value if isinstance(value, bool) else None
+    except Exception:
+        return None
+
+ocr_cache_run1 = read_ocr_cache_enabled(run1_dir)
+ocr_cache_run2 = read_ocr_cache_enabled(run2_dir)
+ocr_cache_values_match = ocr_cache_run1 is not None and ocr_cache_run1 == ocr_cache_run2
 if preflight_exit_code != 0:
     run2_skipped_reason = "MTMD real-model preflight failed; neither analysis pass was submitted."
 elif run1_exit != 0 and not diagnostic_only:
@@ -636,7 +648,8 @@ data = {
     "video_path": video_path,
     "baseline_gate_for_llama_cpp": not diagnostic_only,
     "diagnostic_only": diagnostic_only,
-    "comparison_result_valid": preflight_exit_code == 0 and run1_exit == 0 and run2_exit == 0 and not diagnostic_only,
+    "comparison_result_valid": preflight_exit_code == 0 and run1_exit == 0 and run2_exit == 0 and not diagnostic_only and ocr_cache_values_match,
+    "ocr_cache_values_match": ocr_cache_values_match,
     "mtmd_preflight_exit_code": preflight_exit_code,
     "mtmd_preflight_report": "mtmd_context_preflight.json",
     "runs": [
@@ -644,7 +657,7 @@ data = {
         {"pass": 2, "inference_backend": "llama_cpp_metal", "role": "diagnostic-only" if diagnostic_only else "comparison backend", "exit_code": run2_exit, "directory": "run2_llama_cpp_metal", "skipped_reason": run2_skipped_reason},
     ],
     "settings_restored": True,
-    "ocr_cache_enabled_during_runs": False,
+    "ocr_cache_enabled_during_runs": ocr_cache_run1 if ocr_cache_values_match else None,
     "note": ("Diagnostic-only llama.cpp run after an unsuccessful MLX baseline; no A/B winner may be declared. " if diagnostic_only else "Both passes use the explicit nsrspec comparison profile. ") + "Original API settings are restored and verified. GGUF selectors are only in llama_cpp_*; vlm_model/text_llm_model remain MLX identifiers."
 }
 Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

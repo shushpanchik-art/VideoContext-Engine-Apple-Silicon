@@ -46,6 +46,28 @@ class ProcessParserTests(unittest.TestCase):
 
 
 class RuntimeEvidenceTests(unittest.TestCase):
+    def test_llama_cpp_native_grammar_abort_has_specific_verdict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            observed = root / "observed"
+            observed.mkdir()
+            (observed / "request_settings.json").write_text(json.dumps({
+                "effective_fields": {"inference_backend": "llama_cpp_metal"}
+            }), encoding="utf-8")
+            console = root / "console.log"
+            console.write_text(
+                "terminate called after throwing an instance of std::runtime_error: "
+                "Unexpected empty grammar stack after accepting piece: @ (31)\n",
+                encoding="utf-8",
+            )
+            mappings = root / "mappings.jsonl"
+            mappings.write_text("", encoding="utf-8")
+            power = root / "power.jsonl"
+            power.write_text("", encoding="utf-8")
+            result = watchdog.runtime_verdict(observed, console, mappings, power)
+            self.assertEqual(result["overall_verdict"], "LLAMA_CPP_METAL_NATIVE_ABORT_GRAMMAR_OR_TRANSPORT")
+            self.assertTrue(result["native_abort_detected"])
+
     def test_gpu_stream_setup_is_not_mistaken_for_vlm_gpu_device(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

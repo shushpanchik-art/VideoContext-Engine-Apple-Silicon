@@ -20,7 +20,10 @@ _SPEC.loader.exec_module(_OBSERVER)
 
 
 def git_blob_sha(path: Path) -> str:
-    data = path.read_bytes()
+    return git_blob_sha_data(path.read_bytes())
+
+
+def git_blob_sha_data(data: bytes) -> str:
     header = b"blob " + str(len(data)).encode("ascii") + b"\0"
     return hashlib.sha1(header + data).hexdigest()
 
@@ -104,7 +107,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         for settings in (mlx, llama):
             self.assertEqual(settings["runtime_profile"], "baseline_mps_sequential")
             self.assertFalse(settings["enable_mlx_whisper"])
-            self.assertIs(settings["enable_ocr_cache"], False)
+            self.assertNotIn("enable_ocr_cache", settings)
             self.assertEqual(settings["whisper_model"], "large")
             self.assertEqual(settings["vlm_model"], "mlx-community/Qwen3-VL-8B-Instruct-4bit")
             self.assertEqual(settings["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
@@ -140,8 +143,12 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             {"enable_ocr_cache": False, "response_format": "json", "generate_json": True}, properties, "nsrspec"
         )
         self.assertIs(nsrspec_fields["generate_json"], False)
-        self.assertIn('if args.profile == "nsrspec" and active_settings.get("enable_ocr_cache") is not False:', self.observer)
-        self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
+        nsrspec_fields_on, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": True, "response_format": "json", "generate_json": True}, properties, "nsrspec"
+        )
+        self.assertIs(nsrspec_fields_on["enable_ocr_cache"], True)
+        self.assertNotIn('if args.profile == "nsrspec" and active_settings.get("enable_ocr_cache") is not False:', self.observer)
+        self.assertNotIn("A/B requires enable_ocr_cache=false", self.observer)
         self.assertIn('if profile == "nsrspec":', self.observer)
         self.assertIn('fields, origins = resolve_form_fields(active_settings, properties, args.profile)', self.observer)
         self.assertIn('parser.add_argument("--profile", choices=("current", "nsrspec"), default="current"', self.observer)
@@ -153,6 +160,41 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.assertIn(key, self.runtime)
         self.assertIn('defaults.setdefault("text_llm_summary_max_words", 90)', self.runtime)
         self.assertIn('if context_max_scenes > 0 and len(context.get("scenes", [])) > context_max_scenes:', self.runtime)
+        self.assertIn('payload["executive_summary"] = summary.strip()[:16000]', self.runtime)
+        self.assertNotIn('summary.strip()[:8000]', self.runtime)
+
+    def test_domain_profile_unknown_value_falls_back_to_generic_once(self):
+        node = next(
+            item for item in ast.parse(self.runtime).body
+            if isinstance(item, ast.FunctionDef) and item.name == "_vce_domain_profile_instructions"
+        )
+        namespace = {"setting": lambda *_args: "generic"}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), "VideoContextEngine_v3.19.py", "exec"), namespace)
+        get_instructions = namespace["_vce_domain_profile_instructions"]
+        self.assertEqual(get_instructions(), "")
+        namespace["setting"] = lambda *_args: "not-a-profile"
+        import contextlib
+        import io
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(get_instructions(), "")
+        self.assertIn("using generic instructions", output.getvalue())
+        tree = ast.parse(self.runtime)
+        calls = [
+            call for call in ast.walk(tree)
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            and call.func.id == "_vce_domain_profile_instructions"
+        ]
+        self.assertEqual(len(calls), 1)
+        self.assertIn('domain_instructions = _vce_domain_profile_instructions()', self.runtime)
+        self.assertIn('+ "\\n\\n"', self.runtime)
+        self.assertNotIn('otherwise in French', self.runtime)
+        self.assertNotIn('otherwise French', self.runtime)
+
+    def test_llama_cpp_prompt_path_has_no_chat_template_stub(self):
+        self.assertNotIn('def apply_chat_template(_processor, _config, prompt, **_kwargs):', self.runtime)
+        self.assertIn('if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:\n            # llama.cpp wraps this prompt as a user message', self.runtime)
+        self.assertIn('formatted_prompt = instruction', self.runtime)
 
     def test_observer_uses_explicit_nsrspec_profile(self):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
@@ -182,16 +224,31 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
     def test_patch_installers_share_one_pinned_manifest(self):
-        self.assertRegex(self.patch_installer, r'PATCH_COMMIT="[0-9a-f]{40}"')
-        for entry in (
-            "VideoContextEngine_v3.19.py 3e0881de5e1fe0197f1b259b193bfe34a5652486",
-            "scripts/vce_observed_llama_cpp_run.py 481f13e7e9f58fc7d440fa4fffc85ddfc9c152fd",
-            "scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0",
-            "scripts/vce_runtime_watchdog.py 4cf0c6db9c9ab855532c704acd75d5f880095a4a",
-            "domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098",
-            "scripts/vce_patch_test_run_nsrspec_ab.command ba1e6c52f27e90d543f6c651ef5b186c50fce3ef",
-        ):
-            self.assertIn(entry, self.patch_installer)
+        commit_match = re.search(r'^PATCH_COMMIT="([0-9a-f]{40})"$', self.patch_installer, re.M)
+        self.assertIsNotNone(commit_match)
+        commit = commit_match.group(1)
+        manifest = self.patch_installer.split('FILES="\n', 1)[1].split('\n"\n', 1)[0]
+        entries = {}
+        for line in manifest.splitlines():
+            path, sha = line.split()
+            entries[path] = sha
+        self.assertEqual(len(entries), 9)
+        self.assertEqual(set(entries), {
+            "VideoContextEngine_v3.19.py",
+            "scripts/vce_observed_llama_cpp_run.py",
+            "scripts/vce_run_nsrspec_ab.command",
+            "scripts/vce_runtime_watchdog.py",
+            "scripts/vce_llama_json_smoke_test.py",
+            "tests/test_vce_llama_cpp_nsrspec_runner.py",
+            "scripts/vce_patch_test_run_nsrspec_ab.command",
+            "domain_profiles/__init__.py",
+            "domain_profiles/nsrspec.py",
+        })
+        for path, expected_sha in entries.items():
+            current_sha = git_blob_sha(ROOT / path)
+            self.assertEqual(current_sha, expected_sha, path)
+            pinned_blob = subprocess.check_output(["git", "show", f"{commit}:{path}"], cwd=ROOT)
+            self.assertEqual(git_blob_sha_data(pinned_blob), expected_sha, path)
         self.assertIn('exec /bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_json.command" "$@"', self.legacy_patch_installer)
         self.assertNotIn("PATCH_COMMIT=", self.legacy_patch_installer)
         self.assertNotIn("/Users/", self.patch_installer)
@@ -331,7 +388,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertLess(diagnostic_assignment, llama)
         self.assertIn('"diagnostic_only": diagnostic_only', self.launcher)
         self.assertIn('"baseline_gate_for_llama_cpp": not diagnostic_only', self.launcher)
-        self.assertIn('"comparison_result_valid": preflight_exit_code == 0 and run1_exit == 0 and run2_exit == 0 and not diagnostic_only', self.launcher)
+        self.assertIn('and not diagnostic_only and ocr_cache_values_match', self.launcher)
+        self.assertIn('"ocr_cache_enabled_during_runs": ocr_cache_run1 if ocr_cache_values_match else None', self.launcher)
         self.assertIn("--diagnostic-llama-cpp", self.launcher)
         self.assertIn('"role": "diagnostic-only" if diagnostic_only else "comparison backend"', self.launcher)
         self.assertIn('"skipped_reason": run2_skipped_reason', self.launcher)

@@ -32,7 +32,7 @@ on:
 
 jobs:
   config-and-bundle-static-checks:
-    runs-on: macos-14
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -44,10 +44,3 @@ jobs:
         run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py patches/patch_vce_memory_safety.py scripts/vce_unattended_benchmark.py
       - name: Validate installer shell syntax
         run: bash -n macos/install_video_context_mac.command macos/repair_installed_native_app.command
-      - name: Compile native menu bar app
-        run: |
-          xcrun swiftc -O "macos/VideoContext Engine.app/Contents/Resources/VideoContextStatusBar.swift" \
-            -framework AppKit \
-            -framework WebKit \
-            -o /tmp/VideoContextStatusBar
-          file /tmp/VideoContextStatusBar

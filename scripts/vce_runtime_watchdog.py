@@ -269,6 +269,10 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         or "ggml_metal_device_init" in app_text
     )
     mtmd_missing_symbol = "mtmd_get_video_config" in app_text
+    native_abort = (
+        "Unexpected empty grammar stack" in app_text
+        or "libc++abi: terminating" in app_text
+    )
     llama_offload_lines = [
         line.strip() for line in app_text.splitlines()
         if re.search(r"offloaded.*(?:GPU|Metal)|(?:GPU|Metal).*offload", line, re.I)
@@ -299,7 +303,9 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         and vlm_scene_cpu_default_device_snapshot_count == 0
     )
     if inference_backend == "llama_cpp_metal":
-        if mtmd_missing_symbol:
+        if native_abort:
+            overall = "LLAMA_CPP_METAL_NATIVE_ABORT_GRAMMAR_OR_TRANSPORT"
+        elif mtmd_missing_symbol:
             overall = "LLAMA_CPP_METAL_MTMD_ABI_SYMBOL_MISSING"
         elif status == "VLM_GPU_REPORTED" and metal_reported and llama_offload_reported and gpu_power_label:
             overall = "LLAMA_CPP_METAL_GPU_OFFLOAD_AND_SYSTEM_GPU_ACTIVITY_CORROBORATED_EXECUTION_NOT_PER_OPERATOR_PROVEN"
@@ -337,6 +343,7 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
     else:
         overall = "NO_DIRECT_MLX_RUNTIME_EVIDENCE"
     return {"overall_verdict": overall, "inference_backend": inference_backend,
+            "native_abort_detected": native_abort,
             "llama_cpp_reported": llama_reported,
             "mtmd_missing_symbol": mtmd_missing_symbol, "llama_offload_reported": llama_offload_reported,
             "llama_offload_evidence_lines": llama_offload_lines,

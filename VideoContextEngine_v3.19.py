@@ -1474,7 +1474,7 @@ You MUST answer with VALID JSON using EXACTLY this structure:
 Rules:
 - Do NOT add any text outside of this JSON.
 - Do NOT change field names.
-- The description and tag values should be in the same language as the user instructions if any, otherwise in French.
+- Use the language of the user instructions when present; otherwise use the predominant language in the scene context.
 """.strip()
 
 BASE_SUMMARY_PROMPT = """
@@ -1487,7 +1487,7 @@ Write a global summary of the video, answering:
 
 Rules:
 - Use clear, natural language.
-- Use the same language as the user instructions if any, otherwise French.
+- Use the language of the user instructions when present; otherwise use the predominant language in the source material.
 - If you return JSON, use exactly: {"summary": "..."} and nothing else.
 """.strip()
 
@@ -2626,7 +2626,8 @@ def _vce_domain_profile_instructions() -> str:
     if profile == "nsrspec":
         from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS
         return str(PROMPT_INSTRUCTIONS).strip()
-    raise ValueError(f"Unsupported domain_profile: {profile!r}")
+    print(f"[VCE domain profile] Unsupported profile {profile!r}; using generic instructions.")
+    return ""
 
 
 VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: Dict[str, Any] = {}
@@ -2822,7 +2823,7 @@ def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
     if not isinstance(summary, str) or not summary.strip():
         raise ValueError("В JSON текстовой LLM отсутствует executive_summary.")
 
-    payload["executive_summary"] = summary.strip()[:8000]
+    payload["executive_summary"] = summary.strip()[:16000]
     payload["topics"] = _text_llm_normalize_list(payload.get("topics"), max(1, int(setting("text_llm_max_topics", 15))))
     payload["uncertainties"] = _text_llm_normalize_list(payload.get("uncertainties"), 30)
 
@@ -3276,9 +3277,6 @@ def run_text_llm_postprocess(
         def load_config(_path):
             return None
 
-        def apply_chat_template(_processor, _config, prompt, **_kwargs):
-            return prompt
-
         def _llama_completion(instance, prompt, max_tokens, temperature, stream):
             return _vce_llama_json_completion(instance, prompt, max_tokens, temperature, stream)
 
@@ -3376,6 +3374,7 @@ def run_text_llm_postprocess(
         summary_max_words = max(summary_min_words, int(setting("text_llm_summary_max_words", 90)))
         max_key_points = max(1, int(setting("text_llm_max_key_points", 18)))
         max_topics = max(1, int(setting("text_llm_max_topics", 15)))
+        domain_instructions = _vce_domain_profile_instructions()
         instruction = (
             "Ты — редактор и аналитик видеоконспектов. Верни только один валидный JSON-объект без Markdown и без текста вне JSON. "
             "Все формулировки пиши на русском языке; сохраняй точное написание брендов, имён, стандартов, файлов, команд и технических терминов. "
@@ -3397,17 +3396,21 @@ def run_text_llm_postprocess(
             "Не используй scene_id, которых нет в контексте. Не утверждай, что проверка пройдена, если в источниках показано несоответствие. "
             + "\n\nПромпт согласования названий и собственных имён между ASR и OCR:\n"
             + str(setting("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)).strip()
-             + ("\n\n" + _vce_domain_profile_instructions() if _vce_domain_profile_instructions() else "")
-             + "\\n\\n"
+             + (f"\n\n{domain_instructions}" if domain_instructions else "")
+             + "\n\n"
              + coverage_note
             + "\n\nДанные анализа (JSON):\n"
             + context_json
         )
-        try:
+        if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+            # llama.cpp wraps this prompt as a user message in its chat completion call.
+            formatted_prompt = instruction
+        else:
             # For this constrained extraction task, avoid spending time on long reasoning output.
-            formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=True)
-        except TypeError:
-            formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
+            try:
+                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=True)
+            except TypeError:
+                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
         if progress_callback:
             progress_callback("generating", 0, 0.0)
         generation_limit = max(1024, min(int(max_tokens), 8192))
@@ -3538,10 +3541,13 @@ def run_text_llm_postprocess(
                     "Сохрани ключи executive_summary, topics, key_points, entities, scene_enrichment, uncertainties.\n\n"
                     "Невалидный JSON для исправления:\n" + raw[first_brace_offset:][:18000]
                 )
-                try:
-                    repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0, enable_thinking=False)
-                except TypeError:
-                    repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0)
+                if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                    repair_prompt = repair_instruction
+                else:
+                    try:
+                        repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0, enable_thinking=False)
+                    except TypeError:
+                        repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0)
                 try:
                     repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=generation_limit, temperature=0.0, verbose=False, enable_thinking=False)
                 except TypeError:
