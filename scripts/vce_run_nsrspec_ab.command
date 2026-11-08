@@ -127,6 +127,13 @@ upload_forensic_bundle() {
   mkdir -p "$OUT_PARENT" || return 1
   (cd "$OUT_ROOT" && find . -type f ! -name "SHA256SUMS.txt" -exec shasum -a 256 {} + > SHA256SUMS.txt) || return 1
   local archive="$OUT_PARENT/VCE_NSRSPEC_AB_$STAMP.zip"
+  local file_count
+  file_count="$(find "$OUT_ROOT" -type f ! -name "SHA256SUMS.txt" | wc -l | tr -d ' ')"
+  if [[ "$file_count" -eq 0 ]]; then
+    note "OUT_ROOT пуст; архив не создаю, upload отменён."
+    return 1
+  fi
+
   /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive" || return 1
   local local_size
   local_size="$(stat -f "%z" "$archive")" || return 1
