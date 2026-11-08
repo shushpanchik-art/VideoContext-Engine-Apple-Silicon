@@ -30,5 +30,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: Inspect recognition patcher final language anchor
+        run: |
+          tar -xzf patches/vce-recognition-languages-patcher.tar.gz -C "$RUNNER_TEMP"
+          grep -n -B 6 -A 12 "Text LLM final language policy" "$RUNNER_TEMP/patch_vce_recognition_languages.py"
+          nl -ba "$RUNNER_TEMP/patch_vce_recognition_languages.py" | sed -n '520,555p'
       - name: Validate patch transforms against current runtime and UI
         run: python -m unittest discover -s tests -p "test_vce_recognition_languages_patch.py" -v
