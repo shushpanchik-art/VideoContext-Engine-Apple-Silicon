@@ -129,6 +129,7 @@ class TestRuntimeProfiles(unittest.TestCase):
             if isinstance(node, ast.FunctionDef) and node.name == "setting"
         )
         namespace = {
+            "Any": __import__("typing").Any,
             "USER_SETTINGS": {"domain_profile": "nsrspec", "other": "stored"},
             "VCE_REQUEST_DOMAIN_PROFILE": contextvars.ContextVar("test_domain_profile", default=None),
         }
