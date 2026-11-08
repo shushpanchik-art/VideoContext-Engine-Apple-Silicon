@@ -69,12 +69,12 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertNotIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
 
     def test_mtmd_installer_is_pinned_and_runs_before_app_start(self):
-        pin_line = next(line for line in self.launcher.splitlines() if line.startswith("TOOLS_COMMIT="))
-        self.assertRegex(pin_line, r'^TOOLS_COMMIT="[0-9a-f]{40}"$')
-        self.assertIn('curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py"', self.launcher)
-        self.assertIn('"$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"', self.launcher)
+        self.assertIn('MTMD_INSTALLER="$ROOT/scripts/install_vce_mtmd_loader_fix.py"', self.launcher)
+        self.assertIn('MTMD_INSTALLER_BLOB_SHA="934739bd0b5f70dc26665adc115a181d365330e0"', self.launcher)
+        self.assertNotIn("TOOLS_COMMIT=", self.launcher)
+        self.assertIn('"$PY" "$MTMD_INSTALLER" --report', self.launcher)
         self.assertLess(
-            self.launcher.index('install_vce_mtmd_loader_fix.py" --report'),
+            self.launcher.index('"$PY" "$MTMD_INSTALLER" --report'),
             self.launcher.index('open -a "$APP"'),
         )
         self.assertIn("import llama_cpp.mtmd_cpp as mtmd_cpp", self.launcher)
@@ -83,9 +83,9 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("if resolved is not None:", self.launcher)
 
     def test_tool_integrity_is_checked_before_live_server_guard(self):
-        check = self.launcher.index('git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"')
+        check = self.launcher.index('git -C "$ROOT" hash-object "$MTMD_INSTALLER"')
         server_guard = self.launcher.index('API_PIDS=')
-        installer = self.launcher.index('install_vce_mtmd_loader_fix.py" --report')
+        installer = self.launcher.index('"$PY" "$MTMD_INSTALLER" --report')
         app_start = self.launcher.index('open -a "$APP"')
         self.assertLess(check, server_guard)
         self.assertLess(server_guard, installer)
@@ -223,16 +223,15 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS', self.runtime)
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
-    def test_patch_installers_share_one_pinned_manifest(self):
-        commit_match = re.search(r'^PATCH_COMMIT="([0-9a-f]{40})"$', self.patch_installer, re.M)
-        self.assertIsNotNone(commit_match)
-        commit = commit_match.group(1)
+    def test_patch_installer_manifest_does_not_depend_on_git_history(self):
+        self.assertIn('PATCH_REF="${VCE_PATCH_REF:-main}"', self.patch_installer)
+        self.assertNotIn("PATCH_COMMIT=", self.patch_installer)
         manifest = self.patch_installer.split('FILES="\n', 1)[1].split('\n"\n', 1)[0]
         entries = {}
         for line in manifest.splitlines():
             path, sha = line.split()
             entries[path] = sha
-        self.assertEqual(len(entries), 9)
+        self.assertEqual(len(entries), 10)
         self.assertEqual(set(entries), {
             "VideoContextEngine_v3.19.py",
             "scripts/vce_observed_llama_cpp_run.py",
@@ -243,12 +242,11 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             "scripts/vce_patch_test_run_nsrspec_ab.command",
             "domain_profiles/__init__.py",
             "domain_profiles/nsrspec.py",
+            "scripts/install_vce_mtmd_loader_fix.py",
         })
         for path, expected_sha in entries.items():
             current_sha = git_blob_sha(ROOT / path)
             self.assertEqual(current_sha, expected_sha, path)
-            pinned_blob = subprocess.check_output(["git", "show", f"{commit}:{path}"], cwd=ROOT)
-            self.assertEqual(git_blob_sha_data(pinned_blob), expected_sha, path)
         self.assertIn('exec /bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_json.command" "$@"', self.legacy_patch_installer)
         self.assertNotIn("PATCH_COMMIT=", self.legacy_patch_installer)
         self.assertNotIn("/Users/", self.patch_installer)
@@ -258,6 +256,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('SKIPPED: VCE_SKIP_AB=1; no real model was loaded during installer validation.', self.patch_installer)
         self.assertIn('if [[ "$SKIP_AB" != "1" ]]; then', self.patch_installer)
         self.assertIn('chmod 755 "$ROOT/scripts/vce_run_nsrspec_ab.command" "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"', self.patch_installer)
+        self.assertIn('(run_dir / "response.json").write_bytes(response_bytes)', self.observer)
+        self.assertIn('"generate_json": False', self.observer)
 
     def test_patch_installer_uses_full_pytest_suite_and_profiles(self):
         self.assertIn('"$PY" -m pytest -q tests', self.patch_installer)

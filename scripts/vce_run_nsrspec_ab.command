@@ -32,9 +32,8 @@ ROOT="$(cd "$ROOT" 2>/dev/null && pwd)" || fail "Не найден катало�
 SETTINGS="${SETTINGS_OVERRIDE:-${VCE_SETTINGS:-$ROOT/videocontext_settings.json}}"
 PY="$ROOT/.venv/bin/python"
 
-# Pin all downloaded tooling to the same reviewed commit, never to a moving branch.
-TOOLS_COMMIT="5d41d71599c424f8601434111df9be6cce7dfe23"
-TOOLS_DIR="$HOME/Library/Application Support/VideoContext Engine/forensic-tools/nsrspec-ab-$TOOLS_COMMIT"
+MTMD_INSTALLER="$ROOT/scripts/install_vce_mtmd_loader_fix.py"
+MTMD_INSTALLER_BLOB_SHA="934739bd0b5f70dc26665adc115a181d365330e0"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 OUT_ROOT="$OUT_PARENT/$STAMP"
 ORIGINAL_API_SETTINGS="$OUT_ROOT/active_settings_before.json"
@@ -220,7 +219,7 @@ finish() {
 }
 trap finish EXIT
 
-mkdir -p "$TOOLS_DIR" "$OUT_ROOT"
+mkdir -p "$OUT_ROOT"
 exec > >(tee -a "$OUT_ROOT/launcher.log") 2>&1
 
 if [[ -n "${VCE_PREFLIGHT_LOG:-}" && -f "$VCE_PREFLIGHT_LOG" ]]; then
@@ -261,10 +260,9 @@ else
   note "rclone не установлен; Dropbox upload отключён, будет создан локальный ZIP."
 fi
 
-note "Использую watchdog из текущего checkout; скачиваю только зафиксированный MTMD installer."
-BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$TOOLS_COMMIT/scripts"
-curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
-[[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
+note "Использую MTMD installer из проверяемого checkout."
+[[ -f "$MTMD_INSTALLER" ]] || fail "Не найден MTMD installer: $MTMD_INSTALLER"
+[[ "$(git -C "$ROOT" hash-object "$MTMD_INSTALLER")" == "$MTMD_INSTALLER_BLOB_SHA" ]] || fail "Не прошла проверка целостности MTMD installer."
 WATCHDOG="$ROOT/scripts/vce_runtime_watchdog.py"
 [[ -f "$WATCHDOG" ]] || fail "Не найден watchdog в checkout: $WATCHDOG"
 [[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
@@ -280,7 +278,7 @@ if [[ -n "$API_PIDS" || -n "$APP_PIDS" ]] || curl -fsS --max-time 2 "$API/openap
 fi
 
 note "Ставлю venv-scoped mtmd resolver hook до запуска API."
-"$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py" --report "$OUT_ROOT/mtmd_installer_report.json"
+"$PY" "$MTMD_INSTALLER" --report "$OUT_ROOT/mtmd_installer_report.json"
 
 note "Запускаю нативное приложение VideoContext Engine."
 open -a "$APP"
@@ -611,13 +609,13 @@ fi
 # Restore even if either analysis failed; the trap retries restoration on an early exit.
 restore_settings || fail "Не удалось восстановить исходные API-настройки. Проверь settings_restore_report.json и videocontext_settings.json."
 
-"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$TOOLS_COMMIT" "$MTMD_PREFLIGHT_EXIT" "$VIDEO" "$RUN2_DIAGNOSTIC" "$OUT_ROOT/run1_mlx_metal" "$OUT_ROOT/run2_llama_cpp_metal" <<'PY'
+"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$MTMD_INSTALLER_BLOB_SHA" "$MTMD_PREFLIGHT_EXIT" "$VIDEO" "$RUN2_DIAGNOSTIC" "$OUT_ROOT/run1_mlx_metal" "$OUT_ROOT/run2_llama_cpp_metal" <<'PY'
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
 
-path, run1, run2, commit, preflight_exit, video_path, diagnostic_flag, run1_dir, run2_dir = sys.argv[1:]
+path, run1, run2, mtmd_installer_blob_sha, preflight_exit, video_path, diagnostic_flag, run1_dir, run2_dir = sys.argv[1:]
 run1_exit = int(run1)
 run2_exit = int(run2)
 preflight_exit_code = int(preflight_exit)
@@ -644,7 +642,7 @@ else:
     run2_skipped_reason = None
 data = {
     "created_at": datetime.now().astimezone().isoformat(),
-    "tooling_commit": commit,
+    "mtmd_installer_blob_sha": mtmd_installer_blob_sha,
     "video_path": video_path,
     "baseline_gate_for_llama_cpp": not diagnostic_only,
     "diagnostic_only": diagnostic_only,

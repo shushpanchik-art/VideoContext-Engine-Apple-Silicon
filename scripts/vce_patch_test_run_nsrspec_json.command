@@ -8,8 +8,8 @@ ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 APP="${VCE_APP:-/Applications/VideoContext Engine.app}"
 API="${VCE_API_URL:-http://127.0.0.1:7555}"
 VIDEO="${VCE_VIDEO:-$HOME/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4}"
-PATCH_COMMIT="8941b564a20301893b860b48274b6a3948a22c5b"
-BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_COMMIT"
+PATCH_REF="${VCE_PATCH_REF:-main}"
+BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_REF"
 PY="$ROOT/.venv/bin/python"
 LOG_PARENT="${VCE_OUT_PARENT:-$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB}"
 SKIP_AB="${VCE_SKIP_AB:-0}"
@@ -41,13 +41,14 @@ MISSING_FILES=""
 FILES="
 VideoContextEngine_v3.19.py c1619b4c3761fea2d15bd3d9d1f527b9b42066ec
 scripts/vce_observed_llama_cpp_run.py db013323d46c0e448191d64e9e2cf0e6e8f8170d
-scripts/vce_run_nsrspec_ab.command 3d3d8dc444300495fd397bd5e83d62bcece55ea4
+scripts/vce_run_nsrspec_ab.command 5bcdaef83908837513d60e5aa798a6aa91349a6d
 scripts/vce_runtime_watchdog.py 381ae401464a84452a68ed1058df6585f13cc853
 scripts/vce_llama_json_smoke_test.py dd33e2cba4988894e7142061bf5ec2d77f4cc655
-tests/test_vce_llama_cpp_nsrspec_runner.py 70ecf543d1b7b409dd70d0e45e79a52538e59131
+tests/test_vce_llama_cpp_nsrspec_runner.py 3bb189cb639f5789476b0465a257a43fca812606
 scripts/vce_patch_test_run_nsrspec_ab.command ba1e6c52f27e90d543f6c651ef5b186c50fce3ef
 domain_profiles/__init__.py 00c837b7966783e071ec17ebfecf347cfe6dd12d
 domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098
+scripts/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
 "
 
 upload_patch_validation_logs() {
@@ -120,7 +121,7 @@ trap cleanup EXIT
 
 mkdir -p "$LOG_DIR"
 exec > >(tee -a "$RUN_LOG") 2>&1
-printf 'PATCH_COMMIT=%s\nPATCH_LOG=%s\n' "$PATCH_COMMIT" "$RUN_LOG"
+printf 'PATCH_REF=%s\nPATCH_LOG=%s\n' "$PATCH_REF" "$RUN_LOG"
 
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Нужен macOS на Apple Silicon."
 [[ "$(git -C "$ROOT" rev-parse --is-inside-work-tree 2>/dev/null || true)" == true ]] || fail "Не найден Git checkout: $ROOT"
