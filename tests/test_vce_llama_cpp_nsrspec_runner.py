@@ -189,6 +189,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             "scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0",
             "scripts/vce_runtime_watchdog.py 4cf0c6db9c9ab855532c704acd75d5f880095a4a",
             "domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098",
+            "scripts/vce_patch_test_run_nsrspec_ab.command ba1e6c52f27e90d543f6c651ef5b186c50fce3ef",
         ):
             self.assertIn(entry, self.patch_installer)
         self.assertIn('exec /bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_json.command" "$@"', self.legacy_patch_installer)
@@ -197,6 +198,9 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('if ! command -v rclone >/dev/null 2>&1; then', self.patch_installer)
         self.assertIn("validation archive kept locally", self.patch_installer)
         self.assertIn('if [[ "$SKIP_AB" == "1" ]]; then', self.patch_installer)
+        self.assertIn('SKIPPED: VCE_SKIP_AB=1; no real model was loaded during installer validation.', self.patch_installer)
+        self.assertIn('if [[ "$SKIP_AB" != "1" ]]; then', self.patch_installer)
+        self.assertIn('chmod 755 "$ROOT/scripts/vce_run_nsrspec_ab.command" "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"', self.patch_installer)
 
     def test_patch_installer_uses_full_pytest_suite_and_profiles(self):
         self.assertIn('"$PY" -m pytest -q tests', self.patch_installer)

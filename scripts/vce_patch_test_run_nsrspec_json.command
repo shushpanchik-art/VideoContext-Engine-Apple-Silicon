@@ -45,6 +45,7 @@ scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0
 scripts/vce_runtime_watchdog.py 4cf0c6db9c9ab855532c704acd75d5f880095a4a
 scripts/vce_llama_json_smoke_test.py dd33e2cba4988894e7142061bf5ec2d77f4cc655
 tests/test_vce_llama_cpp_nsrspec_runner.py 14f825c535006035b40561e86a383c08c2fc1b2a
+scripts/vce_patch_test_run_nsrspec_ab.command ba1e6c52f27e90d543f6c651ef5b186c50fce3ef
 domain_profiles/__init__.py 00c837b7966783e071ec17ebfecf347cfe6dd12d
 domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098
 "
@@ -124,11 +125,12 @@ printf 'PATCH_COMMIT=%s\nPATCH_LOG=%s\n' "$PATCH_COMMIT" "$RUN_LOG"
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Нужен macOS на Apple Silicon."
 [[ "$(git -C "$ROOT" rev-parse --is-inside-work-tree 2>/dev/null || true)" == true ]] || fail "Не найден Git checkout: $ROOT"
 [[ -x "$PY" ]] || fail "Не найден project Python: $PY"
-[[ -f "$VIDEO" ]] || fail "Не найдено обязательное тестовое видео: $VIDEO"
+if [[ "$SKIP_AB" != "1" ]]; then
+  [[ -f "$VIDEO" ]] || fail "Не найдено обязательное тестовое видео: $VIDEO"
+  [[ -d "$APP" ]] || fail "Не найдено приложение: $APP"
+fi
 command -v curl >/dev/null 2>&1 || fail "Не найден curl."
 command -v git >/dev/null 2>&1 || fail "Не найден git."
-[[ -d "$APP" ]] || fail "Не найдено приложение: $APP"
-
 API_PIDS="$(/usr/sbin/lsof -nP -tiTCP:7555 -sTCP:LISTEN 2>/dev/null || true)"
 APP_PIDS="$(/usr/bin/pgrep -f "$APP/Contents/MacOS/" 2>/dev/null || true)"
 if [[ -n "$API_PIDS" || -n "$APP_PIDS" ]] || curl -fsS --max-time 2 "$API/openapi.json" >/dev/null 2>&1; then
@@ -169,7 +171,7 @@ while IFS=' ' read -r REL SHA; do
   mkdir -p "$ROOT/$(dirname "$REL")"
   /usr/bin/install -m 0644 "$STAGE/$REL" "$ROOT/$REL"
 done <<< "$FILES"
-chmod 755 "$ROOT/scripts/vce_run_nsrspec_ab.command"
+chmod 755 "$ROOT/scripts/vce_run_nsrspec_ab.command" "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"
 
 printf '\nPATCH_INSTALL=SUCCESS\nPATCH_BACKUP=%s\n' "$BACKUP"
 cd "$ROOT"
@@ -193,10 +195,15 @@ REGRESSION_TESTS_PASSED=1
 
 # Short real-model probe (256 tokens) is diagnostic only; full A/B still runs.
 SMOKE_LOG="$LOG_DIR/qwen35_json_smoke.log"
-set +e
-"$PY" "$ROOT/scripts/vce_llama_json_smoke_test.py" --max-tokens 256 2>&1 | tee "$SMOKE_LOG"
-SMOKE_EXIT=${PIPESTATUS[0]}
-set -e
+if [[ "$SKIP_AB" == "1" ]]; then
+  printf "SKIPPED: VCE_SKIP_AB=1; no real model was loaded during installer validation.\\n" | tee "$SMOKE_LOG"
+  SMOKE_EXIT=125
+else
+  set +e
+  "$PY" "$ROOT/scripts/vce_llama_json_smoke_test.py" --max-tokens 256 2>&1 | tee "$SMOKE_LOG"
+  SMOKE_EXIT=${PIPESTATUS[0]}
+  set -e
+fi
 printf 'QWEN35_JSON_SMOKE_EXIT=%s\n' "$SMOKE_EXIT"
 
 COMBINED_LOG="$LOG_DIR/patch_and_smoke_preflight.log"
