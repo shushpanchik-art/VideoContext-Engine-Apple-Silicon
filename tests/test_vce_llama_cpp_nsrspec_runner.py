@@ -143,6 +143,19 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('merged["vlm_model"] = DEFAULT_VLM_MODEL_MLX', self.runtime)
         self.assertIn('merged["text_llm_model"] = TEXT_LLM_DEFAULT_MODEL', self.runtime)
 
+    def test_empty_out_root_aborts_before_archive_or_dropbox_upload(self):
+        self.assertIn('local file_count', self.launcher)
+        self.assertIn('find "$OUT_ROOT" -type f ! -name "SHA256SUMS.txt"', self.launcher)
+        self.assertIn('OUT_ROOT пуст; архив не создаю, upload отменён.', self.launcher)
+        self.assertLess(
+            self.launcher.index('OUT_ROOT пуст; архив не создаю, upload отменён.'),
+            self.launcher.index('/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive"'),
+        )
+        self.assertLess(
+            self.launcher.index('OUT_ROOT пуст; архив не создаю, upload отменён.'),
+            self.launcher.index('rclone copyto "$archive" "$remote_file" --progress'),
+        )
+
     def test_single_bundle_contains_both_runs_and_verified_private_dropbox_upload(self):
         self.assertIn("20261104_224554_1f098d/VCE_forensic_runs_NSRSPEC_AB", self.launcher)
         self.assertIn('/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive"', self.launcher)
@@ -314,7 +327,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         compile(self.observer, str(OBSERVER_PATH), "exec")
 
 
-    def test_qwen35_llama_completion_uses_native_json_grammar_and_zero_reasoning_budget(self):
+    def test_qwen35_llama_completion_disables_thinking_without_gbnf_grammar(self):
         tree = ast.parse(self.runtime)
         helper_node = next(
             node for node in tree.body
@@ -342,11 +355,28 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             complete(fake, "prompt", 2048, 0.0, stream)
         self.assertEqual([call["stream"] for call in fake.calls], [False, True])
         for call in fake.calls:
-            self.assertEqual(call["response_format"], {"type": "json_object"})
-            self.assertEqual(call["reasoning_budget"], 0)
-            self.assertEqual(call["reasoning_start"], "<think>")
-            self.assertEqual(call["reasoning_end"], "</think>")
-            self.assertTrue(call["reasoning_start_in_prompt"])
+            self.assertNotIn("response_format", call)
+            self.assertNotIn("reasoning_budget", call)
+            self.assertNotIn("reasoning_start", call)
+            self.assertNotIn("reasoning_end", call)
+            self.assertNotIn("reasoning_start_in_prompt", call)
+            self.assertEqual(call["chat_template_kwargs"], {"enable_thinking": False})
+
+        class LegacyLlama:
+            def __init__(self):
+                self.calls = []
+
+            def create_chat_completion(self, **kwargs):
+                if "chat_template_kwargs" in kwargs:
+                    raise TypeError("unexpected keyword argument")
+                self.calls.append(kwargs)
+                return {"choices": []}
+
+        legacy = LegacyLlama()
+        self.assertEqual(complete(legacy, "prompt", 1024, 0.1, False), {"choices": []})
+        self.assertEqual(len(legacy.calls), 1)
+        self.assertNotIn("response_format", legacy.calls[0])
+        self.assertNotIn("reasoning_budget", legacy.calls[0])
         self.assertIn("_vce_llama_json_completion(instance, prompt, max_tokens, temperature, stream)", self.runtime)
 
     def test_qwen35_json_parser_skips_prose_and_closed_thinking_blocks(self):
