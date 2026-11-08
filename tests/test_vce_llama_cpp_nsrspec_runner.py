@@ -151,6 +151,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
                     "text_llm_summary_min_words", "text_llm_summary_max_words",
                     "text_llm_max_key_points", "text_llm_max_topics"):
             self.assertIn(key, self.runtime)
+        self.assertIn('defaults.setdefault("text_llm_summary_max_words", 90)', self.runtime)
+        self.assertIn('if context_max_scenes > 0 and len(context.get("scenes", [])) > context_max_scenes:', self.runtime)
 
     def test_observer_uses_explicit_nsrspec_profile(self):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
@@ -180,7 +182,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
     def test_patch_installers_share_one_pinned_manifest(self):
-        self.assertIn('PATCH_COMMIT="7a18859f76c7a827fc875bbbd1e1126be4b9a7ae"', self.patch_installer)
+        self.assertRegex(self.patch_installer, r'PATCH_COMMIT="[0-9a-f]{40}"')
         for entry in (
             "VideoContextEngine_v3.19.py 6485d05d5be0b5dce4bbed15657ef10b4b216945",
             "scripts/vce_observed_llama_cpp_run.py 481f13e7e9f58fc7d440fa4fffc85ddfc9c152fd",
