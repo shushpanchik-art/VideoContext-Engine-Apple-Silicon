@@ -67,7 +67,7 @@ LLAMA_CPP_MODEL_SETTINGS = {
 
 SUPPORTED_INFERENCE_BACKENDS = ("mlx_metal", "llama_cpp_metal")
 
-def build_backend_settings(inference_backend: str, profile: str = "nsrspec") -> dict[str, Any]:
+def build_backend_settings(inference_backend: str, profile: str = "current") -> dict[str, Any]:
     """Build backend selectors; only the named nsrspec profile applies a fixed comparison baseline."""
     if inference_backend not in SUPPORTED_INFERENCE_BACKENDS:
         raise ValueError(f"Unsupported inference backend: {inference_backend}")
@@ -152,7 +152,7 @@ def classify_backend_failure(
     }
 
 
-SAFETY_OVERRIDES = {
+NSRSPEC_REQUEST_OVERRIDES = {
     # Request-scoped controls only. Backend/configuration settings come from active UI settings
     # unless the explicit --profile nsrspec comparison preset is selected.
     "analysis_mode": "full",
@@ -281,7 +281,7 @@ def get_form_schema(openapi: dict[str, Any]) -> tuple[dict[str, Any], str]:
     return properties, progress_path
 
 
-def resolve_form_fields(settings: dict[str, Any], properties: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def resolve_form_fields(settings: dict[str, Any], properties: dict[str, Any], profile: str = "current") -> tuple[dict[str, Any], dict[str, Any]]:
     fields: dict[str, Any] = {}
     origins: dict[str, str] = {}
     for name, definition in properties.items():
@@ -296,10 +296,13 @@ def resolve_form_fields(settings: dict[str, Any], properties: dict[str, Any]) ->
     for name in PERSISTED_PROMPT_FIELDS:
         if name in properties:
             origins[name] = "omitted from multipart; use running VCE's persisted prompt"
-    for name, value in SAFETY_OVERRIDES.items():
-        if name in properties:
-            fields[name] = value
-            origins[name] = "observed-run override"
+    if profile not in {"current", "nsrspec"}:
+        raise ValueError(f"Unsupported observer profile: {profile}")
+    if profile == "nsrspec":
+        for name, value in NSRSPEC_REQUEST_OVERRIDES.items():
+            if name in properties:
+                fields[name] = value
+                origins[name] = "nsrspec profile request override"
     # Use the same bounded VCE job/progress mechanism as the web UI.
     if "job_id" in properties:
         fields["job_id"] = ""
@@ -652,7 +655,7 @@ def main() -> int:
 
         # Use the running VCE settings as authority. Long persisted prompts are deliberately
         # omitted from multipart so the API can use its persisted values without truncation.
-        fields, origins = resolve_form_fields(active_settings, properties)
+        fields, origins = resolve_form_fields(active_settings, properties, args.profile)
         problems = validate_prompt_limits(fields, properties)
         if problems:
             raise RuntimeError("Передаваемые поля превышают ограничения API: " + "; ".join(problems))
@@ -672,7 +675,7 @@ def main() -> int:
         "settings_sha256": sha256_file(settings_path),
         "field_origins": origins,
         "effective_fields": fields,
-        "forced_overrides": SAFETY_OVERRIDES,
+        "forced_overrides": NSRSPEC_REQUEST_OVERRIDES if args.profile == "nsrspec" else {},
         "backend_settings": backend_settings,
         "inference_backend": args.inference_backend,
         "runtime_profile": "baseline_mps_sequential",
@@ -712,13 +715,13 @@ def main() -> int:
         "openapi_path": "/api/v1/analyze",
         "form_field_names": sorted(k for k in fields_for_upload),
         "observer_profile": args.profile,
-        "safety_overrides": SAFETY_OVERRIDES,
+        "nsrspec_request_overrides": NSRSPEC_REQUEST_OVERRIDES if args.profile == "nsrspec" else {},
         "inference_backend": args.inference_backend,
         "backend_settings": backend_settings,
         "runtime_profile": active_settings.get("runtime_profile"),
         **llama_runtime_info,
         "result_directory": str(run_dir),
-        "note": "generate_txt/generate_json disabled for this request to avoid overwriting existing files; full API JSON is saved here. Other pipeline stages follow the saved settings except explicit full-analysis overrides.",
+        "note": ("The explicit NSR profile suppresses generated TXT/JSON file side effects; response.json is captured by the observer. " if args.profile == "nsrspec" else "Current mode preserves persisted analysis and output settings; the API response is captured by the observer."),
     }
     write_json(run_dir / "run_metadata.json", metadata)
     write_json(run_dir / "system_info.json", {

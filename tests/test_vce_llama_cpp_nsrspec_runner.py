@@ -114,7 +114,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(llama["llama_cpp_text_llm_model"], "qwen3.5-9b-Q4_K_M.gguf")
         current = _OBSERVER.build_backend_settings("mlx_metal", "current")
         self.assertEqual(current, {"inference_backend": "mlx_metal"})
-        self.assertFalse(set(_OBSERVER.SAFETY_OVERRIDES) & set(_OBSERVER.COMMON_BACKEND_SETTINGS))
+        self.assertFalse(set(_OBSERVER.NSRSPEC_REQUEST_OVERRIDES) & set(_OBSERVER.COMMON_BACKEND_SETTINGS))
         self.assertNotIn("llama_cpp_vlm_model", mlx)
         self.assertNotIn("llama_cpp_text_llm_model", mlx)
         with self.assertRaises(ValueError):
@@ -124,18 +124,26 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         properties = {
             "enable_ocr_cache": {"type": "boolean"},
             "response_format": {"type": "string"},
+            "generate_json": {"type": "boolean"},
         }
         fields_off, _ = _OBSERVER.resolve_form_fields(
-            {"enable_ocr_cache": False, "response_format": "json"}, properties
+            {"enable_ocr_cache": False, "response_format": "json", "generate_json": True}, properties, "current"
         )
         fields_on, _ = _OBSERVER.resolve_form_fields(
-            {"enable_ocr_cache": True, "response_format": "json"}, properties
+            {"enable_ocr_cache": True, "response_format": "json", "generate_json": True}, properties, "current"
         )
         self.assertIs(fields_off["enable_ocr_cache"], False)
         self.assertIs(fields_on["enable_ocr_cache"], True)
-        self.assertNotIn("enable_ocr_cache", _OBSERVER.SAFETY_OVERRIDES)
+        self.assertNotIn("enable_ocr_cache", _OBSERVER.NSRSPEC_REQUEST_OVERRIDES)
+        self.assertIs(fields_on["generate_json"], True)
+        nsrspec_fields, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": False, "response_format": "json", "generate_json": True}, properties, "nsrspec"
+        )
+        self.assertIs(nsrspec_fields["generate_json"], False)
         self.assertIn('if active_settings.get("enable_ocr_cache") is not False:', self.observer)
         self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
+        self.assertIn('if profile == "nsrspec":', self.observer)
+        self.assertIn('fields, origins = resolve_form_fields(active_settings, properties, args.profile)', self.observer)
         self.assertIn('parser.add_argument("--profile", choices=("current", "nsrspec"), default="current"', self.observer)
 
     def test_context_and_result_limits_are_settings_backed(self):

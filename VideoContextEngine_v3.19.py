@@ -1442,7 +1442,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         if spoken_result_end_card:
             summary += " Финальный экран содержит только «THE END»; параметр нарушения визуально не указан."
         summary_words = summary.split()
-        summary_max_words = max(1, int(setting("text_llm_summary_max_words", 105)))
+        summary_max_words = max(1, int(setting("text_llm_summary_max_words", 90)))
         if len(summary_words) > summary_max_words:
             summary = " ".join(summary_words[:summary_max_words]).rstrip(" ,;:") + "…"
         payload["executive_summary"] = summary
@@ -3315,10 +3315,7 @@ def run_text_llm_postprocess(
             context = make_context(smaller)
             context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         coverage_note = "Все сцены включены в контекст."
-        if (
-            context_max_chars > 0 and len(context_json) > context_max_chars
-            and context_max_scenes > 0 and len(context.get("scenes", [])) > context_max_scenes
-        ):
+        if context_max_scenes > 0 and len(context.get("scenes", [])) > context_max_scenes:
             all_scenes = context["scenes"]
             sample_count = min(context_max_scenes, len(all_scenes))
             indices = ([0] if sample_count == 1 else sorted({
@@ -3334,7 +3331,7 @@ def run_text_llm_postprocess(
 
 
         summary_min_words = max(0, int(setting("text_llm_summary_min_words", 50)))
-        summary_max_words = max(summary_min_words, int(setting("text_llm_summary_max_words", 105)))
+        summary_max_words = max(summary_min_words, int(setting("text_llm_summary_max_words", 90)))
         max_key_points = max(1, int(setting("text_llm_max_key_points", 18)))
         max_topics = max(1, int(setting("text_llm_max_topics", 15)))
         instruction = (
@@ -3993,7 +3990,7 @@ async def get_ui_settings():
     defaults.setdefault("text_llm_context_max_chars", 47000)
     defaults.setdefault("text_llm_context_max_scenes", 80)
     defaults.setdefault("text_llm_summary_min_words", 50)
-    defaults.setdefault("text_llm_summary_max_words", 105)
+    defaults.setdefault("text_llm_summary_max_words", 90)
     defaults.setdefault("text_llm_max_key_points", 18)
     defaults.setdefault("text_llm_max_topics", 15)
     defaults.setdefault("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)
@@ -4102,7 +4099,7 @@ async def save_ui_settings(payload: Dict[str, Any]):
         # Keep the old boolean key in sync for older local clients; the profile is canonical.
         merged["enable_mlx_whisper"] = payload["runtime_profile"] == VCE_RUNTIME_PROFILE_MLX_PARALLEL
 
-    if int(merged.get("text_llm_summary_min_words", 50)) > int(merged.get("text_llm_summary_max_words", 105)):
+    if int(merged.get("text_llm_summary_min_words", 50)) > int(merged.get("text_llm_summary_max_words", 90)):
         raise HTTPException(422, "text_llm_summary_min_words не может превышать text_llm_summary_max_words")
 
     temp_path = config_path.with_name(config_path.name + ".tmp")
