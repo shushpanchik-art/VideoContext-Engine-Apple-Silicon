@@ -2612,21 +2612,26 @@ TEXT_LLM_DEFAULT_MAX_TOKENS = 4096
 
 
 def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperature: float, stream: bool):
-    """Use JSON grammar and the pinned fork's native reasoning-budget controls."""
-    return instance.create_chat_completion(
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
-        temperature=temperature,
-        stream=stream,
-        response_format={"type": "json_object"},
-        # Qwen3.5's GGUF chat template already inserts <think> by default.
-        # This pinned fork supports reasoning_budget=0 to close that block
-        # immediately, without relying on unsupported per-call template kwargs.
-        reasoning_budget=0,
-        reasoning_start="<think>",
-        reasoning_end="</think>",
-        reasoning_start_in_prompt=True,
-    )
+    """Disable template thinking where supported and avoid native JSON grammar.
+
+    JSON structure is validated by the Python parser and repair pass. The native
+    grammar/reasoning interaction is under investigation; this path deliberately
+    avoids response_format and fork-specific reasoning controls.
+    """
+    base = {
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": stream,
+    }
+    try:
+        return instance.create_chat_completion(
+            **base,
+            chat_template_kwargs={"enable_thinking": False},
+        )
+    except TypeError:
+        # Older llama-cpp-python builds may not expose chat_template_kwargs.
+        return instance.create_chat_completion(**base)
 
 
 def _text_llm_clip(value: Any, limit: int) -> str:
