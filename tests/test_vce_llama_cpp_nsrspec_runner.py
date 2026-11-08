@@ -47,7 +47,9 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("choices=SUPPORTED_INFERENCE_BACKENDS", self.observer)
         self.assertIn('open -a "$APP"', self.launcher)
         self.assertNotIn('open "$API', self.launcher)
-        self.assertIn('VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"', self.launcher)
+        self.assertIn('ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"', self.launcher)
+        self.assertIn('VIDEO="${VCE_VIDEO:-$HOME/Downloads/NSR Specification/', self.launcher)
+        self.assertIn('--video) [[ $# -ge 2 ]] || fail "--video требует путь"; VIDEO="$2"; shift 2 ;;', self.launcher)
         self.assertNotIn("video_path = input(", self.launcher)
         self.assertIn('"video_path": video_path', self.launcher)
 
@@ -63,7 +65,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(actual, expected)
         for sha in expected.values():
             self.assertIn(sha, self.launcher)
-        self.assertIn('RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-6d61f261044bfdc78c39cc00f5a8c873208f95aa}}"', self.launcher)
+        self.assertNotIn("RUNNER_BLOB_SHA", self.launcher)
+        self.assertNotIn('hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py"', self.launcher)
         self.assertNotIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
 
     def test_mtmd_installer_is_pinned_and_runs_before_app_start(self):
@@ -81,7 +84,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("if resolved is not None:", self.launcher)
 
     def test_tool_integrity_is_checked_before_live_server_guard(self):
-        check = self.launcher.index('git -C "$ROOT" hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py"')
+        check = self.launcher.index('git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py"')
         server_guard = self.launcher.index('API_PIDS=')
         installer = self.launcher.index('install_vce_mtmd_loader_fix.py" --report')
         app_start = self.launcher.index('open -a "$APP"')
@@ -204,6 +207,11 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.launcher.index('rclone copyto "$archive" "$remote_file" --progress'),
         )
 
+    def test_dropbox_is_optional_and_local_zip_is_a_successful_fallback(self):
+        self.assertIn('if [[ "$DROPBOX_AVAILABLE" != "1" ]]; then', self.launcher)
+        self.assertIn("forensic ZIP сохранён локально", self.launcher)
+        self.assertNotIn('command -v rclone >/dev/null 2>&1 || fail', self.launcher)
+
     def test_single_bundle_contains_both_runs_and_verified_private_dropbox_upload(self):
         self.assertIn("20261104_224554_1f098d/VCE_forensic_runs_NSRSPEC_AB", self.launcher)
         self.assertIn('/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive"', self.launcher)
@@ -213,6 +221,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertNotIn('rclone copyto "$VIDEO"', self.launcher)
         self.assertIn("RUN1_MLX_METAL_EXIT", self.launcher)
         self.assertIn("RUN2_LLAMA_CPP_METAL_EXIT", self.launcher)
+        self.assertIn("--observer-profile nsrspec", self.launcher)
+        self.assertIn("--profile", self.watchdog)
         self.assertIn("settings_restore_report.json", self.launcher)
 
 
@@ -282,7 +292,10 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertLess(gate, llama)
         self.assertIn("RUN2_EXIT=125", self.launcher[gate:llama])
         self.assertIn("MLX baseline не завершился успешно", self.launcher[gate:llama])
-        self.assertIn('"baseline_gate_for_llama_cpp": True', self.launcher)
+        self.assertIn('"baseline_gate_for_llama_cpp": not diagnostic_only', self.launcher)
+        self.assertIn('"comparison_result_valid": preflight_exit_code == 0 and run1_exit == 0 and run2_exit == 0 and not diagnostic_only', self.launcher)
+        self.assertIn("--diagnostic-llama-cpp", self.launcher)
+        self.assertIn('"role": "diagnostic-only" if diagnostic_only else "comparison backend"', self.launcher)
         self.assertIn('"skipped_reason": run2_skipped_reason', self.launcher)
 
     def test_pinned_fork_and_hf_revision_are_explicit(self):

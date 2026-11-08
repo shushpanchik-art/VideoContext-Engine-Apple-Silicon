@@ -575,8 +575,8 @@ run_backend() {
   backend="$1"
   pass_dir="$2"
   mkdir -p "$pass_dir"
-  note "Стартую $backend; Whisper остаётся PyTorch/MPS, OCR cache OFF (подтверждается observer перед upload), FFmpeg OCR 5s/3 workers."
-  "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --powermetrics --vmmap --sample-stacks
+  note "Стартую $backend с воспроизводимым NSR профилем; OCR cache OFF и multipart-поля проверяются observer."
+  "$PY" "$TOOLS_DIR/vce_runtime_watchdog.py" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
 }
 
 if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then
@@ -591,10 +591,14 @@ else
   set -e
   printf 'RUN1_MLX_METAL_EXIT=%s\n' "$RUN1_EXIT"
 
-  if [[ "$RUN1_EXIT" -ne 0 ]]; then
+  if [[ "$RUN1_EXIT" -ne 0 && "$DIAGNOSTIC_LLAMA_CPP" != "1" ]]; then
     RUN2_EXIT=125
-    note "Прогон 1 MLX baseline не завершился успешно (exit=$RUN1_EXIT); прогон 2 llama.cpp пропущен, чтобы A/B не сравнивал backend с неработающим baseline."
+    note "Прогон 1 MLX baseline завершился ошибкой; llama.cpp пропущен. Для независимой диагностики используй --diagnostic-llama-cpp."
   else
+    if [[ "$RUN1_EXIT" -ne 0 ]]; then
+      RUN2_DIAGNOSTIC=1
+      note "MLX baseline завершился ошибкой; llama.cpp запускается только для диагностики, не для A/B-сравнения."
+    fi
     note "Прогон 2/2: llama_cpp_metal (GGUF VLM + Text LLM; PyTorch/MPS Whisper)."
     set +e
     run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"
@@ -607,36 +611,41 @@ fi
 # Restore even if either analysis failed; the trap retries restoration on an early exit.
 restore_settings || fail "Не удалось восстановить исходные API-настройки. Проверь settings_restore_report.json и videocontext_settings.json."
 
-"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$TOOLS_COMMIT" "$MTMD_PREFLIGHT_EXIT" "$VIDEO" <<'PY'
+"$PY" - "$OUT_ROOT/ab_summary.json" "$RUN1_EXIT" "$RUN2_EXIT" "$TOOLS_COMMIT" "$MTMD_PREFLIGHT_EXIT" "$VIDEO" "$RUN2_DIAGNOSTIC" <<'PY'
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
 
-path, run1, run2, commit, preflight_exit, video_path = sys.argv[1:]
+path, run1, run2, commit, preflight_exit, video_path, diagnostic_flag = sys.argv[1:]
 run1_exit = int(run1)
 run2_exit = int(run2)
 preflight_exit_code = int(preflight_exit)
+diagnostic_only = bool(int(diagnostic_flag))
 if preflight_exit_code != 0:
     run2_skipped_reason = "MTMD real-model preflight failed; neither analysis pass was submitted."
-elif run1_exit != 0:
-    run2_skipped_reason = "MLX baseline did not finish successfully; llama.cpp pass was intentionally skipped."
+elif run1_exit != 0 and not diagnostic_only:
+    run2_skipped_reason = "MLX baseline did not finish successfully; llama.cpp comparison pass was skipped."
+elif diagnostic_only:
+    run2_skipped_reason = "Diagnostic-only llama.cpp pass; MLX baseline failed, so no A/B comparison is valid."
 else:
     run2_skipped_reason = None
 data = {
     "created_at": datetime.now().astimezone().isoformat(),
     "tooling_commit": commit,
     "video_path": video_path,
-    "baseline_gate_for_llama_cpp": True,
+    "baseline_gate_for_llama_cpp": not diagnostic_only,
+    "diagnostic_only": diagnostic_only,
+    "comparison_result_valid": preflight_exit_code == 0 and run1_exit == 0 and run2_exit == 0 and not diagnostic_only,
     "mtmd_preflight_exit_code": preflight_exit_code,
     "mtmd_preflight_report": "mtmd_context_preflight.json",
     "runs": [
         {"pass": 1, "inference_backend": "mlx_metal", "role": "reference baseline", "exit_code": run1_exit, "directory": "run1_mlx_metal"},
-        {"pass": 2, "inference_backend": "llama_cpp_metal", "role": "comparison backend", "exit_code": run2_exit, "directory": "run2_llama_cpp_metal", "skipped_reason": run2_skipped_reason},
+        {"pass": 2, "inference_backend": "llama_cpp_metal", "role": "diagnostic-only" if diagnostic_only else "comparison backend", "exit_code": run2_exit, "directory": "run2_llama_cpp_metal", "skipped_reason": run2_skipped_reason},
     ],
     "settings_restored": True,
     "ocr_cache_enabled_during_runs": False,
-    "note": "Both passes use baseline_mps_sequential Whisper/PyTorch-MPS with enable_ocr_cache=false to avoid warm-cache bias. Original OCR cache setting is restored and verified after both passes. GGUF selectors are only in llama_cpp_*; vlm_model/text_llm_model remain MLX identifiers.",
+    "note": ("Diagnostic-only llama.cpp run after an unsuccessful MLX baseline; no A/B winner may be declared. " if diagnostic_only else "Both passes use the explicit nsrspec comparison profile. ") + "Original API settings are restored and verified. GGUF selectors are only in llama_cpp_*; vlm_model/text_llm_model remain MLX identifiers."
 }
 Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 print(json.dumps(data, ensure_ascii=False))

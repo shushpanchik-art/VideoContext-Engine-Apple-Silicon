@@ -380,6 +380,7 @@ def main() -> int:
     ap.add_argument("--out-root", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--interval", type=float, default=2.0)
     ap.add_argument("--inference-backend", choices=("mlx_metal", "llama_cpp_metal"), required=True)
+    ap.add_argument("--observer-profile", choices=("current", "nsrspec"), default="current")
     ap.add_argument("--powermetrics", action="store_true")
     ap.add_argument("--sample-stacks", action="store_true")
     ap.add_argument("--vmmap", action="store_true")
@@ -408,17 +409,18 @@ def main() -> int:
     config = {"started_at": now(), "platform": platform.platform(), "machine": platform.machine(),
               "python": sys.version, "video": str(video), "settings": str(settings), "runner": str(runner),
               "api_url": args.api_url, "inference_backend": args.inference_backend,
-              "runtime_profile": "baseline_mps_sequential",
+              "runtime_profile": "baseline_mps_sequential" if args.observer_profile == "nsrspec" else None,
+              "observer_profile": args.observer_profile,
               "interval_seconds": args.interval, "powermetrics_requested": args.powermetrics,
               "sample_stacks": args.sample_stacks, "vmmap": args.vmmap,
-              "note": "No video/response upload. Settings are read-only."}
+              "note": "The observer may apply selected backend/profile settings through the local UI API; the launcher restores the original settings snapshot after the run."}
     (out / "watchdog_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     port_match = re.search(r":(\d+)(?:/|$)", args.api_url.rstrip("/"))
     port = int(port_match.group(1)) if port_match else 7555
     cmd = [sys.executable, str(runner), "--video", str(video), "--settings", str(settings),
            "--api-url", args.api_url, "--out-root", str(out / "observed_runs"),
            "--interval", str(max(0.5, args.interval)),
-           "--inference-backend", args.inference_backend]
+           "--inference-backend", args.inference_backend, "--profile", args.observer_profile]
     pow_cmd, pow_mode = powermetrics_command() if args.powermetrics else (None, "disabled")
     append_jsonl(power_path, {"at": now(), "status": pow_mode, "command": pow_cmd})
     print("VCE Runtime Watchdog v2")
