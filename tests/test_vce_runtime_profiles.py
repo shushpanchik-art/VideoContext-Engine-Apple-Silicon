@@ -27,6 +27,10 @@ class TestRuntimeProfiles(unittest.TestCase):
         self.assertIn('"runtime_profile": VCE_RUNTIME_PROFILE_BASELINE', self.source)
         self.assertIn('if key == "runtime_profile":', self.source)
         self.assertIn("if value not in VCE_RUNTIME_PROFILES:", self.source)
+        normalize = self.function_source("_vce_normalize_runtime_profile")
+        self.assertNotIn("enable_mlx_whisper", normalize)
+        analyze = self.function_source("analyze_video")
+        self.assertNotIn("if enable_mlx_whisper:", analyze)
 
     def test_whisper_loader_selects_pytorch_mps_or_mlx(self):
         resolver = self.function_source("resolve_whisper_device")
@@ -73,6 +77,8 @@ class TestRuntimeProfiles(unittest.TestCase):
             "runtime_profile", "enable_mlx_whisper", "enable_fast_scene_detection",
         ):
             self.assertIn(f'setting("{key}",', self.source)
+        self.assertIn('setting("ram_mode", "ram-")', self.source)
+        self.assertIn('setting("llama_cpp_vlm_context", 8192)', self.source)
 
     def test_obsolete_default_constants_are_removed(self):
         for name in ("DEFAULT_MAX_DURATION", "DEFAULT_RESOLUTION", "DEFAULT_KEYFRAMES_PER_SCENE"):
@@ -87,6 +93,7 @@ class TestRuntimeProfiles(unittest.TestCase):
         self.assertNotIn('id="cfg-mlx-whisper"', self.ui.replace(
             'id="cfg-mlx-whisper" type="checkbox" hidden disabled', ''
         ))
+        self.assertIn('id="cfg-ram-mode"', self.ui)
 
 
 if __name__ == "__main__":

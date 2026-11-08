@@ -43,6 +43,7 @@ FORM_EXCLUDE = {"video_file", "local_video_token", "video_url", "job_id"}
 PERSISTED_PROMPT_FIELDS = {"visual_user_prompt", "summary_user_prompt"}
 COMMON_BACKEND_SETTINGS = {
     "runtime_profile": "baseline_mps_sequential",
+    "ram_mode": "ram-",
     "enable_mlx_whisper": False,
     "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
     "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
@@ -57,6 +58,7 @@ COMMON_BACKEND_SETTINGS = {
     "enable_stage_timing": True,
     "text_llm_enabled": True,
     "domain_profile": "nsrspec",
+    "llama_cpp_vlm_context": 8192,
 }
 LLAMA_CPP_MODEL_SETTINGS = {
     "llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",

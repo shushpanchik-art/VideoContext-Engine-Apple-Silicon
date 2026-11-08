@@ -637,7 +637,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
     def test_text_llm_generation_cap_is_consistent_at_8192(self):
         self.assertIn("TEXT_LLM_DEFAULT_MAX_TOKENS = 8192", self.runtime)
-        self.assertIn("min(int(max_tokens), 8192)", self.runtime)
+        self.assertIn("generation_limit = max(1024, int(max_tokens))", self.runtime)
+        self.assertNotIn("min(int(max_tokens), 8192)", self.runtime)
         self.assertIn('"text_llm_max_tokens": (1024, 8192)', self.runtime)
         self.assertIn("le=8192", self.runtime)
         self.assertIn("max_tokens=generation_limit", self.runtime)

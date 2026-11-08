@@ -37,11 +37,11 @@ INSTALLATION DES DÉPENDANCES (copier/coller) :
 - max_tokens VLM réglables avec valeurs par défaut (1024 / 2048).
 - safe_json_parse robuste (réparation JSON) pour scènes + résumé global.
 - Nettoyage du texte brut quand le JSON échoue (on extrait la valeur de "description" / "summary").
-- Mode RAM :
-    - RAM_MODE = "ram+" (par env VIDEOCONTEXT_RAM_MODE) :
+- Mode RAM via les paramètres enregistrés :
+    - ram_mode = "ram+" :
         * précharge VLM par défaut + Whisper small
         * garde tout en RAM
-    - RAM_MODE = "ram-":
+    - ram_mode = "ram-" :
         * charge/décharge Whisper et VLM à chaque requête
 - Swagger patché pour afficher de grands textarea pour les prompts utilisateur.
 """
@@ -453,9 +453,6 @@ VCE_RUNTIME_PROFILES = {
 def _vce_normalize_runtime_profile(value: Optional[str] = None) -> str:
     if value is None or not str(value).strip():
         stored_profile = USER_SETTINGS.get("runtime_profile") if isinstance(USER_SETTINGS, dict) else None
-        if stored_profile is None and bool(setting("enable_mlx_whisper", False)):
-            # Migrate legacy settings created before runtime_profile existed.
-            stored_profile = VCE_RUNTIME_PROFILE_MLX_PARALLEL
         profile = str(stored_profile or VCE_RUNTIME_PROFILE_BASELINE).strip().lower()
     else:
         profile = str(value).strip().lower()
@@ -534,7 +531,7 @@ def load_whisper_model(
 # Optionnel : supprimer le warning HF tokenizers
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-# --- MODE RAM ---
+# --- SETTINGS ---
 
 SETTINGS_FILE = Path(__file__).with_name("videocontext_settings.json")
 
@@ -556,7 +553,6 @@ USER_SETTINGS = load_user_settings()
 def setting(name: str, fallback: Any) -> Any:
     return USER_SETTINGS.get(name, fallback)
 
-RAM_MODE = os.getenv("VIDEOCONTEXT_RAM_MODE", str(setting("ram_mode", "ram-"))).lower()  # "ram+" ou "ram-"
 WHISPER_CACHE: Dict[str, Any] = {}
 
 # --- CONFIGURATION GLOBALE ---
@@ -1895,7 +1891,7 @@ class LlamaCppEngine(VLMProvider):
         self.chat_handler = None
         self.mmproj_path = None
 
-    def load_model(self, model_path: str):
+    def load_model(self, model_path: str, context_size: Optional[int] = None):
         _vce_require_llama_metal()
         import inspect
         import llama_cpp
@@ -1914,6 +1910,7 @@ class LlamaCppEngine(VLMProvider):
                 ) from exc
 
         mmproj_name = str(setting("llama_cpp_vlm_mmproj", DEFAULT_MMPROJ_GGUF))
+        context_size = int(context_size or setting("llama_cpp_vlm_context", 8192))
         mmproj_path = _vce_hf_gguf_file(
             DEFAULT_VLM_REPO_GGUF, mmproj_name, revision=DEFAULT_VLM_GGUF_REVISION
         )
@@ -1931,7 +1928,7 @@ class LlamaCppEngine(VLMProvider):
             "hf_model_revision": DEFAULT_VLM_GGUF_REVISION,
             "mmproj_path": mmproj_path,
         }, ensure_ascii=False, sort_keys=True), flush=True)
-        cache_key = model_file + "|" + mmproj_path
+        cache_key = model_file + "|" + mmproj_path + "|n_ctx=" + str(context_size)
         if self.llm is not None and self.current_model_path == cache_key:
             self.last_load_time = 0.0
             return
@@ -1947,7 +1944,7 @@ class LlamaCppEngine(VLMProvider):
             model_path=model_file,
             chat_handler=self.chat_handler,
             n_gpu_layers=-1,
-            n_ctx=8192,
+            n_ctx=context_size,
             verbose=True,
         )
         # Initialize MTMD now, rather than deferring mmproj failure until the first scene.
@@ -3439,7 +3436,7 @@ def run_text_llm_postprocess(
                 formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
         if progress_callback:
             progress_callback("generating", 0, 0.0)
-        generation_limit = max(1024, min(int(max_tokens), 8192))
+        generation_limit = max(1024, int(max_tokens))
         raw = ""
         if stream_generate is not None:
             chunks = []
@@ -3676,7 +3673,7 @@ def generate_text_report(
         f"Durée : {duration:.2f}s | Traitement : {process_time:.2f}s",
         f"Config : Res={params['resolution']}px | Seuil={params['threshold']} "
         f"| Min={params['min_duration']}s | Max={params['max_duration']}s "
-        f"| Keyframes/scene={params['keyframes_per_scene']} | RAM_MODE={params['ram_mode']}",
+        f"| Keyframes/scene={params['keyframes_per_scene']} | ram_mode={params['ram_mode']}",
         "",
     ]
 
@@ -3852,7 +3849,7 @@ async def lifespan(app: FastAPI):
     _vce_cleanup_stale_temp_artifacts()
     vlm_engine = get_vlm_engine()
 
-    if RAM_MODE == "ram+":
+    if str(setting("ram_mode", "ram-")).lower() == "ram+":
         startup_runtime_profile = _vce_normalize_runtime_profile()
         print(f"🚀 RAM+ mode: préchargement des modèles; profile={startup_runtime_profile}...")
         if startup_runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
@@ -4038,6 +4035,7 @@ async def get_ui_settings():
     defaults = {
         "analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,
         "domain_profile": "generic",
+        "ram_mode": "ram-",
         "ffmpeg_ocr_workers": 2,
         "enable_stage_timing": False,
         "enable_adaptive_keyframes": False,
@@ -4046,6 +4044,7 @@ async def get_ui_settings():
         "inference_backend": VCE_INFERENCE_BACKEND_MLX,
         "llama_cpp_vlm_model": DEFAULT_VLM_MODEL_GGUF,
         "llama_cpp_vlm_mmproj": DEFAULT_MMPROJ_GGUF,
+        "llama_cpp_vlm_context": 8192,
         "llama_cpp_text_llm_model": DEFAULT_TEXT_LLM_MODEL_GGUF,
         "llama_cpp_text_context": 32768,
         "enable_mlx_whisper": False,  # legacy API compatibility; runtime_profile is authoritative
@@ -4070,8 +4069,6 @@ async def get_ui_settings():
     defaults.setdefault("text_llm_max_topics", 15)
     defaults.setdefault("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)
     result = {key: persisted.get(key, defaults[key]) for key in defaults}
-    if "runtime_profile" not in persisted and bool(persisted.get("enable_mlx_whisper", False)):
-        result["runtime_profile"] = VCE_RUNTIME_PROFILE_MLX_PARALLEL
     result["ffmpeg_ocr_available"], result["ffmpeg_ocr_reason"] = _vce_ffmpeg_ocr_capability()
     result["qwen35_text_stage_note"] = "Режим анализа не отключает Qwen3.5 текстовую постобработку."
     return result
@@ -4089,6 +4086,7 @@ async def save_ui_settings(payload: Dict[str, Any]):
         raise HTTPException(500, f"Не удалось прочитать настройки: {exc}")
 
     int_ranges = {
+        "llama_cpp_vlm_context": (4096, 65536),
         "llama_cpp_text_context": (4096, 65536),
         "ffmpeg_ocr_workers": (1, 8),
         "ffmpeg_ocr_interval": (1, 60),
@@ -4126,6 +4124,9 @@ async def save_ui_settings(payload: Dict[str, Any]):
         elif key == "runtime_profile":
             if value not in VCE_RUNTIME_PROFILES:
                 raise HTTPException(422, "Недопустимый профиль выполнения")
+        elif key == "ram_mode":
+            if value not in {"ram-", "ram+"}:
+                raise HTTPException(422, "Недопустимый профиль памяти")
         elif key == "inference_backend":
             if value not in {VCE_INFERENCE_BACKEND_MLX, VCE_INFERENCE_BACKEND_LLAMA_CPP}:
                 raise HTTPException(422, "Недопустимый inference backend")
@@ -4240,9 +4241,9 @@ async def get_video_job_progress(job_id: str):
         if item.get("phase") == "text_llm_generating":
             try:
                 generated = max(0, int(item.get("generated_tokens", 0) or 0))
-                token_limit = max(1024, int(item.get("token_limit", 4096) or 4096))
+                token_limit = max(1024, int(item.get("token_limit", TEXT_LLM_DEFAULT_MAX_TOKENS) or TEXT_LLM_DEFAULT_MAX_TOKENS))
             except (TypeError, ValueError):
-                generated, token_limit = 0, 4096
+                generated, token_limit = 0, TEXT_LLM_DEFAULT_MAX_TOKENS
             token_fraction = min(0.94, generated / max(1200.0, token_limit * 0.72))
             # A slow decoder still advances gently; emitted tokens dominate when available.
             fraction = min(0.94, max(token_fraction, fraction * 0.62))
@@ -5253,6 +5254,14 @@ async def analyze_video(
         description="Modèle Whisper",
     ),
 
+    llama_cpp_vlm_context: int = Form(
+        int(setting("llama_cpp_vlm_context", 8192)),
+        ge=4096,
+        le=65536,
+        description="Контекст llama.cpp для VLM в токенах",
+    ),
+    ram_mode: str = Form(str(setting("ram_mode", "ram-")), description="ram- освобождает модели после этапа; ram+ сохраняет кэш"),
+
     whisper_acceleration: bool = Form(
         bool(setting("whisper_acceleration", True)),
         description="Ускорение Whisper: MPS на Apple Silicon / CUDA при наличии; выключите для CPU",
@@ -5272,7 +5281,7 @@ async def analyze_video(
         float(setting("min_scene_duration", 1.5)), ge=0.5, le=60.0, description="Durée minimale de scène (s)"
     ),
     max_scene_duration: float = Form(
-        float(setting("max_scene_duration", 10)), ge=5.0, le=300.0, description="Durée maximale de scène (s)"
+        float(setting("max_scene_duration", 20)), ge=5.0, le=300.0, description="Durée maximale de scène (s)"
     ),
 
     keyframes_per_scene: int = Form(
@@ -5334,8 +5343,6 @@ async def analyze_video(
         runtime_profile = requested_runtime_profile
     else:
         runtime_profile = _vce_normalize_runtime_profile()
-        if enable_mlx_whisper:
-            runtime_profile = VCE_RUNTIME_PROFILE_MLX_PARALLEL
     try:
         runtime_profile = _vce_normalize_runtime_profile(runtime_profile)
     except ValueError as exc:
@@ -5348,6 +5355,9 @@ async def analyze_video(
         print("[VCE execution] mlx_parallel: MLX Whisper/CPU overlaps MLX/Metal VLM; Text LLM remains MLX/Metal", flush=True)
 
     analysis_mode = (analysis_mode or "full").strip().lower()
+    ram_mode = str(ram_mode or "ram-").strip().lower()
+    if ram_mode not in {"ram-", "ram+"}:
+        raise HTTPException(422, "Недопустимый профиль памяти")
     if analysis_mode not in {"full", "whisper_ocr", "ocr_only"}:
         raise HTTPException(422, "Недопустимый сценарий анализа")
     if analysis_mode in {"whisper_ocr", "ocr_only"}:
@@ -5627,7 +5637,7 @@ async def analyze_video(
                             f"[VCE Whisper] backend={whisper_backend} device={whisper_device} "
                             f"profile={runtime_profile}; starting ASR."
                         )
-                        if RAM_MODE == "ram+":
+                        if ram_mode == "ram+":
                             if cache_key in WHISPER_CACHE:
                                 w_model = WHISPER_CACHE[cache_key]
                                 whisper_load_time = 0.0
@@ -5672,7 +5682,7 @@ async def analyze_video(
                             f"[VCE Whisper] backend={whisper_backend} device={whisper_device} "
                             f"inference={whisper_infer_time:.2f}s"
                         )
-                        if RAM_MODE == "ram-":
+                        if ram_mode == "ram-":
                             if hasattr(w_model, "release"):
                                 # MLX Whisper owns a private model cache; release it before dropping the adapter.
                                 await asyncio.to_thread(w_model.release)
@@ -5712,7 +5722,7 @@ async def analyze_video(
                             vlm_engine.unload_model()
                         vlm_engine = MLXEngine()
                     if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
-                        await _vce_backend_run(vlm_engine.load_model, target_vlm)
+                        await _vce_backend_run(vlm_engine.load_model, target_vlm, llama_cpp_vlm_context)
                     else:
                         await _vce_mlx_run(vlm_engine.load_model, target_vlm)
                     t1 = time.time()
@@ -5957,15 +5967,11 @@ async def analyze_video(
                                 _vce_scene, whisper_segments
                             )
 
-                    if RAM_MODE == "ram-":
-                        try:
+                    if ram_mode == "ram-":
+                        if "_vce_whisper_model" in locals():
                             del _vce_whisper_model
-                        except UnboundLocalError:
-                            pass
-                        try:
+                        if "w_model" in locals():
                             del w_model
-                        except UnboundLocalError:
-                            pass
                         release_accelerator_memory("after concurrent Whisper inference")
                 # Sequential baseline guarantees no Whisper/VLM overlap by scheduling.
                 # Do not infer it from timestamps: report an explicit contractual zero.
@@ -6064,7 +6070,7 @@ async def analyze_video(
                 cap.release()
                 print("🔓 GPU Lock relâché.")
 
-                if RAM_MODE == "ram-":
+                if ram_mode == "ram-":
                     print("🧹 RAM- mode: déchargement du VLM après traitement.")
                     vlm_engine.unload_model()
                     release_accelerator_memory('after VLM unload')
@@ -6141,7 +6147,7 @@ async def analyze_video(
                     if load_started is not None:
                         _vce_text_llm_phase_times["load_seconds"] = max(0.0, now - load_started)
                     _vce_text_llm_phase_times["generation_started"] = now
-                    set_job_progress(job_id, "text_llm_generating", None, "Qwen3.5 загружена; подготавливаем контекст к генерации", indeterminate=True, stage_index=6, stage_count=6, generated_tokens=0, token_limit=max(1024, int(text_llm_max_tokens or 4096)), model_cached=_vce_text_llm_cache_state["cached"])
+                    set_job_progress(job_id, "text_llm_generating", None, "Qwen3.5 загружена; подготавливаем контекст к генерации", indeterminate=True, stage_index=6, stage_count=6, generated_tokens=0, token_limit=max(1024, int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS)), model_cached=_vce_text_llm_cache_state["cached"])
                 elif phase == "repairing":
                     started = _vce_text_llm_phase_times.get("generation_started")
                     if started:
@@ -6159,7 +6165,7 @@ async def analyze_video(
                     elif not _vce_text_llm_phase_times.get("generation_started"):
                         _vce_text_llm_phase_times["generation_started"] = now
                     rate = f" · {tokens_per_second:.1f} ток/с" if tokens_per_second > 0 else ""
-                    set_job_progress(job_id, "text_llm_generating", None, f"Qwen3.5: структурируем анализ · {token_count} токенов{rate}", indeterminate=True, stage_index=6, stage_count=6, generated_tokens=token_count, token_limit=max(1024, int(text_llm_max_tokens or 4096)), tokens_per_second=round(tokens_per_second, 2), model_cached=_vce_text_llm_cache_state["cached"])
+                    set_job_progress(job_id, "text_llm_generating", None, f"Qwen3.5: структурируем анализ · {token_count} токенов{rate}", indeterminate=True, stage_index=6, stage_count=6, generated_tokens=token_count, token_limit=max(1024, int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS)), tokens_per_second=round(tokens_per_second, 2), model_cached=_vce_text_llm_cache_state["cached"])
             try:
                 print(f"🧠 [Text LLM] Улучшение структуры отчёта: {text_llm_model}")
                 async with gpu_lock:
@@ -6177,10 +6183,7 @@ async def analyze_video(
                 if "cancel_event" in locals() and cancel_event.is_set():
                     raise HTTPException(status_code=409, detail="Распознавание остановлено пользователем")
                 text_llm_result["original_summary"] = original_summary_for_text_llm
-                improved_summary = text_llm_result.get("executive_summary", "").strip()
-                if improved_summary:
-                    # VCE_PRESERVE_BASE_SUMMARY_V5_4: keep baseline meta.global_summary independent.
-                    pass
+                # Keep the improved summary in text_llm_result; meta.global_summary remains the baseline summary.
                 valid_scene_ids = {int(s.get("scene_id", 0) or 0) for s in final_segments}
                 for item in text_llm_result.get("scene_enrichment", []):
                     if not isinstance(item, dict) or item.get("scene_id") not in valid_scene_ids:
@@ -6241,7 +6244,7 @@ async def analyze_video(
         print(f"⏱️ Whisper: load={whisper_load_time:.2f}s, infer={whisper_infer_time:.2f}s")
         print(f"⏱️ VLM    : load={vlm_load_time:.2f}s, infer={vlm_infer_time:.2f}s")
         print(f"⏱️ Apple OCR: enabled={enable_apple_ocr}, infer={ocr_infer_time:.2f}s")
-        print(f"RAM_MODE = {RAM_MODE}")
+        print(f"ram_mode = {ram_mode}")
         print("================================")
 
         params = {
@@ -6254,7 +6257,7 @@ async def analyze_video(
             "keyframes_per_scene": keyframes_per_scene,
             "vlm_max_tokens_scene": vlm_max_tokens_scene,
             "vlm_max_tokens_summary": vlm_max_tokens_summary,
-            "ram_mode": RAM_MODE,
+            "ram_mode": ram_mode,
             "runtime_profile": runtime_profile,
             "audio_track_available": audio_track_available,
             "audio_auto_skipped": audio_auto_skipped,
@@ -6326,7 +6329,7 @@ async def analyze_video(
                 "inference_time": round(ffmpeg_ocr_infer_time, 3),
                 "message": ffmpeg_ocr_reason,
             },
-            "ram_mode": RAM_MODE,
+            "ram_mode": ram_mode,
         }
         if enable_stage_timing:
             timings["stage_diagnostics"] = {
@@ -6381,7 +6384,7 @@ async def analyze_video(
                         "generate_summary": generate_summary,
                         "vlm_max_tokens_scene": vlm_max_tokens_scene,
                         "vlm_max_tokens_summary": vlm_max_tokens_summary,
-                        "ram_mode": RAM_MODE,
+                        "ram_mode": ram_mode,
                         "inference_backend": inference_backend,
                     },
                     "timings": timings,
@@ -6468,14 +6471,14 @@ async def analyze_video(
         if _vce_pending_whisper_task is not None:
             try:
                 await _vce_pending_whisper_task
-            except BaseException:
-                # Preserve the original endpoint exception; observe task completion before cleanup.
-                pass
+            except (Exception, asyncio.CancelledError) as cleanup_error:
+                # Cleanup should not replace the endpoint's original exception; retain a diagnostic.
+                print(f"[VCE cleanup] Whisper task ended during cleanup: {cleanup_error!r}", flush=True)
         for _vce_prefetch in locals().get('_vce_prefetch_tasks', {}).values():
             try:
                 await _vce_prefetch
-            except BaseException:
-                pass
+            except (Exception, asyncio.CancelledError) as cleanup_error:
+                print(f"[VCE cleanup] Prefetch task ended during cleanup: {cleanup_error!r}", flush=True)
         _vce_pf_stop = locals().get('_vce_frame_prefetch_stop')
         if _vce_pf_stop is not None:
             _vce_pf_stop.set()
