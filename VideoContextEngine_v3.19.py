@@ -837,51 +837,55 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
     last_sources = _field_sources(last_seg)
     last_result_in_speech = bool(result_cues.search(last_sources["speech"]))
     end_card_only = bool(end_card_cues.search(last_sources["ocr"] + " " + last_sources["visual"])) and not bool(result_cues.search(last_sources["ocr"] + " " + last_sources["visual"]))
-    spoken_result_end_card = end_card_only and last_result_in_speech
+    nsrspec_profile = str(setting("domain_profile", "generic") or "generic").strip().lower() == "nsrspec"
+    spoken_result_end_card = nsrspec_profile and end_card_only and last_result_in_speech
 
-    # OCR-backed canonicalization: only link the phonetic ASR variant to BuildChat when the
-    # evidence appears in temporally adjacent scenes (within 30 seconds), not merely somewhere in the video.
-    alias_variants = {"белчат", "белчата", "билдчат", "билдчата", "билд чат", "бел чат"}
-    buildchat_ocr_candidates: List[int] = []
-    spoken_alias_candidates: List[int] = []
-    for sid in ordered_ids:
-        src = _field_sources(source_by_id[sid])
-        if re.search(r"build\s*chat", src["ocr"], re.I):
-            buildchat_ocr_candidates.append(sid)
-        spoken_compact = _norm(src["speech"]).replace(" ", "")
-        if any(alias.replace(" ", "") in spoken_compact for alias in alias_variants):
-            spoken_alias_candidates.append(sid)
-    paired_ocr_ids = set()
-    paired_speech_ids = set()
-    for speech_sid in spoken_alias_candidates:
-        try:
-            speech_start = float(source_by_id[speech_sid].get("start", 0) or 0)
-        except (TypeError, ValueError):
-            speech_start = 0.0
-        for ocr_sid in buildchat_ocr_candidates:
+    has_buildchat_conflict = False
+    canonical_buildchat_ids: List[int] = []
+    if nsrspec_profile and nsrspec_profile:
+            # OCR-backed canonicalization: only link the phonetic ASR variant to BuildChat when the
+        # evidence appears in temporally adjacent scenes (within 30 seconds), not merely somewhere in the video.
+        alias_variants = {"белчат", "белчата", "билдчат", "билдчата", "билд чат", "бел чат"}
+        buildchat_ocr_candidates: List[int] = []
+        spoken_alias_candidates: List[int] = []
+        for sid in ordered_ids:
+            src = _field_sources(source_by_id[sid])
+            if re.search(r"build\s*chat", src["ocr"], re.I):
+                buildchat_ocr_candidates.append(sid)
+            spoken_compact = _norm(src["speech"]).replace(" ", "")
+            if any(alias.replace(" ", "") in spoken_compact for alias in alias_variants):
+                spoken_alias_candidates.append(sid)
+        paired_ocr_ids = set()
+        paired_speech_ids = set()
+        for speech_sid in spoken_alias_candidates:
             try:
-                ocr_start = float(source_by_id[ocr_sid].get("start", 0) or 0)
+                speech_start = float(source_by_id[speech_sid].get("start", 0) or 0)
             except (TypeError, ValueError):
-                ocr_start = 0.0
-            speech_evidence = _field_sources(source_by_id[speech_sid])
-            ocr_evidence = _field_sources(source_by_id[ocr_sid])
-            shared_context = set(_tokens(speech_evidence["speech"])) & set(_tokens(ocr_evidence["ocr"] + " " + ocr_evidence["visual"]))
-            if abs(speech_start - ocr_start) <= 30.0 and shared_context:
-                paired_speech_ids.add(speech_sid)
-                paired_ocr_ids.add(ocr_sid)
-    buildchat_ocr_ids = sorted(paired_ocr_ids)
-    spoken_alias_ids = sorted(paired_speech_ids)
-    has_buildchat_conflict = bool(buildchat_ocr_ids and spoken_alias_ids)
-    canonical_buildchat_ids = sorted(set(buildchat_ocr_ids + spoken_alias_ids), key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))
+                speech_start = 0.0
+            for ocr_sid in buildchat_ocr_candidates:
+                try:
+                    ocr_start = float(source_by_id[ocr_sid].get("start", 0) or 0)
+                except (TypeError, ValueError):
+                    ocr_start = 0.0
+                speech_evidence = _field_sources(source_by_id[speech_sid])
+                ocr_evidence = _field_sources(source_by_id[ocr_sid])
+                shared_context = set(_tokens(speech_evidence["speech"])) & set(_tokens(ocr_evidence["ocr"] + " " + ocr_evidence["visual"]))
+                if abs(speech_start - ocr_start) <= 30.0 and shared_context:
+                    paired_speech_ids.add(speech_sid)
+                    paired_ocr_ids.add(ocr_sid)
+        buildchat_ocr_ids = sorted(paired_ocr_ids)
+        spoken_alias_ids = sorted(paired_speech_ids)
+        has_buildchat_conflict = bool(buildchat_ocr_ids and spoken_alias_ids)
+        canonical_buildchat_ids = sorted(set(buildchat_ocr_ids + spoken_alias_ids), key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))
 
     # Normalize only derived Text-LLM fields, and only when source evidence supports the correction.
     all_ocr_text_for_normalization = " ".join(str(source_by_id[sid].get("ocr_text", "") or "") for sid in ordered_ids)
-    has_verified_sp_standard = bool(re.search(r"\bСП\s*1\.13130\.2020\b", all_ocr_text_for_normalization, re.I))
+    has_verified_sp_standard = nsrspec_profile and bool(re.search(r"\bСП\s*1\.13130\.2020\b", all_ocr_text_for_normalization, re.I))
     def _normalize_derived_strings(value: Any) -> Any:
         if isinstance(value, str):
             if has_verified_sp_standard:
                 value = re.sub(r"(?i)\bСП\s*1\.13\.130\.2020\b", "СП 1.13130.2020", value)
-            if has_buildchat_conflict:
+            if nsrspec_profile and has_buildchat_conflict:
                 value = re.sub(r"(?i)\b(?:белчат\s*/\s*белчата|белчат(?:а)?|билдчат(?:а)?|бел\s+чат|билд\s+чат)\b", "BuildChat", value)
             return value
         if isinstance(value, list):
@@ -961,7 +965,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
     # describe both observations without claiming they are the same operation.
     for sid in ordered_ids:
         src = _field_sources(source_by_id[sid])
-        if re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
+        if nsrspec_profile and re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
             item = enrich_by_id.get(sid)
             if item:
                 item["topic"] = "Проверка в CADLib"
@@ -981,12 +985,12 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         src = _field_sources(seg)
         visual = re.sub(r"\[Кадр\s+[^\]]+\]\s*", "", src["visual"], flags=re.I).strip()
         speech = src["speech"]
-        if re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I) and re.search(r"КСИ|классификац", src["ocr"] + " " + visual, re.I) and re.search(r"уклон|пандус", src["ocr"] + " " + visual, re.I):
+        if nsrspec_profile and re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I) and re.search(r"КСИ|классификац", src["ocr"] + " " + visual, re.I) and re.search(r"уклон|пандус", src["ocr"] + " " + visual, re.I):
             desc = _compact(visual, 300) if visual else "На экране показана схема классификации требования об уклоне пандусов."
             desc = desc.rstrip(" .;:") + ". Диктор оценивает схему как логичную и наглядную."
         elif sid == last_sid and spoken_result_end_card:
             desc = "На экране показана завершающая заставка «THE END»; вывод о несоответствии произносится в аудио."
-        elif re.search(r"пандус|уклон", speech, re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
+        elif nsrspec_profile and re.search(r"пандус|уклон", speech, re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
             desc = "Диктор описывает проверку уклона пандусов; на экране показано окно настройки проверки коллизий. Связь между ними не подтверждена."
         elif visual:
             desc = _compact(visual, 340)
@@ -1000,7 +1004,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         # Scene-level points should summarize meaning, not contain frame/OCR dumps or generic placeholders.
         points = item.get("key_points", []) if isinstance(item.get("key_points"), list) else []
         points = [str(p).strip() for p in points if str(p).strip()]
-        if re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I) and re.search(r"КСИ|классификац", src["ocr"] + " " + visual, re.I) and re.search(r"уклон|пандус", src["ocr"] + " " + visual, re.I):
+        if nsrspec_profile and re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I) and re.search(r"КСИ|классификац", src["ocr"] + " " + visual, re.I) and re.search(r"уклон|пандус", src["ocr"] + " " + visual, re.I):
             points = ["Диктор оценивает схему как логичную и наглядную.", "На экране показано требование к уклону пандусов не более 1:20."]
         elif any(description_dump_markers.search(p) for p in points):
             points = []
@@ -1064,10 +1068,10 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         source_specific_evidence = None
 
         # Prefer compact analytical claims to generic interface descriptions or clipped ASR fragments.
-        if re.search(r"какой\s+уклон\s+пандусов", src["speech"], re.I) and re.search(r"релевантн|семантическ|ранжирован", combined_visual_text, re.I):
+        if nsrspec_profile and re.search(r"какой\s+уклон\s+пандусов", src["speech"], re.I) and re.search(r"релевантн|семантическ|ранжирован", combined_visual_text, re.I):
             text_value = "Пользователь спрашивает об уклоне пандусов на путях эвакуации; система показывает релевантные фрагменты."
             source_specific_evidence = ["speech", "ocr", "visual"]
-        if re.search(r"уклон", src["speech"], re.I) and re.search(r"пандус", src["speech"], re.I) and re.search(r"1\s*(?:к|:)\s*20", src["speech"], re.I) and re.search(r"СП\s*1\.13130\.2020", src["ocr"], re.I):
+        if nsrspec_profile and re.search(r"уклон", src["speech"], re.I) and re.search(r"пандус", src["speech"], re.I) and re.search(r"1\s*(?:к|:)\s*20", src["speech"], re.I) and re.search(r"СП\s*1\.13130\.2020", src["ocr"], re.I):
             text_value = "По СП 1.13130.2020 уклон пандусов на путях эвакуации должен быть не более 1:20."
             source_specific_evidence = ["speech", "ocr"]
         if re.search(r"создавать проверки вручную", src["speech"], re.I) and re.search(r"искусственн\w* интеллект|\bИИ\b", src["speech"], re.I):
@@ -1076,19 +1080,19 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         if re.search(r"сырой результат", src["ocr"], re.I) and re.search(r"калькулятор", src["ocr"], re.I) and re.search(r"коррект", src["ocr"], re.I):
             text_value = "Калькулятор разбивает требование на шаги и показывает результат корректировки формулировки."
             source_specific_evidence = ["ocr", "visual"]
-        if re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I) and re.search(r"коллиз|несоответ", text_value, re.I):
+        if nsrspec_profile and re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I) and re.search(r"коллиз|несоответ", text_value, re.I):
             text_value = "Диктор описывает загрузку XML в CADLib, отбор объектов по атрибутивным данным и проверку уклона пандусов."
         short_speech_fragment = len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I))
-        if short_speech_fragment and re.search(r"формат\s*:\s*NSR", src["ocr"], re.I) and re.search(r"выгруз", src["speech"], re.I) and re.search(r"уклон", src["ocr"], re.I):
+        if nsrspec_profile and short_speech_fragment and re.search(r"формат\s*:\s*NSR", src["ocr"], re.I) and re.search(r"выгруз", src["speech"], re.I) and re.search(r"уклон", src["ocr"], re.I):
             text_value = "Речь переходит к выгрузке; на экране показаны формат NSR и атрибут «Уклон»."
             source_specific_evidence = ["speech", "ocr"]
-        elif short_speech_fragment and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"ГОСТ\s*Р?\s*58908\.12-2020", src["ocr"], re.I):
+        elif nsrspec_profile and short_speech_fragment and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"ГОСТ\s*Р?\s*58908\.12-2020", src["ocr"], re.I):
             text_value = "В интерфейсе показан атрибут «Код КСИ» для класса «пандус» со ссылкой на ГОСТ Р 58908.12-2020."
             source_specific_evidence = ["ocr"]
-        elif short_speech_fragment and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"пандус|уклон", combined_visual_text, re.I):
+        elif nsrspec_profile and short_speech_fragment and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"пандус|уклон", combined_visual_text, re.I):
             text_value = "На экране продолжается настройка классификатора КСИ и правила для требования об уклоне пандусов."
             source_specific_evidence = ["ocr", "visual"]
-        elif short_speech_fragment and re.search(r"ID\s+требования", src["ocr"], re.I) and re.search(r"исходный текст|комментарий", src["ocr"], re.I) and re.search(r"пандус|уклон", combined_visual_text, re.I):
+        elif nsrspec_profile and short_speech_fragment and re.search(r"ID\s+требования", src["ocr"], re.I) and re.search(r"исходный текст|комментарий", src["ocr"], re.I) and re.search(r"пандус|уклон", combined_visual_text, re.I):
             text_value = "В интерфейсе показана структура технического требования с исходным текстом, полем комментария и ID требования."
             source_specific_evidence = ["ocr", "visual"]
 
@@ -1151,19 +1155,19 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         candidate = ""
         if sid == last_sid and spoken_result_end_card:
             candidate = "В речи сообщается, что объект не соответствует нормативу."
-        elif re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
+        elif nsrspec_profile and re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
             candidate = "Диктор описывает загрузку XML в CADLib, отбор объектов по атрибутивным данным и проверку уклона пандусов."
         elif src["speech"] and result_cues.search(src["speech"]):
             candidate = "В речи сообщается: «" + _compact(src["speech"], 170).strip(" .;:") + "»."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"формат\s*:\s*NSR", src["ocr"], re.I) and re.search(r"выгруз", src["speech"], re.I) and re.search(r"уклон", src["ocr"], re.I):
+        elif nsrspec_profile and len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"формат\s*:\s*NSR", src["ocr"], re.I) and re.search(r"выгруз", src["speech"], re.I) and re.search(r"уклон", src["ocr"], re.I):
             candidate = "Речь переходит к выгрузке; на экране показаны формат NSR и атрибут «Уклон»."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"ГОСТ\s*Р?\s*58908\.12-2020", src["ocr"], re.I):
+        elif nsrspec_profile and len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"ГОСТ\s*Р?\s*58908\.12-2020", src["ocr"], re.I):
             candidate = "В интерфейсе показан атрибут «Код КСИ» для класса «пандус» со ссылкой на ГОСТ Р 58908.12-2020."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
+        elif nsrspec_profile and len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
             candidate = "На экране продолжается настройка классификатора КСИ и правила для требования об уклоне пандусов."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"ID\s+требования", src["ocr"], re.I) and re.search(r"исходный текст|комментарий", src["ocr"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
+        elif nsrspec_profile and len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"ID\s+требования", src["ocr"], re.I) and re.search(r"исходный текст|комментарий", src["ocr"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
             candidate = "В интерфейсе показана структура технического требования с исходным текстом, полем комментария и ID требования."
-        elif re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", src["speech"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
+        elif nsrspec_profile and re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", src["speech"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
             candidate = "На экране показана схема требования об уклоне пандусов."
         elif src["speech"] and technical_cues.search(src["speech"]) and len(src["speech"]) <= 220:
             candidate = _compact(src["speech"].rstrip(" .;:—–"), 220)
@@ -1199,21 +1203,21 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
             revised = "В интерфейсе показан ИИ-помощник рядом со схемой семантической обработки требования."
             revised_evidence = ["ocr", "visual"]
         # KSI + calculator generation is a different beat from the later export configuration.
-        elif (re.search(r"правила\s+проверки", speech, re.I)
+        elif nsrspec_profile and (re.search(r"правила\s+проверки", speech, re.I)
                 and re.search(r"КСИ", ocr, re.I)
                 and re.search(r"генерац\w* калькулятор", ocr, re.I)
                 and re.search(r"уклон|пандус", combined_visual_text, re.I)):
             revised = "На экране показаны классификатор КСИ и функция генерации калькуляторов для требования об уклоне пандусов."
             revised_evidence = ["ocr", "visual"]
         # Export scene: use format + attribute instead of the generic KSI setup sentence.
-        elif (re.search(r"затем\s+выгрузить|выгруз", speech, re.I)
+        elif nsrspec_profile and (re.search(r"затем\s+выгрузить|выгруз", speech, re.I)
                 and re.search(r"ФОРМАТ\s*:", ocr, re.I)
                 and re.search(r"\bNSR\b", ocr, re.I)
                 and re.search(r"атрибут\s+КСИ|XPG_0016|Уклон", ocr, re.I)):
             revised = "Настраивается выгрузка правила в формате NSR с атрибутом «Уклон»."
             revised_evidence = ["speech", "ocr"]
         # The spoken evaluation is useful evidence for the otherwise visually repetitive scene.
-        elif (re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I)
+        elif nsrspec_profile and (re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I)
                 and re.search(r"КСИ", ocr, re.I)
                 and re.search(r"уклон|пандус", combined_visual_text, re.I)):
             revised = "Диктор оценивает схему как логичную и наглядную; на экране показано требование об уклоне пандусов."
@@ -1277,7 +1281,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         compact_name = n.replace(" ", "")
         if re.fullmatch(r"(?:ai)?иипомощник|иипомощник|aиипомощник|aiиипомощник", compact_name, re.I):
             continue  # Generic UI label, not a named entity.
-        if has_buildchat_conflict and compact_name in {"белчат", "белчата", "билдчат", "билдчата", "buildchat", "buildchatsoftware"}:
+        if nsrspec_profile and has_buildchat_conflict and compact_name in {"белчат", "белчата", "билдчат", "билдчата", "buildchat", "buildchatsoftware"}:
             name = "BuildChat"
             n = _norm(name)
         try:
@@ -1289,17 +1293,17 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         for raw_id in input_ids:
             try: sid = int(raw_id)
             except (TypeError, ValueError): continue
-            if sid not in source_by_id: continue
+            if nsrspec_profile and sid not in source_by_id: continue
             src_blob = _norm(_source_text(source_by_id[sid]))
-            if n.replace(" ", "") in src_blob.replace(" ", "") or (has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids):
-                if sid not in ids: ids.append(sid)
-        if has_buildchat_conflict and name == "BuildChat":
+            if nsrspec_profile and n.replace(" ", "") in src_blob.replace(" ", "") or (has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids):
+                if nsrspec_profile and sid not in ids: ids.append(sid)
+        if nsrspec_profile and has_buildchat_conflict and name == "BuildChat":
             ids = sorted(set(ids + canonical_buildchat_ids), key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))
         if not ids:
             for sid in ordered_ids:
                 blob = _norm(_source_text(source_by_id[sid])).replace(" ", "")
                 match = n.replace(" ", "") in blob
-                if has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids:
+                if nsrspec_profile and has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids:
                     match = True
                 if match:
                     ids.append(sid)
@@ -1310,11 +1314,11 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         compact_name = n.replace(" ", "")
         if standard_name.search(name):
             entity_type = "standard"
-        elif compact_name == "кси" or "классификатор строительной информации" in n:
+        elif nsrspec_profile and compact_name == "кси" or "классификатор строительной информации" in n:
             entity_type = "classification_system"
-        elif compact_name in {"nanocad", "cadlib"}:
+        elif nsrspec_profile and compact_name in {"nanocad", "cadlib"}:
             entity_type = "software"
-        elif compact_name == "buildchat":
+        elif nsrspec_profile and compact_name == "buildchat":
             entity_type = "software"
         elif entity_type in {"regulatory document", "regulation document", "normative document", "нормативный документ"}:
             entity_type = "standard"
@@ -1327,7 +1331,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
             if entity_type == "standard" or entity_type == "classification_system":
                 current["type"] = entity_type
 
-    if has_buildchat_conflict:
+    if nsrspec_profile and has_buildchat_conflict:
         key = _norm("BuildChat")
         if key not in fixed_entities:
             fixed_entities[key] = {"name": "BuildChat", "type": "software", "scene_ids": canonical_buildchat_ids}
@@ -1347,10 +1351,10 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
     for item in uncertainties:
         supported_conflict = bool(channel.search(item) and conflict.search(item))
         # Replace any model-authored BuildChat/ASR notes with one canonical, source-grounded note below.
-        if has_buildchat_conflict and re.search(r"build\s*chat|белчат|белчата|билдчат", item, re.I):
+        if nsrspec_profile and has_buildchat_conflict and re.search(r"build\s*chat|белчат|белчата|билдчат", item, re.I):
             continue
         # Model-generated KSI date notes often mislabel OCR as speech/transcript and duplicate the same issue.
-        if re.search(r"\bКСИ\b|классификатор строительной информации", item, re.I) and re.search(r"20\d{2}|дата|верс|диапазон", item, re.I):
+        if nsrspec_profile and re.search(r"\bКСИ\b|классификатор строительной информации", item, re.I) and re.search(r"20\d{2}|дата|верс|диапазон", item, re.I):
             continue
         if weak_port_inference.search(item) and inference_words.search(item) and not supported_conflict:
             continue
@@ -1370,9 +1374,9 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
     for sid in ordered_ids:
         for match in re.finditer(r"КСИ\s*\(([^)]{4,80})\)", str(source_by_id[sid].get("ocr_text", "") or ""), re.I):
             label = re.sub(r"\s+", " ", match.group(1)).strip().replace("–", "-").replace("—", "-")
-            if label and label not in ksi_labels:
+            if nsrspec_profile and label and label not in ksi_labels:
                 ksi_labels.append(label)
-    if len(ksi_labels) >= 2 and any("2025" in x for x in ksi_labels) and any("2024" in x for x in ksi_labels):
+    if nsrspec_profile and len(ksi_labels) >= 2 and any("2025" in x for x in ksi_labels) and any("2024" in x for x in ksi_labels):
         clean_uncertainties.append("В разных кадрах отображаются подписи КСИ с разными датами: «" + ksi_labels[0] + "» и «" + next(x for x in ksi_labels[1:] if ("2025" in x) != ("2025" in ksi_labels[0])) + "». Это может отражать разные версии или диапазоны действия классификатора; по этим кадрам нельзя уверенно заключить, что данные противоречат друг другу.")
     payload["uncertainties"] = list(dict.fromkeys(clean_uncertainties))[:20]
 
@@ -1380,7 +1384,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
     enhanced = str(payload.get("executive_summary", "") or "").strip()
     prior = str(original_summary or "").strip()
     similarity = difflib.SequenceMatcher(None, _norm(enhanced), _norm(prior)).ratio() if enhanced and prior else 0.0
-    if similarity >= 0.78 or spoken_result_end_card:
+    if nsrspec_profile and (similarity >= 0.78 or spoken_result_end_card):
         points = sorted(clean_points.values(), key=lambda p: (float(source_by_id[p["scene_id"]].get("start", 0) or 0), p["scene_id"]))
         useful = [p for p in points if p["scene_id"] != last_sid and technical_cues.search(p["text"]) and len(_tokens(p["text"])) >= 4]
         selected = []
@@ -1413,7 +1417,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         for sid in ordered_ids:
             fact_sources = _field_sources(source_by_id[sid])
             fact_text = fact_sources["speech"] + " " + fact_sources["ocr"]
-            if (re.search(r"\bСП\s*1\.13130\.2020\b", fact_text, re.I)
+            if nsrspec_profile and (re.search(r"\bСП\s*1\.13130\.2020\b", fact_text, re.I)
                     and re.search(r"уклон|пандус", fact_text, re.I)
                     and re.search(r"1\s*(?:[:к])\s*20", fact_text, re.I)):
                 normative_fact = "Для уклона пандусов по СП 1.13130.2020 указан предел не более 1:20."
@@ -2613,6 +2617,17 @@ TEXT_LLM_DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
 TEXT_LLM_DEFAULT_MAX_TOKENS = 8192
 
 
+def _vce_domain_profile_instructions() -> str:
+    """Load domain-specific guidance only when a named profile is explicitly selected."""
+    profile = str(setting("domain_profile", "generic") or "generic").strip().lower()
+    if profile == "generic":
+        return ""
+    if profile == "nsrspec":
+        from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS
+        return str(PROMPT_INSTRUCTIONS).strip()
+    raise ValueError(f"Unsupported domain_profile: {profile!r}")
+
+
 VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: Dict[str, Any] = {}
 
 
@@ -2839,7 +2854,9 @@ def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
 # VCE_NAME_CONSISTENCY_V3_CROSS_FIELD_REPAIR
 
 def _vce_canonicalize_confirmed_standard_names(payload, segments):
-    """Normalize only derived text, and only when related OCR confirms the exact ID."""
+    """Normalize the NSR-specific standard alias only under its opt-in profile."""
+    if str(setting("domain_profile", "generic") or "generic").strip().lower() != "nsrspec":
+        return payload
     import re as _vce_re
     if not isinstance(payload, dict):
         payload = {}
@@ -3322,11 +3339,11 @@ def run_text_llm_postprocess(
             "Используй только переданные данные; не добавляй внешние сведения и не делай выводов, которые не подтверждаются исходными источниками. "
             "Не изменяй исходные аудиорасшифровки, OCR, визуальные описания и таймкоды. Они являются доказательным слоем. "
             "OCR — основной источник точного написания видимых названий, нормативных обозначений, атрибутов, дат и чисел, если текст читаем и однозначен. Не позволяй фонетическому варианту ASR переопределить чёткую экранную подпись; сопоставляй источники по смыслу и близости сцен. OCR тоже может ошибаться: при нечитабельной или противоречивой надписи сохраняй неопределённость. "
-            "Если речь содержит фонетическое «Белчат/Белчата», а связанный по контексту OCR чётко показывает BuildChat, нормализуй производные аналитические поля к BuildChat и не добавляй ложную неопределённость. Исходные transcript/OCR не переписывай. "
+            "Сопоставляй варианты названий только при наличии связанного по времени и смыслу подтверждения из речи, OCR или визуального контекста; исходные transcript/OCR не переписывай. "
             f"Executive_summary: {summary_min_words}–{summary_max_words} слов, самостоятельный синтез цели, последовательности этапов, конкретных параметров и фактического результата. Не повторяй базовую сводку и не добавляй общие фразы. Разделяй то, что сказано в аудио, и то, что показано на экране. "
-            "Если в финальном аудио произносится несоответствие, а на экране только THE END/КОНЕЦ, сообщи, что это сказано в аудио, и не приписывай вывод изображению. Не считай окно «Проверка коллизий» доказательством результата проверки уклона, если связь не подтверждена. "
+            "Разделяй утверждения по источникам: не приписывай аудио визуальному ряду, OCR — речи, а наличие интерфейсного окна не считай доказательством результата операции без подтверждения. "
             f"Key_points: максимум {max_key_points} коротких аналитических тезисов, обычно до 30 слов. Не копируй длинные OCR-строки или обрывки транскрипта. Не дублируй смысл между соседними сценами: выделяй конкретное изменение, этап, атрибут, функцию или результат, только если он подтверждён сценой. "
-            "Evidence — строгая привязка: speech указывай только если тезис подтверждается аудио; ocr — только если подтверждается читаемым текстом; visual — если подтверждается описанием изображения; tags — если следует из visual_tags. Не добавляй источник только потому, что он существует. THE END подтверждает заставку, но не несоответствие. "
+            "Evidence — строгая привязка: speech указывай только если тезис подтверждается аудио; ocr — только если подтверждается читаемым текстом; visual — если подтверждается описанием изображения; tags — если следует из visual_tags. Не добавляй источник только потому, что он существует. "
             f"Topics — не более {max_topics} разных тем. Entities — только подтверждённые именованные сущности с реальными scene_ids. Типы: person, organization, product, software, tool, standard, regulation, document, concept, classification_system, other. Не включай обычные подписи интерфейса как именованные сущности. "
             "Scene_enrichment: для каждой сцены короткая тема, улучшенное описание в 1–2 предложениях (ориентир до 45 слов) и 0–3 тезиса. Не вставляй в improved_description метки «Визуально:», «Речь:», «Текст на экране:», дампы OCR, временные заголовки [Кадр ...] или объединённые блоки исходных данных. Перескажи значимый экранный факт своими словами; сохраняй точные числа/названия, если они важны. Сцены похожего интерфейса должны различаться тем, что изменилось или какая функция показана. "
             "Uncertainties: включай только реальные расхождения или явную проблему распознавания. Не называй неопределённостью ситуацию, когда аудио и экран описывают разные, но совместимые вещи. Если OCR явно содержит полное значение, не помечай его как обрезанное. Если сомнений нет, верни []. Не делай выводов об архитектуре по localhost/порту/названию базы. "
@@ -3337,8 +3354,9 @@ def run_text_llm_postprocess(
             "Не используй scene_id, которых нет в контексте. Не утверждай, что проверка пройдена, если в источниках показано несоответствие. "
             + "\n\nПромпт согласования названий и собственных имён между ASR и OCR:\n"
             + str(setting("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)).strip()
-            + "\n\n"
-            + coverage_note
+             + ("\\n\\n" + _vce_domain_profile_instructions() if _vce_domain_profile_instructions() else "")
+             + "\\n\\n"
+             + coverage_note
             + "\n\nДанные анализа (JSON):\n"
             + context_json
         )

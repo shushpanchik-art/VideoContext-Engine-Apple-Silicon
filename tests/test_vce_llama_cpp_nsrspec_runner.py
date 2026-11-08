@@ -142,6 +142,16 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
     def test_observer_uses_explicit_nsrspec_profile(self):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
+    def test_observer_checks_only_required_backend_settings(self):
+        self.assertIn("required_experiment_mismatches", self.observer)
+        self.assertIn("for key, value in backend_settings.items()", self.observer)
+        self.assertNotIn("if differences:", self.observer)
+
+    def test_nsrspec_profile_is_explicit_and_generic_is_default(self):
+        self.assertIn('setting("domain_profile", "generic")', self.runtime)
+        self.assertIn('from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS', self.runtime)
+        self.assertIn('"domain_profile": "nsrspec"', self.observer)
+
     def test_runtime_records_mps_device_with_index_as_verified(self):
         self.assertIn("def _vce_device_type_name(value: Any) -> str:", self.runtime)
         self.assertIn("_vce_device_type_name(observed_device) == _vce_device_type_name(device)", self.runtime)

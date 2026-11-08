@@ -634,10 +634,16 @@ def main() -> int:
             key: {"local_file": settings[key], "active_server": active_settings[key]}
             for key in common_keys if settings[key] != active_settings[key]
         }
+        required_experiment_mismatches = {
+            key: {"expected": value, "active_server": active_settings.get(key)}
+            for key, value in backend_settings.items()
+            if active_settings.get(key) != value
+        }
         write_json(run_dir / "settings_comparison.json", {
             "local_settings_path": str(settings_path),
             "active_settings_endpoint": args.api_url.rstrip("/") + "/api/v1/ui-settings",
             "non_prompt_differences": differences,
+            "required_experiment_mismatches": required_experiment_mismatches,
             "prompt_lengths": {
                 key: {
                     "local_file_chars": len(settings.get(key, "")) if isinstance(settings.get(key), str) else None,
@@ -646,11 +652,11 @@ def main() -> int:
                 } for key in prompt_keys
             },
         })
-        if differences:
-            keys = ", ".join(list(differences)[:30])
+        if required_experiment_mismatches:
+            keys = ", ".join(list(required_experiment_mismatches)[:30])
             raise RuntimeError(
-                "Локальный videocontext_settings.json отличается от активных настроек сервера "
-                f"по полям: {keys}. Видео не отправлялось; проверь settings_comparison.json."
+                "Активные настройки сервера не совпали с обязательными параметрами A/B: "
+                f"{keys}. Видео не отправлялось; проверь settings_comparison.json."
             )
 
         # Use the running VCE settings as authority. Long persisted prompts are deliberately
