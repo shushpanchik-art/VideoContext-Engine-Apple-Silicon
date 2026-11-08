@@ -2611,22 +2611,87 @@ TEXT_LLM_DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
 TEXT_LLM_DEFAULT_MAX_TOKENS = 4096
 
 
+VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: Dict[str, Any] = {}
+
+
 def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperature: float, stream: bool):
-    """Use JSON grammar and the pinned fork's native reasoning-budget controls."""
-    return instance.create_chat_completion(
-        messages=[{"role": "user", "content": prompt}],
+    """Separate output-format policy from the analysis payload.
+
+    No native JSON grammar and no reasoning_* kwargs are sent. Thinking control
+    is not handled here; generated output is validated by the application.
+    """
+    diagnostics = VCE_TEXT_LLM_GENERATION_DIAGNOSTICS
+    diagnostics.clear()
+    diagnostics.update({
+        "requested_max_tokens": int(max_tokens),
+        "streaming": bool(stream),
+        "roles": ["system", "user"],
+    })
+    system = (
+        "Ты — генератор итогового аналитического JSON для VideoContext Engine. "
+        "Верни ровно один полный JSON-объект. "
+        "Первым символом ответа должен быть {, последним — }. "
+        "Не пересказывай задание и не объясняй ход работы. "
+        "Не выводи рассуждения, черновики, заголовки или Markdown. "
+        "Используй только сведения из сообщения пользователя. "
+        "Соблюдай структуру, ключи, типы полей и ограничения, "
+        "указанные в задании пользователя. "
+        "Не выдумывай сведения и не заполняй поля неподтверждёнными фактами. "
+        "Executive_summary должен быть непустым и содержать только "
+        "подтверждённое данными содержание."
+    )
+    response = instance.create_chat_completion(
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt},
+        ],
         max_tokens=max_tokens,
         temperature=temperature,
         stream=stream,
-        response_format={"type": "json_object"},
-        # Qwen3.5's GGUF chat template already inserts <think> by default.
-        # This pinned fork supports reasoning_budget=0 to close that block
-        # immediately, without relying on unsupported per-call template kwargs.
-        reasoning_budget=0,
-        reasoning_start="<think>",
-        reasoning_end="</think>",
-        reasoning_start_in_prompt=True,
     )
+
+    if not stream:
+        try:
+            choice = (response.get("choices") or [{}])[0]
+            diagnostics.update({
+                "finish_reason": choice.get("finish_reason"),
+                "usage": response.get("usage"),
+                "message_keys": sorted((choice.get("message") or {}).keys()),
+            })
+        except Exception:
+            diagnostics.setdefault("metadata_capture_error", "non_stream_metadata_unavailable")
+        return response
+
+    def _capture_stream_metadata():
+        chunk_count = 0
+        text_chars = 0
+        finish_reason = None
+        usage = None
+        for chunk in response:
+            chunk_count += 1
+            try:
+                choices = chunk.get("choices") or []
+                if choices:
+                    choice = choices[0] or {}
+                    if choice.get("finish_reason") is not None:
+                        finish_reason = choice.get("finish_reason")
+                    delta = choice.get("delta") or {}
+                    piece = delta.get("content")
+                    if piece:
+                        text_chars += len(str(piece))
+                if chunk.get("usage") is not None:
+                    usage = chunk.get("usage")
+            except Exception:
+                pass
+            yield chunk
+        diagnostics.update({
+            "finish_reason": finish_reason,
+            "usage": usage,
+            "stream_chunk_count": chunk_count,
+            "stream_text_characters": text_chars,
+        })
+
+    return _capture_stream_metadata()
 
 
 def _text_llm_clip(value: Any, limit: int) -> str:
@@ -3107,6 +3172,7 @@ def run_text_llm_postprocess(
     """Run text-only enrichment on exactly the selected MLX or llama.cpp backend."""
     import gc
     inference_backend = _vce_normalize_inference_backend()
+    VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.clear()
     if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
         _vce_require_llama_metal()
         from llama_cpp import Llama
@@ -3326,9 +3392,32 @@ def run_text_llm_postprocess(
                 )
             if not isinstance(raw, str):
                 raw = getattr(raw, "text", None) or str(raw)
+        first_brace_offset = raw.find("{")
+        VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.update({
+            "raw_length": len(raw),
+            "first_brace_offset": first_brace_offset,
+            "raw_tail_excerpt": _text_llm_clip(raw[-1500:], 1500),
+            "raw_head_excerpt": _text_llm_clip(raw, 2000),
+        })
         try:
             parsed = _text_llm_parse_json(raw)
         except Exception as parse_error:
+            if first_brace_offset < 0:
+                failure = ValueError(
+                    "Qwen3.5 не начал формировать JSON-объект; repair-pass пропущен."
+                )
+                failure.raw_excerpt = _text_llm_clip(raw, 2000)
+                failure.repair_raw_excerpt = ""
+                failure.raw_length = len(raw)
+                failure.first_brace_offset = -1
+                failure.raw_tail_excerpt = _text_llm_clip(raw[-1500:], 1500)
+                failure.primary_parse_error = str(parse_error)[:500]
+                failure.repair_parse_error = "repair skipped: no opening brace in primary generation"
+                failure.repair_skipped = True
+                failure.generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                failure.generation_diagnostics["repair_skipped"] = True
+                raise failure from parse_error
+
             # First attempt a deterministic syntax-only repair if the optional helper exists.
             repaired_payload = None
             try:
@@ -3350,7 +3439,7 @@ def run_text_llm_postprocess(
                     "Исправь ТОЛЬКО синтаксис следующего JSON. Не добавляй новые факты, не меняй содержание тезисов, "
                     "не объясняй ход решения. Верни один полный валидный JSON-объект, без Markdown. "
                     "Сохрани ключи executive_summary, topics, key_points, entities, scene_enrichment, uncertainties.\n\n"
-                    "Невалидный JSON для исправления:\n" + raw[:18000]
+                    "Невалидный JSON для исправления:\n" + raw[first_brace_offset:][:18000]
                 )
                 try:
                     repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0, enable_thinking=False)
@@ -3370,11 +3459,21 @@ def run_text_llm_postprocess(
                     )
                     failure.raw_excerpt = _text_llm_clip(raw, 2000)
                     failure.repair_raw_excerpt = _text_llm_clip(repaired_raw, 2000)
+                    failure.raw_length = len(raw)
+                    failure.first_brace_offset = first_brace_offset
+                    failure.raw_tail_excerpt = _text_llm_clip(raw[-1500:], 1500)
                     failure.primary_parse_error = str(parse_error)[:500]
                     failure.repair_parse_error = str(second_error)[:500]
+                    failure.repair_skipped = False
+                    failure.generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                    failure.generation_diagnostics["repair_skipped"] = False
                     print(
                         "[VCE Text LLM raw diagnostic] " + json.dumps({
                             "primary_excerpt": failure.raw_excerpt,
+                            "primary_tail_excerpt": failure.raw_tail_excerpt,
+                            "raw_length": failure.raw_length,
+                            "first_brace_offset": failure.first_brace_offset,
+                            "generation_diagnostics": failure.generation_diagnostics,
                             "repair_excerpt": failure.repair_raw_excerpt,
                             "primary_parse_error": failure.primary_parse_error,
                             "repair_parse_error": failure.repair_parse_error,
@@ -5863,6 +5962,7 @@ async def analyze_video(
         text_llm_repair_raw_excerpt = ""
         text_llm_primary_parse_error = ""
         text_llm_repair_parse_error = ""
+        text_llm_generation_diagnostics = {}
         text_llm_status = "disabled"
         if text_llm_enabled:
             text_llm_status = "failed"
@@ -5919,6 +6019,7 @@ async def analyze_video(
                         text_llm_max_tokens,
                         _ui_text_llm_progress_callback,
                     )
+                text_llm_generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
                 text_llm_infer_time = time.time() - llm_started_at
                 if "cancel_event" in locals() and cancel_event.is_set():
                     raise HTTPException(status_code=409, detail="Распознавание остановлено пользователем")
@@ -5949,6 +6050,13 @@ async def analyze_video(
                 text_llm_repair_raw_excerpt = str(getattr(exc, "repair_raw_excerpt", "") or "")[:2000]
                 text_llm_primary_parse_error = str(getattr(exc, "primary_parse_error", "") or "")[:500]
                 text_llm_repair_parse_error = str(getattr(exc, "repair_parse_error", "") or "")[:500]
+                text_llm_generation_diagnostics = dict(
+                    getattr(exc, "generation_diagnostics", None)
+                    or VCE_TEXT_LLM_GENERATION_DIAGNOSTICS
+                )
+                for _diag_key in ("raw_length", "first_brace_offset", "raw_tail_excerpt", "repair_skipped"):
+                    if hasattr(exc, _diag_key):
+                        text_llm_generation_diagnostics[_diag_key] = getattr(exc, _diag_key)
                 text_llm_result = None
                 text_llm_status = "failed"
                 # Keep the complete exception chain in the server log; the forensic
@@ -6136,6 +6244,7 @@ async def analyze_video(
                     "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
                     "primary_parse_error": text_llm_primary_parse_error or None,
                     "repair_parse_error": text_llm_repair_parse_error or None,
+                    "generation_diagnostics": text_llm_generation_diagnostics,
                 },
                 "segments": final_segments,
                 "txt_filename": txt_output_name,
@@ -6183,6 +6292,7 @@ async def analyze_video(
             "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
             "primary_parse_error": text_llm_primary_parse_error or None,
             "repair_parse_error": text_llm_repair_parse_error or None,
+            "generation_diagnostics": text_llm_generation_diagnostics,
         }
         set_job_progress(job_id, "completed", 100, "TXT/JSON сформированы; обработка завершена", stage_index=6, stage_count=6, status="done", indeterminate=False)
         if response_format == "text":
