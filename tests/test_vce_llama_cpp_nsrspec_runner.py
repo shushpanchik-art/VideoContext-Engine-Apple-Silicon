@@ -140,7 +140,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             {"enable_ocr_cache": False, "response_format": "json", "generate_json": True}, properties, "nsrspec"
         )
         self.assertIs(nsrspec_fields["generate_json"], False)
-        self.assertIn('if active_settings.get("enable_ocr_cache") is not False:', self.observer)
+        self.assertIn('if args.profile == "nsrspec" and active_settings.get("enable_ocr_cache") is not False:', self.observer)
         self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
         self.assertIn('if profile == "nsrspec":', self.observer)
         self.assertIn('fields, origins = resolve_form_fields(active_settings, properties, args.profile)', self.observer)
@@ -320,12 +320,14 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
     def test_llama_cpp_pass_is_gated_by_successful_mlx_baseline(self):
         baseline = self.launcher.index('run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"')
-        gate = self.launcher.index('if [[ "$RUN1_EXIT" -ne 0 ]]; then')
+        gate = self.launcher.index('if [[ "$RUN1_EXIT" -ne 0 && "$DIAGNOSTIC_LLAMA_CPP" != "1" ]]; then')
         llama = self.launcher.index('run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"')
         self.assertLess(baseline, gate)
         self.assertLess(gate, llama)
         self.assertIn("RUN2_EXIT=125", self.launcher[gate:llama])
         self.assertIn("MLX baseline не завершился успешно", self.launcher[gate:llama])
+        self.assertIn('if [[ "$RUN1_EXIT" -ne 0 ]]; then\n      RUN2_DIAGNOSTIC=1', self.launcher[llama:])
+        self.assertIn('"diagnostic_only": diagnostic_only', self.launcher)
         self.assertIn('"baseline_gate_for_llama_cpp": not diagnostic_only', self.launcher)
         self.assertIn('"comparison_result_valid": preflight_exit_code == 0 and run1_exit == 0 and run2_exit == 0 and not diagnostic_only', self.launcher)
         self.assertIn("--diagnostic-llama-cpp", self.launcher)

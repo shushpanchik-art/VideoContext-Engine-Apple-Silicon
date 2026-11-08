@@ -4004,7 +4004,8 @@ async def get_ui_settings():
         raise HTTPException(500, f"Не удалось прочитать настройки: {exc}")
     # VCE_FFMPEG_OCR_WORKERS_SETTING_V1
     defaults = {
-        "analysis_mode": "full", "domain_profile": "generic", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,
+        "analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,
+        "domain_profile": "generic",
         "ffmpeg_ocr_workers": 2,
         "enable_stage_timing": False,
         "enable_adaptive_keyframes": False,
