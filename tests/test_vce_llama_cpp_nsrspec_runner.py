@@ -184,7 +184,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
     def test_patch_installers_share_one_pinned_manifest(self):
         self.assertRegex(self.patch_installer, r'PATCH_COMMIT="[0-9a-f]{40}"')
         for entry in (
-            "VideoContextEngine_v3.19.py c68b1fae565ff92c7f421ae27e2b920942284cd5",
+            "VideoContextEngine_v3.19.py 3e0881de5e1fe0197f1b259b193bfe34a5652486",
             "scripts/vce_observed_llama_cpp_run.py 481f13e7e9f58fc7d440fa4fffc85ddfc9c152fd",
             "scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0",
             "scripts/vce_runtime_watchdog.py 4cf0c6db9c9ab855532c704acd75d5f880095a4a",
