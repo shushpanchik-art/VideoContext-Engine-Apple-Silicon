@@ -149,7 +149,7 @@ curl -fsSL "$BASE_URL/vce_runtime_watchdog.py" -o "$TOOLS_DIR/vce_runtime_watchd
 curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py" -o "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"
 [[ "$(git hash-object "$TOOLS_DIR/vce_runtime_watchdog.py")" == "50e91ffabcf2cb6174b068a12eea0b6b909cba5e" ]] || fail "Не прошла проверка целостности watchdog."
 [[ "$(git hash-object "$TOOLS_DIR/install_vce_mtmd_loader_fix.py")" == "934739bd0b5f70dc26665adc115a181d365330e0" ]] || fail "Не прошла проверка целостности mtmd installer."
-RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-39fff57545c50500c3ce241fcb10ae3004204c0c}}"
+RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-7364764a3c1c4f9369cc3bfb0f0e59fc7f4e9013}}"
 [[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден patched observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
 [[ "$(git -C "$ROOT" hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py")" == "$RUNNER_BLOB_SHA" ]] || fail "Observer patch не установлен или blob SHA не совпадает; запускай scripts/vce_patch_test_run_nsrspec_ab.command."
 
