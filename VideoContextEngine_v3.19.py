@@ -2763,22 +2763,56 @@ def _text_llm_extract_json_object(raw: str) -> Dict[str, Any]:
 
 
 def _text_llm_find_json_candidate_offset(raw: str) -> int:
-    """Find a schema-shaped root object; arbitrary braces in prose are not repair input."""
+    """Find a schema-shaped root object, ignoring prose braces and nested examples."""
     text = str(raw or "")
-    root_prefix = re.compile(
-        r'^\{\s*"(?:executive_summary|topics|key_points|entities|scene_enrichment|uncertainties)"\s*:',
-        re.IGNORECASE,
+    root_keys = (
+        '"executive_summary"', '"topics"', '"key_points"',
+        '"entities"', '"scene_enrichment"', '"uncertainties"',
     )
-    think_open = re.compile(r"<think\b[^>]*>", re.IGNORECASE)
-    think_close = re.compile(r"</think\s*>", re.IGNORECASE)
-    for match in re.finditer(r"\{", text):
-        prefix = text[:match.start()]
-        openings = list(think_open.finditer(prefix))
-        closings = list(think_close.finditer(prefix))
-        if openings and (not closings or openings[-1].start() > closings[-1].start()):
+    depth = 0
+    in_string = False
+    escaped = False
+    in_think = False
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if not in_string and text[index:index + 6].lower() == "<think":
+            tag_end = text.find(">", index + 6)
+            if tag_end < 0:
+                break
+            in_think = True
+            index = tag_end + 1
             continue
-        if root_prefix.match(text[match.start():]):
-            return match.start()
+        if not in_string and text[index:index + 7].lower() == "</think":
+            tag_end = text.find(">", index + 7)
+            if tag_end < 0:
+                break
+            in_think = False
+            index = tag_end + 1
+            continue
+        if in_think:
+            index += 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ord(character) == 92:
+                escaped = True
+            elif character == '"':
+                in_string = False
+            index += 1
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            if depth == 0:
+                first_key = text[index + 1:].lstrip()
+                if any(first_key.startswith(key) for key in root_keys):
+                    return index
+            depth += 1
+        elif character == "}" and depth > 0:
+            depth -= 1
+        index += 1
     return -1
 
 
@@ -3324,8 +3358,16 @@ def run_text_llm_postprocess(
             }))
             context["scenes"] = [all_scenes[i] for i in indices]
             context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-            coverage_note = f"Для смысловой разметки переданы {len(context['scenes'])} сцен из {len(all_scenes)}; лимит задаётся text_llm_context_max_scenes."
-
+            coverage_note = (
+                f"Для смысловой разметки переданы {len(context['scenes'])} сцен из {len(all_scenes)}; "
+                f"лимит сцен={context_max_scenes}, сериализованный контекст={len(context_json)} символов."
+            )
+        elif context_max_chars > 0 and len(context_json) > context_max_chars:
+            coverage_note = (
+                f"Контекст после сокращения полей содержит {len(context_json)} символов при лимите "
+                f"{context_max_chars}; сцены не исключались, поскольку лимит сцен отключён "
+                "или количество сцен не превышает его."
+            )
 
 
 
