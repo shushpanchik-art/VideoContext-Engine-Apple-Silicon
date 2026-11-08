@@ -142,6 +142,10 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
     def test_observer_uses_explicit_nsrspec_profile(self):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
+    def test_generic_entity_scene_matching_is_not_profile_gated(self):
+        self.assertIn('if n.replace(" ", "") in src_blob.replace(" ", "") or (nsrspec_profile and has_buildchat_conflict', self.runtime)
+        self.assertIn('elif nsrspec_profile and (compact_name == "кси" or', self.runtime)
+
     def test_observer_checks_only_required_backend_settings(self):
         self.assertIn("required_experiment_mismatches", self.observer)
         self.assertIn("for key, value in backend_settings.items()", self.observer)

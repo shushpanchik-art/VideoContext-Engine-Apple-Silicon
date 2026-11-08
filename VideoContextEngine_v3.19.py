@@ -842,8 +842,8 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
 
     has_buildchat_conflict = False
     canonical_buildchat_ids: List[int] = []
-    if nsrspec_profile and nsrspec_profile:
-            # OCR-backed canonicalization: only link the phonetic ASR variant to BuildChat when the
+    if nsrspec_profile:
+        # OCR-backed canonicalization: only link the phonetic ASR variant to BuildChat when the
         # evidence appears in temporally adjacent scenes (within 30 seconds), not merely somewhere in the video.
         alias_variants = {"белчат", "белчата", "билдчат", "билдчата", "билд чат", "бел чат"}
         buildchat_ocr_candidates: List[int] = []
@@ -1293,10 +1293,10 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         for raw_id in input_ids:
             try: sid = int(raw_id)
             except (TypeError, ValueError): continue
-            if nsrspec_profile and sid not in source_by_id: continue
+            if sid not in source_by_id: continue
             src_blob = _norm(_source_text(source_by_id[sid]))
-            if nsrspec_profile and n.replace(" ", "") in src_blob.replace(" ", "") or (has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids):
-                if nsrspec_profile and sid not in ids: ids.append(sid)
+            if n.replace(" ", "") in src_blob.replace(" ", "") or (nsrspec_profile and has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids):
+                if sid not in ids: ids.append(sid)
         if nsrspec_profile and has_buildchat_conflict and name == "BuildChat":
             ids = sorted(set(ids + canonical_buildchat_ids), key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))
         if not ids:
@@ -1314,7 +1314,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         compact_name = n.replace(" ", "")
         if standard_name.search(name):
             entity_type = "standard"
-        elif nsrspec_profile and compact_name == "кси" or "классификатор строительной информации" in n:
+        elif nsrspec_profile and (compact_name == "кси" or "классификатор строительной информации" in n):
             entity_type = "classification_system"
         elif nsrspec_profile and compact_name in {"nanocad", "cadlib"}:
             entity_type = "software"
@@ -3354,7 +3354,7 @@ def run_text_llm_postprocess(
             "Не используй scene_id, которых нет в контексте. Не утверждай, что проверка пройдена, если в источниках показано несоответствие. "
             + "\n\nПромпт согласования названий и собственных имён между ASR и OCR:\n"
             + str(setting("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)).strip()
-             + ("\\n\\n" + _vce_domain_profile_instructions() if _vce_domain_profile_instructions() else "")
+             + ("\n\n" + _vce_domain_profile_instructions() if _vce_domain_profile_instructions() else "")
              + "\\n\\n"
              + coverage_note
             + "\n\nДанные анализа (JSON):\n"
