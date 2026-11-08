@@ -7,7 +7,7 @@ ROOT="/Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon"
 APP="/Applications/VideoContext Engine.app"
 API="http://127.0.0.1:7555"
 VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"
-PATCH_COMMIT="6a72b70506cd3f15e5c988646d5ce9c78a41d623"
+PATCH_COMMIT="1c47f198432efb7b112f15337d0631978a3b6e5e"
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_COMMIT"
 PY="$ROOT/.venv/bin/python"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -26,7 +26,7 @@ fail() { printf '\nОШИБКА: %s\n' "$*" >&2; exit 2; }
 FILES="
 VideoContextEngine_v3.19.py e89b8aeba1a6ed52da4c4be2b5e358c793dafa2f
 scripts/vce_observed_llama_cpp_run.py 6d61f261044bfdc78c39cc00f5a8c873208f95aa
-scripts/vce_run_nsrspec_ab.command ad173ed7c107d430c99543c2526c33f26b8a5f14
+scripts/vce_run_nsrspec_ab.command 6d88ccd51a6d600bca6c5f544185f46635594917
 scripts/vce_llama_json_smoke_test.py dd33e2cba4988894e7142061bf5ec2d77f4cc655
 tests/test_vce_llama_cpp_nsrspec_runner.py acba1194715cef8159c5f5fb81bb3efb4371cf13
 "
