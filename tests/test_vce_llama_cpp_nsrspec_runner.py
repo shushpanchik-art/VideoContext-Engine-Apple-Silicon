@@ -180,10 +180,10 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
     def test_patch_installers_share_one_pinned_manifest(self):
-        self.assertIn('PATCH_COMMIT="cb1455af08b0938bbaa3c6ca3e652032d84c9ca1"', self.patch_installer)
+        self.assertIn('PATCH_COMMIT="7a18859f76c7a827fc875bbbd1e1126be4b9a7ae"', self.patch_installer)
         for entry in (
-            "VideoContextEngine_v3.19.py 1cb66fd944021a6fba1b0dc3470cd524ffdda542",
-            "scripts/vce_observed_llama_cpp_run.py fa8bf83a48d519559a499d51f8de3d67abddbf51",
+            "VideoContextEngine_v3.19.py 6485d05d5be0b5dce4bbed15657ef10b4b216945",
+            "scripts/vce_observed_llama_cpp_run.py 481f13e7e9f58fc7d440fa4fffc85ddfc9c152fd",
             "scripts/vce_run_nsrspec_ab.command 0ef0cbd7034299f63cb972d76d733e6c6741fda0",
             "scripts/vce_runtime_watchdog.py 4cf0c6db9c9ab855532c704acd75d5f880095a4a",
             "domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098",
