@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class DistributionPrivacyDefaultsTests(unittest.TestCase):
     def test_benchmark_and_watchdog_require_explicit_video_paths(self):
         bench = (ROOT / "tools" / "bench_text_llm_summary.py").read_text(encoding="utf-8")
-        watchdog = (ROOT / "scripts" / "vce_runtime_watchdog.py").read_text(encoding="utf-8")
+        watchdog = (ROOT / "tools" / "bench" / "vce_runtime_watchdog.py").read_text(encoding="utf-8")
         self.assertNotIn("/Users/", bench)
         self.assertNotIn("/Users/", watchdog)
         self.assertIn('if not args.input_json and args.video is None:', bench)

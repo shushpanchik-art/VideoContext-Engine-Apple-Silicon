@@ -33,7 +33,7 @@ The observer checks the local API/settings before sending the video, polls job p
 ## Runtime watchdog
 
 ```bash
-python scripts/vce_runtime_watchdog.py \
+python tools/bench/vce_runtime_watchdog.py \
   --video "$HOME/path/to/video.mp4" \
   --settings "$HOME/VideoContext-Engine/videocontext_settings.json" \
   --runner scripts/vce_observed_run.py

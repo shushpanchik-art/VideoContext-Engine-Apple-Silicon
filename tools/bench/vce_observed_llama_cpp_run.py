@@ -463,50 +463,62 @@ def progress_url(api_url: str, template: str, job_id: str) -> str:
     return api_url.rstrip("/") + template
 
 
-def save_timing_outputs(run_dir: Path, data: Any) -> dict[str, Any]:
+def _text_llm_diagnostics_from_server_log(lines: list[str] | None) -> dict[str, Any]:
+    marker = "[VCE Text LLM raw diagnostic] "
+    for line in reversed(lines or []):
+        marker_at = line.find(marker)
+        if marker_at < 0:
+            continue
+        try:
+            result = json.loads(line[marker_at + len(marker):])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(result, dict):
+            return result
+    return {}
+
+
+def save_timing_outputs(
+    run_dir: Path, data: Any, server_event_lines: list[str] | None = None
+) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     meta = data.get("meta", {}) if isinstance(data.get("meta"), dict) else {}
     timings = meta.get("timings") or data.get("timings") or {}
     if not isinstance(timings, dict):
         timings = {}
-    text_llm = timings.get("text_llm")
-    if isinstance(text_llm, dict):
-        primary = str(text_llm.get("raw_excerpt") or "")
-        repair = str(text_llm.get("repair_raw_excerpt") or "")
-        generation = text_llm.get("generation_diagnostics") or {}
+    diagnostic = _text_llm_diagnostics_from_server_log(server_event_lines)
+    if diagnostic:
+        generation = diagnostic.get("generation_diagnostics") or {}
         if not isinstance(generation, dict):
             generation = {}
-        tail = str(generation.get("raw_tail_excerpt") or "")
-        if primary or repair or tail or generation:
-            diagnostic_lines = [
-                "VCE Text LLM raw generation diagnostics",
-                "Head/repair excerpts are bounded to 2000 characters; tail excerpt is bounded to 1500 characters.",
-                "raw_length: " + str(generation.get("raw_length", "not recorded")),
-                "first_brace_offset: " + str(generation.get("first_brace_offset", "not recorded")),
-                "finish_reason: " + str(generation.get("finish_reason", "not recorded")),
-                "requested_max_tokens: " + str(generation.get("requested_max_tokens", "not recorded")),
-                "streaming: " + str(generation.get("streaming", "not recorded")),
-                "repair_skipped: " + str(generation.get("repair_skipped", "not recorded")),
-                "usage: " + json.dumps(generation.get("usage"), ensure_ascii=False),
-                "",
-                "=== Primary generation (head excerpt) ===",
-                primary or "(not captured)",
-                "",
-                "=== Primary generation (tail excerpt) ===",
-                tail or "(not captured)",
-                "",
-                "=== Repair-pass generation (head excerpt) ===",
-                repair or "(not captured)",
-                "",
-                "=== Parse errors ===",
-                "Primary: " + str(text_llm.get("primary_parse_error") or "(not recorded)"),
-                "Repair: " + str(text_llm.get("repair_parse_error") or "(not recorded)"),
-            ]
-            (run_dir / "text_llm_generation_diagnostics.txt").write_text(
-                "\n".join(diagnostic_lines) + "\n", encoding="utf-8"
-            )
-            text_llm["raw_diagnostic_file"] = "text_llm_generation_diagnostics.txt"
+        diagnostic_lines = [
+            "VCE Text LLM raw generation diagnostics",
+            "Head/repair excerpts are bounded to 2000 characters; tail excerpt is bounded to 1500 characters.",
+            "raw_length: " + str(generation.get("raw_length", "not recorded")),
+            "first_brace_offset: " + str(generation.get("first_brace_offset", "not recorded")),
+            "finish_reason: " + str(generation.get("finish_reason", "not recorded")),
+            "requested_max_tokens: " + str(generation.get("requested_max_tokens", "not recorded")),
+            "streaming: " + str(generation.get("streaming", "not recorded")),
+            "repair_skipped: " + str(generation.get("repair_skipped", "not recorded")),
+            "usage: " + json.dumps(generation.get("usage"), ensure_ascii=False),
+            "",
+            "=== Primary generation (head excerpt) ===",
+            str(diagnostic.get("primary_excerpt") or "(not captured)"),
+            "",
+            "=== Primary generation (tail excerpt) ===",
+            str(diagnostic.get("primary_tail_excerpt") or "(not captured)"),
+            "",
+            "=== Repair-pass generation (head excerpt) ===",
+            str(diagnostic.get("repair_excerpt") or "(not captured)"),
+            "",
+            "=== Parse errors ===",
+            "Primary: " + str(diagnostic.get("primary_parse_error") or "(not recorded)"),
+            "Repair: " + str(diagnostic.get("repair_parse_error") or "(not recorded)"),
+        ]
+        (run_dir / "text_llm_raw.txt").write_text(
+            "\n".join(diagnostic_lines) + "\n", encoding="utf-8"
+        )
     write_json(run_dir / "stage_timings.json", timings)
     rows = flatten_timing_metrics(timings)
     with (run_dir / "stage_timings.csv").open("w", newline="", encoding="utf-8") as f:
@@ -853,7 +865,6 @@ def main() -> int:
         "video_scene_count": response_data.get("meta", {}).get("scene_count") if isinstance(response_data, dict) else None,
         "video_process_time": response_data.get("meta", {}).get("process_time") if isinstance(response_data, dict) else None,
     })
-    timings = save_timing_outputs(run_dir, response_data)
     metadata.update({
         "ended_at": ended_at,
         "client_wall_seconds": round(elapsed_total, 3),
@@ -873,6 +884,8 @@ def main() -> int:
                 events.append(json.loads(line))
             except Exception:
                 continue
+    server_event_lines = [str(item.get("line", "")) for item in events]
+    timings = save_timing_outputs(run_dir, response_data, server_event_lines)
     patterns = ("Traceback", "ERROR", "Exception", "VCE Whisper", "VCE MLX", "VCE runtime",
                 "PROFIL TEMPS", "scene_analysis", "summary", "OCR", "Metal", "RAM_MODE",
                 "KeyError", "too many values", "chargement VLM", "inference",
@@ -898,7 +911,7 @@ def main() -> int:
     print_timing_summary(response_data, response_state["http_status"], elapsed_total)
     print("\n=== Наблюдение завершено ===")
     print("Результаты сохранены локально:", run_dir)
-    print("Файлы: response.json, stage_timings.json/csv, progress_trace.jsonl, system_samples.jsonl, server_events.jsonl, server_log_key_lines.txt, run_metadata.json; text_llm_generation_diagnostics.txt создаётся при ошибке JSON")
+    print("Файлы: response.json, stage_timings.json/csv, progress_trace.jsonl, system_samples.jsonl, server_events.jsonl, server_log_key_lines.txt, run_metadata.json; text_llm_raw.txt создаётся при ошибке JSON")
     print("Публично ничего не загружалось. Backend settings временно применены через API; A/B orchestrator восстановит исходный settings JSON после обоих прогонов.")
     if response_state["error"]:
         print("TRANSPORT_ERROR:", response_state["error"])

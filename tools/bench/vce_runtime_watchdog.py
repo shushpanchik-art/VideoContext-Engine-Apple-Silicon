@@ -183,6 +183,25 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
                     line_text = raw_line
                 log_parts.append(line_text)
     app_text = "\n".join(log_parts)
+    logged_runtime = {}
+    runtime_marker = "[VCE runtime] "
+    for line_text in app_text.splitlines():
+        marker_at = line_text.find(runtime_marker)
+        if marker_at < 0:
+            continue
+        try:
+            payload = json.loads(line_text[marker_at + len(runtime_marker):])
+        except (TypeError, ValueError):
+            continue
+        stage = payload.get("stage") if isinstance(payload, dict) else None
+        if stage in {"vlm", "text_llm", "whisper"}:
+            logged_runtime[stage] = payload
+    vlm_runtime = logged_runtime.get("vlm", vlm_runtime)
+    llm_runtime = logged_runtime.get("text_llm", llm_runtime)
+    vlm_device, llm_device = str(vlm_runtime.get("device", "unknown")), str(llm_runtime.get("device", "unknown"))
+    vlm_configured_device = str(vlm_runtime.get("configured_device", vlm_device))
+    vlm_default_device_observed = str(vlm_runtime.get("default_device_observed", "not_recorded"))
+    vlm_device_source = str(vlm_runtime.get("device_source", "legacy_or_unspecified"))
     request_settings = load_json(observed_dir / "request_settings.json") if observed_dir else {}
     request_settings = request_settings if isinstance(request_settings, dict) else {}
     effective_fields = request_settings.get("effective_fields", {})

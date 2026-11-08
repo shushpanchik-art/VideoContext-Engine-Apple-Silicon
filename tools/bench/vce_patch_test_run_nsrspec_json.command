@@ -4,12 +4,13 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 APP="${VCE_APP:-/Applications/VideoContext Engine.app}"
 API="${VCE_API_URL:-http://127.0.0.1:7555}"
 VIDEO="${VCE_VIDEO:-$HOME/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4}"
 PATCH_REF="${VCE_PATCH_REF:-main}"
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_REF"
+SMOKE_SHA="dd33e2cba4988894e7142061bf5ec2d77f4cc655"
 PY="$ROOT/.venv/bin/python"
 LOG_PARENT="${VCE_OUT_PARENT:-$HOME/Downloads/VCE_forensic_runs_NSRSPEC_AB}"
 SKIP_AB="${VCE_SKIP_AB:-0}"
@@ -39,16 +40,15 @@ REGRESSION_TESTS_PASSED=0
 AB_STARTED=0
 MISSING_FILES=""
 FILES="
-VideoContextEngine_v3.19.py c1619b4c3761fea2d15bd3d9d1f527b9b42066ec
-scripts/vce_observed_llama_cpp_run.py db013323d46c0e448191d64e9e2cf0e6e8f8170d
-scripts/vce_run_nsrspec_ab.command 5bcdaef83908837513d60e5aa798a6aa91349a6d
-scripts/vce_runtime_watchdog.py 381ae401464a84452a68ed1058df6585f13cc853
-scripts/vce_llama_json_smoke_test.py dd33e2cba4988894e7142061bf5ec2d77f4cc655
-tests/test_vce_llama_cpp_nsrspec_runner.py 3bb189cb639f5789476b0465a257a43fca812606
-scripts/vce_patch_test_run_nsrspec_ab.command ba1e6c52f27e90d543f6c651ef5b186c50fce3ef
+VideoContextEngine_v3.19.py b33940b55e69a7e7c7ab2e715e98e731123410cb
+tools/bench/vce_observed_llama_cpp_run.py 8d97e3a36f7d9bd37768af81bd4ac4925e7cda6d
+tools/bench/vce_run_nsrspec_ab.command 5e5c0c3cd4876224ef9d1db41f7951e347e11952
+tools/bench/vce_runtime_watchdog.py 6d60468a5ba2251d0c639fb917018234d5a0bf89
+tools/bench/test_vce_llama_cpp_nsrspec_runner.py 4889e9c3d6760c3b9155db30037148a2589ef889
+tools/bench/vce_patch_test_run_nsrspec_ab.command 4e1b23a108bc986131c0ba2b56e78d5d64d2a267
 domain_profiles/__init__.py 00c837b7966783e071ec17ebfecf347cfe6dd12d
 domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098
-scripts/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
+tools/bench/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
 "
 
 upload_patch_validation_logs() {
@@ -157,6 +157,14 @@ while IFS=' ' read -r REL SHA; do
   [[ "$ACTUAL" == "$SHA" ]] || fail "SHA mismatch для $REL: expected=$SHA actual=$ACTUAL"
 done <<< "$FILES"
 
+SMOKE_SOURCE="$STAGE/tools/bench/vce_llama_json_smoke_test.py"
+if [[ "$SKIP_AB" != "1" ]]; then
+  mkdir -p "$(dirname "$SMOKE_SOURCE")"
+  curl -fsSL "$BASE_URL/tools/bench/vce_llama_json_smoke_test.py" -o "$SMOKE_SOURCE"
+  ACTUAL="$(git -C "$ROOT" hash-object "$SMOKE_SOURCE")"
+  [[ "$ACTUAL" == "$SMOKE_SHA" ]] || fail "SHA mismatch для tools/bench/vce_llama_json_smoke_test.py: expected=$SMOKE_SHA actual=$ACTUAL"
+fi
+
 mkdir -p "$BACKUP"
 while IFS=' ' read -r REL SHA; do
   [[ -n "$REL" ]] || continue
@@ -172,7 +180,7 @@ while IFS=' ' read -r REL SHA; do
   mkdir -p "$ROOT/$(dirname "$REL")"
   /usr/bin/install -m 0644 "$STAGE/$REL" "$ROOT/$REL"
 done <<< "$FILES"
-chmod 755 "$ROOT/scripts/vce_run_nsrspec_ab.command" "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"
+chmod 755 "$ROOT/tools/bench/vce_run_nsrspec_ab.command" "$ROOT/tools/bench/vce_patch_test_run_nsrspec_ab.command"
 
 printf '\nPATCH_INSTALL=SUCCESS\nPATCH_BACKUP=%s\n' "$BACKUP"
 cd "$ROOT"
@@ -180,17 +188,20 @@ cd "$ROOT"
 printf '\n=== Python compile ===\n'
 "$PY" -m py_compile \
   "$ROOT/VideoContextEngine_v3.19.py" \
-  "$ROOT/scripts/vce_observed_llama_cpp_run.py" \
-  "$ROOT/scripts/vce_runtime_watchdog.py" \
-  "$ROOT/scripts/vce_llama_json_smoke_test.py" \
+  "$ROOT/tools/bench/vce_observed_llama_cpp_run.py" \
+  "$ROOT/tools/bench/vce_runtime_watchdog.py" \
   "$ROOT/domain_profiles/__init__.py" \
   "$ROOT/domain_profiles/nsrspec.py"
+if [[ "$SKIP_AB" != "1" ]]; then
+  "$PY" -m py_compile "$SMOKE_SOURCE"
+fi
 
 printf '\n=== Full regression suite ===\n'
 "$PY" -m pytest -q tests
+"$PY" -m pytest -q "$ROOT/tools/bench/test_vce_llama_cpp_nsrspec_runner.py"
 printf '\n=== Shell syntax ===\n'
-bash -n "$ROOT/scripts/vce_run_nsrspec_ab.command"
-bash -n "$ROOT/scripts/vce_run_nsrspec_llama_cpp.command"
+bash -n "$ROOT/tools/bench/vce_run_nsrspec_ab.command"
+bash -n "$ROOT/tools/bench/vce_run_nsrspec_llama_cpp.command"
 printf '\nREGRESSION_TESTS=PASSED\n'
 REGRESSION_TESTS_PASSED=1
 
@@ -201,7 +212,7 @@ if [[ "$SKIP_AB" == "1" ]]; then
   SMOKE_EXIT=125
 else
   set +e
-  "$PY" "$ROOT/scripts/vce_llama_json_smoke_test.py" --max-tokens 256 2>&1 | tee "$SMOKE_LOG"
+  "$PY" "$SMOKE_SOURCE" --max-tokens 256 2>&1 | tee "$SMOKE_LOG"
   SMOKE_EXIT=${PIPESTATUS[0]}
   set -e
 fi
@@ -224,4 +235,4 @@ if [[ "$SKIP_AB" == "1" ]]; then
   printf "VCE_SKIP_AB=1; installer validation completed; analysis launch skipped.\n"
   exit 0
 fi
-/bin/bash "$ROOT/scripts/vce_run_nsrspec_ab.command"
+/bin/bash "$ROOT/tools/bench/vce_run_nsrspec_ab.command"

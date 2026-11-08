@@ -5,7 +5,7 @@ set -Eeuo pipefail
 IFS=$'\n\t'
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 VIDEO="${VCE_VIDEO:-$HOME/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4}"
 APP="${VCE_APP:-/Applications/VideoContext Engine.app}"
 API="${VCE_API_URL:-http://127.0.0.1:7555}"
@@ -32,7 +32,7 @@ ROOT="$(cd "$ROOT" 2>/dev/null && pwd)" || fail "Не найден катало�
 SETTINGS="${SETTINGS_OVERRIDE:-${VCE_SETTINGS:-$ROOT/videocontext_settings.json}}"
 PY="$ROOT/.venv/bin/python"
 
-MTMD_INSTALLER="$ROOT/scripts/install_vce_mtmd_loader_fix.py"
+MTMD_INSTALLER="$ROOT/tools/bench/install_vce_mtmd_loader_fix.py"
 MTMD_INSTALLER_BLOB_SHA="934739bd0b5f70dc26665adc115a181d365330e0"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 OUT_ROOT="$OUT_PARENT/$STAMP"
@@ -263,9 +263,9 @@ fi
 note "Использую MTMD installer из проверяемого checkout."
 [[ -f "$MTMD_INSTALLER" ]] || fail "Не найден MTMD installer: $MTMD_INSTALLER"
 [[ "$(git -C "$ROOT" hash-object "$MTMD_INSTALLER")" == "$MTMD_INSTALLER_BLOB_SHA" ]] || fail "Не прошла проверка целостности MTMD installer."
-WATCHDOG="$ROOT/scripts/vce_runtime_watchdog.py"
+WATCHDOG="$ROOT/tools/bench/vce_runtime_watchdog.py"
 [[ -f "$WATCHDOG" ]] || fail "Не найден watchdog в checkout: $WATCHDOG"
-[[ -f "$ROOT/scripts/vce_observed_llama_cpp_run.py" ]] || fail "Не найден observer: $ROOT/scripts/vce_observed_llama_cpp_run.py"
+[[ -f "$ROOT/tools/bench/vce_observed_llama_cpp_run.py" ]] || fail "Не найден observer: $ROOT/tools/bench/vce_observed_llama_cpp_run.py"
 
 # Install the .pth hook only while the app/API is fully stopped. Download and
 # verify the pinned tools first, so a broken checksum is reported before app-state checks.
@@ -574,7 +574,7 @@ run_backend() {
   pass_dir="$2"
   mkdir -p "$pass_dir"
   note "Стартую $backend с воспроизводимым NSR профилем; активная настройка OCR cache сохраняется и записывается observer."
-  "$PY" "$WATCHDOG" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/scripts/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
+  "$PY" "$WATCHDOG" --video "$VIDEO" --settings "$SETTINGS" --runner "$ROOT/tools/bench/vce_observed_llama_cpp_run.py" --api-url "$API" --out-root "$pass_dir" --interval 1.0 --inference-backend "$backend" --observer-profile nsrspec --powermetrics --vmmap --sample-stacks
 }
 
 if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then

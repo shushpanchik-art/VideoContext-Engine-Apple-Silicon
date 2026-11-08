@@ -70,7 +70,7 @@ git -C "$ROOT" pull --ff-only origin "$BRANCH"
 }
 
 # Install corrected files and run regression tests only. Do not start model loading yet.
-VCE_SKIP_AB=1 /bin/bash "$ROOT/scripts/vce_patch_test_run_nsrspec_ab.command"
+VCE_SKIP_AB=1 /bin/bash "$ROOT/tools/bench/vce_patch_test_run_nsrspec_ab.command"
 echo "PATCH_AND_REGRESSION=PASSED"
 echo "Patch log: $LOG"
 VCE_PATCH_ONLY
@@ -91,9 +91,9 @@ exec > >(tee -a "$LOG") 2>&1
 
 ROOT="$HOME/VideoContext-Engine-Apple-Silicon"
 [[ -x "$ROOT/.venv/bin/python" ]]
-[[ -f "$ROOT/scripts/vce_run_nsrspec_ab.command" ]]
+[[ -f "$ROOT/tools/bench/vce_run_nsrspec_ab.command" ]]
 set +e
-/bin/bash "$ROOT/scripts/vce_run_nsrspec_ab.command"
+/bin/bash "$ROOT/tools/bench/vce_run_nsrspec_ab.command"
 LAUNCHER_STATUS=$?
 set -e
 echo "A/B launcher exit: $LAUNCHER_STATUS"

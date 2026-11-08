@@ -64,6 +64,7 @@ import tempfile
 import secrets
 import subprocess
 import threading
+import contextvars
 
 from typing import Optional, Dict, Any, List, Union, Literal
 from io import BytesIO
@@ -80,7 +81,9 @@ import torch
 
 
 # VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2
-VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
+VCE_MLX_RUNTIME_DIAGNOSTICS: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_mlx_runtime_diagnostics", default=None
+)
 
 # VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1
 import concurrent.futures as _vce_mlx_concurrent_futures
@@ -96,14 +99,31 @@ _VCE_MLX_EXECUTOR = _vce_mlx_concurrent_futures.ThreadPoolExecutor(
 async def _vce_mlx_run(fn, *args, **kwargs):
     loop = asyncio.get_running_loop()
     call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)
-    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, contextvars.copy_context().run, call)
 
 
 async def _vce_backend_run(fn, *args, **kwargs):
     """Run llama.cpp backend work on the dedicated executor without emitting MLX traces."""
     loop = asyncio.get_running_loop()
     call = _vce_mlx_functools.partial(fn, *args, **kwargs)
-    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, contextvars.copy_context().run, call)
+
+
+def _vce_request_diagnostics(variable: contextvars.ContextVar) -> Dict[str, Any]:
+    """Return a request-local diagnostics map, never shared between API requests."""
+    value = variable.get()
+    if value is None:
+        value = {}
+        variable.set(value)
+    return value
+
+
+def _vce_public_runtime_summary(value: Any) -> Dict[str, Any]:
+    """Keep only compact device facts in product responses; full evidence stays in logs."""
+    if not isinstance(value, dict):
+        return {}
+    allowed = ("device", "device_verified", "mlx_version")
+    return {key: value[key] for key in allowed if key in value}
 
 # VCE_MLX_VLM_RUNTIME_TRACE_V1
 import sys as _vce_mlx_trace_sys
@@ -324,7 +344,7 @@ class _VCEWhisperMLXCPU:
                 )
                 mx.synchronize(cpu_stream)
         elapsed = time.perf_counter() - started
-        VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"] = {
+        _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"] = {
             "backend": "mlx-whisper",
             "device": "cpu",
             "stream": "mx.cpu",
@@ -334,7 +354,7 @@ class _VCEWhisperMLXCPU:
         }
         print(
             "[VCE runtime] "
-            + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"], ensure_ascii=False, sort_keys=True)
+            + json.dumps(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"], ensure_ascii=False, sort_keys=True)
         )
         return result
 
@@ -395,6 +415,7 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         # Backward-compatible field: this is the explicitly configured target,
         # not a claim that every operator in the model ran on this device.
         "device": str(mx.gpu),
+        "device_verified": True,
         "configured_device": str(mx.gpu),
         "device_source": "explicit_gpu_target",
         "default_device_observed": default_device_observed,
@@ -408,8 +429,8 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         "device_info": device_info,
         "metal_smoke_test": "passed",
     }
-    VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
-    VCE_BACKEND_DIAGNOSTICS[stage] = info
+    _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)[stage] = info
+    _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)[stage] = info
     if default_device_observed != str(mx.gpu):
         print(
             f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
@@ -493,7 +514,7 @@ def load_whisper_model(
     print(f"[VCE Whisper] backend=openai-whisper device={device} model={model_name}", flush=True)
     model = whisper.load_model(model_name, device=device)
     observed_device = str(getattr(model, "device", device))
-    VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"] = {
+    _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"] = {
         "backend": "openai-whisper",
         "device": observed_device,
         "requested_device": device,
@@ -505,7 +526,7 @@ def load_whisper_model(
     }
     print(
         "[VCE runtime] "
-        + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"], ensure_ascii=False, sort_keys=True),
+        + json.dumps(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"], ensure_ascii=False, sort_keys=True),
         flush=True,
     )
     return model
@@ -551,7 +572,9 @@ DEFAULT_TEXT_LLM_REPO_GGUF = "gguf/Qwen3.5-9B-GGUF"
 DEFAULT_TEXT_LLM_MODEL_GGUF = "qwen3.5-9b-Q4_K_M.gguf"
 VCE_INFERENCE_BACKEND_MLX = "mlx_metal"
 VCE_INFERENCE_BACKEND_LLAMA_CPP = "llama_cpp_metal"
-VCE_BACKEND_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
+VCE_BACKEND_DIAGNOSTICS: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_backend_diagnostics", default=None
+)
 DEFAULT_WHISPER_MODEL = "large"
 
 DEFAULT_SCENE_THRESHOLD = 0.15
@@ -1936,7 +1959,7 @@ class LlamaCppEngine(VLMProvider):
         self.current_model_path = cache_key
         self.mmproj_path = mmproj_path
         self.last_load_time = time.perf_counter() - started
-        VCE_BACKEND_DIAGNOSTICS["vlm"] = {
+        _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["vlm"] = {
             "backend": "llama.cpp",
             "accelerator": "Metal",
             "model": model_file,
@@ -1953,7 +1976,7 @@ class LlamaCppEngine(VLMProvider):
             "metal_offload_requested": True,
             "load_seconds": round(self.last_load_time, 3),
         }
-        print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
+        print("[VCE runtime] " + json.dumps(_vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
 
     def describe_scene(self, images: List[Image.Image], prompt: str, max_tokens: int) -> str:
         if self.llm is None:
@@ -2630,7 +2653,9 @@ def _vce_domain_profile_instructions() -> str:
     return ""
 
 
-VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: Dict[str, Any] = {}
+VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_text_llm_generation_diagnostics", default=None
+)
 
 
 def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperature: float, stream: bool):
@@ -2639,7 +2664,7 @@ def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperatu
     No native JSON grammar and no reasoning_* kwargs are sent. Thinking control
     is not handled here; generated output is validated by the application.
     """
-    diagnostics = VCE_TEXT_LLM_GENERATION_DIAGNOSTICS
+    diagnostics = _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
     diagnostics.clear()
     diagnostics.update({
         "requested_max_tokens": int(max_tokens),
@@ -3250,7 +3275,7 @@ def run_text_llm_postprocess(
     """Run text-only enrichment on exactly the selected MLX or llama.cpp backend."""
     import gc
     inference_backend = _vce_normalize_inference_backend()
-    VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.clear()
+    _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS).clear()
     if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
         _vce_require_llama_metal()
         from llama_cpp import Llama
@@ -3263,7 +3288,7 @@ def run_text_llm_postprocess(
                 n_ctx=int(setting("llama_cpp_text_context", 32768)),
                 verbose=True,
             )
-            VCE_BACKEND_DIAGNOSTICS["text_llm"] = {
+            _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["text_llm"] = {
                 "backend": "llama.cpp",
                 "accelerator": "Metal",
                 "model": model_file,
@@ -3271,7 +3296,7 @@ def run_text_llm_postprocess(
                 "gpu_offload_supported": True,
                 "metal_offload_requested": True,
             }
-            print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
+            print("[VCE runtime] " + json.dumps(_vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
             return instance, object()
 
         def load_config(_path):
@@ -3492,7 +3517,7 @@ def run_text_llm_postprocess(
             if not isinstance(raw, str):
                 raw = getattr(raw, "text", None) or str(raw)
         first_brace_offset = _text_llm_find_json_candidate_offset(raw)
-        VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.update({
+        _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS).update({
             "raw_length": len(raw),
             "first_brace_offset": first_brace_offset,
             "first_literal_brace_offset": raw.find("{"),
@@ -3514,7 +3539,7 @@ def run_text_llm_postprocess(
                 failure.primary_parse_error = str(parse_error)[:500]
                 failure.repair_parse_error = "repair skipped: no opening brace in primary generation"
                 failure.repair_skipped = True
-                failure.generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                failure.generation_diagnostics = dict(_vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS))
                 failure.generation_diagnostics["repair_skipped"] = True
                 raise failure from parse_error
 
@@ -3568,7 +3593,7 @@ def run_text_llm_postprocess(
                     failure.primary_parse_error = str(parse_error)[:500]
                     failure.repair_parse_error = str(second_error)[:500]
                     failure.repair_skipped = False
-                    failure.generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                    failure.generation_diagnostics = dict(_vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS))
                     failure.generation_diagnostics["repair_skipped"] = False
                     print(
                         "[VCE Text LLM raw diagnostic] " + json.dumps({
@@ -5316,7 +5341,6 @@ async def analyze_video(
         raise HTTPException(422, str(exc)) from exc
     # Keep the legacy flag derived from the canonical profile; it no longer selects a separate backend.
     enable_mlx_whisper = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
-    VCE_MLX_RUNTIME_DIAGNOSTICS.pop("whisper", None)
     if runtime_profile == VCE_RUNTIME_PROFILE_BASELINE:
         print("[VCE execution] baseline_mps_sequential: PyTorch Whisper/MPS (CPU fallback) -> MLX/Metal VLM -> MLX/Metal Text LLM", flush=True)
     else:
@@ -5385,6 +5409,11 @@ async def analyze_video(
     owns_temp_path = False
     output_directory = Path.cwd()
     source_name = "Inconnu"
+    _vce_diagnostic_tokens = (
+        (VCE_BACKEND_DIAGNOSTICS, VCE_BACKEND_DIAGNOSTICS.set({})),
+        (VCE_MLX_RUNTIME_DIAGNOSTICS, VCE_MLX_RUNTIME_DIAGNOSTICS.set({})),
+        (VCE_TEXT_LLM_GENERATION_DIAGNOSTICS, VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.set({})),
+    )
 
     try:
         if cancel_event.is_set():
@@ -6142,7 +6171,7 @@ async def analyze_video(
                         text_llm_max_tokens,
                         _ui_text_llm_progress_callback,
                     )
-                text_llm_generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                text_llm_generation_diagnostics = dict(_vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS))
                 text_llm_infer_time = time.time() - llm_started_at
                 if "cancel_event" in locals() and cancel_event.is_set():
                     raise HTTPException(status_code=409, detail="Распознавание остановлено пользователем")
@@ -6175,15 +6204,23 @@ async def analyze_video(
                 text_llm_repair_parse_error = str(getattr(exc, "repair_parse_error", "") or "")[:500]
                 text_llm_generation_diagnostics = dict(
                     getattr(exc, "generation_diagnostics", None)
-                    or VCE_TEXT_LLM_GENERATION_DIAGNOSTICS
+                    or _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
                 )
                 for _diag_key in ("raw_length", "first_brace_offset", "raw_tail_excerpt", "repair_skipped"):
                     if hasattr(exc, _diag_key):
                         text_llm_generation_diagnostics[_diag_key] = getattr(exc, _diag_key)
                 text_llm_result = None
                 text_llm_status = "failed"
-                # Keep the complete exception chain in the server log; the forensic
-                # observer captures this block in server_events.jsonl for failed runs.
+                print("[VCE Text LLM raw diagnostic] " + json.dumps({
+                    "primary_excerpt": text_llm_raw_excerpt,
+                    "primary_tail_excerpt": text_llm_generation_diagnostics.get("raw_tail_excerpt", ""),
+                    "repair_excerpt": text_llm_repair_raw_excerpt,
+                    "primary_parse_error": text_llm_primary_parse_error,
+                    "repair_parse_error": text_llm_repair_parse_error,
+                    "generation_diagnostics": text_llm_generation_diagnostics,
+                }, ensure_ascii=False), flush=True)
+                # Keep the complete exception chain in the server log. The local
+                # observer stores this bounded forensic block in its run directory.
                 import traceback
                 traceback.print_exc()
                 print(
@@ -6257,20 +6294,20 @@ async def analyze_video(
                 "acceleration": whisper_acceleration,
                 "load_time": round(whisper_load_time, 3),
                 "inference_time": round(whisper_infer_time, 3),
-                "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
+                "runtime": _vce_public_runtime_summary(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("whisper", {})),
             },
             "vlm": {
                 "model": target_vlm,
                 "load_time": round(vlm_load_time, 3),
                 "inference_time": round(vlm_infer_time, 3),
-                "runtime": VCE_BACKEND_DIAGNOSTICS.get("vlm", VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {})),
+                "runtime": _vce_public_runtime_summary(_vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS).get("vlm", _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("vlm", {}))),
             },
             "parallelism": {
                 "profile": runtime_profile,
                 "enabled": runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL,
                 "whisper_backend": whisper_backend,
                 "whisper_device": whisper_device,
-                "whisper_runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
+                "whisper_runtime": _vce_public_runtime_summary(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("whisper", {})),
                 "whisper_vlm_overlap_seconds": round(_vce_overlap_seconds, 3) if "_vce_overlap_seconds" in locals() else 0.0,
                 "cpu_keyframe_prefetch_seconds": round(float(locals().get("_vce_frame_prefetch_stats", {}).get("worker_seconds", locals().get("_vce_cpu_prefetch_seconds", 0.0))), 3),
             },
@@ -6363,11 +6400,6 @@ async def analyze_video(
                     ) if text_llm_enabled else None,
                     "max_output_tokens": int(text_llm_max_tokens or 4096) if text_llm_enabled else None,
                     "error": text_llm_error or None,
-                    "raw_excerpt": text_llm_raw_excerpt or None,
-                    "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
-                    "primary_parse_error": text_llm_primary_parse_error or None,
-                    "repair_parse_error": text_llm_repair_parse_error or None,
-                    "generation_diagnostics": text_llm_generation_diagnostics,
                 },
                 "segments": final_segments,
                 "txt_filename": txt_output_name,
@@ -6388,8 +6420,8 @@ async def analyze_video(
             OUTPUT_FILE_REGISTRY[json_download_id] = (Path(json_path), json_output_name)
 
         text_llm_backend_info = (
-            VCE_BACKEND_DIAGNOSTICS.get("text_llm")
-            or VCE_MLX_RUNTIME_DIAGNOSTICS.get("text_llm")
+            _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS).get("text_llm")
+            or _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("text_llm")
             or {}
         )
         text_llm_backend = (
@@ -6409,13 +6441,8 @@ async def analyze_video(
             "model": text_llm_model if text_llm_enabled else None,
             "status": text_llm_status,
             "inference_time": round(text_llm_infer_time, 3),
-            "runtime": text_llm_backend_info,
+            "runtime": _vce_public_runtime_summary(text_llm_backend_info),
             "error": text_llm_error or None,
-            "raw_excerpt": text_llm_raw_excerpt or None,
-            "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
-            "primary_parse_error": text_llm_primary_parse_error or None,
-            "repair_parse_error": text_llm_repair_parse_error or None,
-            "generation_diagnostics": text_llm_generation_diagnostics,
         }
         set_job_progress(job_id, "completed", 100, "TXT/JSON сформированы; обработка завершена", stage_index=6, stage_count=6, status="done", indeterminate=False)
         if response_format == "text":
@@ -6480,6 +6507,8 @@ async def analyze_video(
         CANCEL_EVENTS.pop(job_id, None)
         if owns_temp_path and temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
+        for _vce_diagnostic_variable, _vce_diagnostic_token in reversed(_vce_diagnostic_tokens):
+            _vce_diagnostic_variable.reset(_vce_diagnostic_token)
 
 
 if __name__ == "__main__":
