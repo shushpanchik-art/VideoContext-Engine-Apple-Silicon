@@ -482,15 +482,29 @@ def save_timing_outputs(run_dir: Path, data: Any) -> dict[str, Any]:
     if isinstance(text_llm, dict):
         primary = str(text_llm.get("raw_excerpt") or "")
         repair = str(text_llm.get("repair_raw_excerpt") or "")
-        if primary or repair:
+        generation = text_llm.get("generation_diagnostics") or {}
+        if not isinstance(generation, dict):
+            generation = {}
+        tail = str(generation.get("raw_tail_excerpt") or "")
+        if primary or repair or tail or generation:
             diagnostic_lines = [
                 "VCE Text LLM raw generation diagnostics",
-                "Excerpts are truncated to 2000 characters each.",
+                "Head/repair excerpts are bounded to 2000 characters; tail excerpt is bounded to 1500 characters.",
+                "raw_length: " + str(generation.get("raw_length", "not recorded")),
+                "first_brace_offset: " + str(generation.get("first_brace_offset", "not recorded")),
+                "finish_reason: " + str(generation.get("finish_reason", "not recorded")),
+                "requested_max_tokens: " + str(generation.get("requested_max_tokens", "not recorded")),
+                "streaming: " + str(generation.get("streaming", "not recorded")),
+                "repair_skipped: " + str(generation.get("repair_skipped", "not recorded")),
+                "usage: " + json.dumps(generation.get("usage"), ensure_ascii=False),
                 "",
-                "=== Primary generation ===",
+                "=== Primary generation (head excerpt) ===",
                 primary or "(not captured)",
                 "",
-                "=== Repair-pass generation ===",
+                "=== Primary generation (tail excerpt) ===",
+                tail or "(not captured)",
+                "",
+                "=== Repair-pass generation (head excerpt) ===",
                 repair or "(not captured)",
                 "",
                 "=== Parse errors ===",

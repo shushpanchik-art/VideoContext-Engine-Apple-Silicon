@@ -63,7 +63,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(actual, expected)
         for sha in expected.values():
             self.assertIn(sha, self.launcher)
-        self.assertIn('RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-7364764a3c1c4f9369cc3bfb0f0e59fc7f4e9013}}"', self.launcher)
+        self.assertIn('RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-6d61f261044bfdc78c39cc00f5a8c873208f95aa}}"', self.launcher)
         self.assertNotIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
 
     def test_mtmd_installer_is_pinned_and_runs_before_app_start(self):
@@ -327,20 +327,21 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         compile(self.observer, str(OBSERVER_PATH), "exec")
 
 
-    def test_qwen35_llama_completion_disables_thinking_without_gbnf_grammar(self):
+    def test_qwen35_llama_completion_uses_exact_system_user_kwargs_and_captures_stream_metadata(self):
         tree = ast.parse(self.runtime)
         helper_node = next(
             node for node in tree.body
             if isinstance(node, ast.FunctionDef)
             and node.name == "_vce_llama_json_completion"
         )
-        namespace = {}
+        namespace = {"VCE_TEXT_LLM_GENERATION_DIAGNOSTICS": {}}
         exec(
             compile(ast.Module(body=[helper_node], type_ignores=[]),
                     "VideoContextEngine_v3.19.py", "exec"),
             namespace,
         )
         complete = namespace["_vce_llama_json_completion"]
+        diagnostics = namespace["VCE_TEXT_LLM_GENERATION_DIAGNOSTICS"]
 
         class FakeLlama:
             def __init__(self):
@@ -348,36 +349,50 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
             def create_chat_completion(self, **kwargs):
                 self.calls.append(kwargs)
-                return {"choices": []}
+                if kwargs["stream"]:
+                    return iter([
+                        {"choices": [{"delta": {"content": "{"}, "finish_reason": None}]},
+                        {"choices": [{"delta": {"content": '"ok":true}'}, "finish_reason": "stop"}]},
+                    ])
+                return {
+                    "choices": [{
+                        "message": {"content": '{"ok":true}'},
+                        "finish_reason": "stop",
+                    }],
+                    "usage": {"prompt_tokens": 12, "completion_tokens": 4},
+                }
 
         fake = FakeLlama()
-        for stream in (False, True):
-            complete(fake, "prompt", 2048, 0.0, stream)
+        normal = complete(fake, "только тестовые данные", 512, 0.0, False)
+        streamed = list(complete(fake, "только тестовые данные", 256, 0.0, True))
+        self.assertEqual(normal["choices"][0]["finish_reason"], "stop")
+        self.assertEqual(len(streamed), 2)
         self.assertEqual([call["stream"] for call in fake.calls], [False, True])
         for call in fake.calls:
+            self.assertEqual(set(call), {"messages", "max_tokens", "temperature", "stream"})
+            self.assertEqual([message["role"] for message in call["messages"]], ["system", "user"])
+            self.assertIn("JSON", call["messages"][0]["content"])
+            self.assertEqual(call["messages"][1]["content"], "только тестовые данные")
             self.assertNotIn("response_format", call)
             self.assertNotIn("reasoning_budget", call)
             self.assertNotIn("reasoning_start", call)
             self.assertNotIn("reasoning_end", call)
             self.assertNotIn("reasoning_start_in_prompt", call)
-            self.assertEqual(call["chat_template_kwargs"], {"enable_thinking": False})
+            self.assertNotIn("chat_template_kwargs", call)
+        self.assertEqual(diagnostics["finish_reason"], "stop")
+        self.assertEqual(diagnostics["stream_chunk_count"], 2)
+        self.assertEqual(diagnostics["requested_max_tokens"], 256)
+        self.assertTrue(diagnostics["streaming"])
+        self.assertIn("stream_text_characters", diagnostics)
 
-        class LegacyLlama:
-            def __init__(self):
-                self.calls = []
-
-            def create_chat_completion(self, **kwargs):
-                if "chat_template_kwargs" in kwargs:
-                    raise TypeError("unexpected keyword argument")
-                self.calls.append(kwargs)
-                return {"choices": []}
-
-        legacy = LegacyLlama()
-        self.assertEqual(complete(legacy, "prompt", 1024, 0.1, False), {"choices": []})
-        self.assertEqual(len(legacy.calls), 1)
-        self.assertNotIn("response_format", legacy.calls[0])
-        self.assertNotIn("reasoning_budget", legacy.calls[0])
-        self.assertIn("_vce_llama_json_completion(instance, prompt, max_tokens, temperature, stream)", self.runtime)
+    def test_qwen35_no_brace_generation_skips_repair_and_records_tail_diagnostics(self):
+        no_brace_gate = self.runtime.index("if first_brace_offset < 0:")
+        repair_import = self.runtime.index("from json_repair import repair_json")
+        self.assertLess(no_brace_gate, repair_import)
+        self.assertIn('failure.first_brace_offset = -1', self.runtime)
+        self.assertIn('failure.raw_length = len(raw)', self.runtime)
+        self.assertIn('failure.raw_tail_excerpt = _text_llm_clip(raw[-1500:], 1500)', self.runtime)
+        self.assertIn('failure.generation_diagnostics["repair_skipped"] = True', self.runtime)
 
     def test_qwen35_json_parser_skips_prose_and_closed_thinking_blocks(self):
         tree = ast.parse(self.runtime)
@@ -426,6 +441,15 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
                     "repair_raw_excerpt": "{'executive_summary':",
                     "primary_parse_error": "invalid first output",
                     "repair_parse_error": "invalid repair output",
+                    "generation_diagnostics": {
+                        "raw_length": 4096,
+                        "first_brace_offset": -1,
+                        "raw_tail_excerpt": "tail without a brace",
+                        "finish_reason": "length",
+                        "requested_max_tokens": 4096,
+                        "streaming": True,
+                        "repair_skipped": True,
+                    },
                 }
             }
             _OBSERVER.save_timing_outputs(run_dir, {"meta": {"timings": timings}})
@@ -435,13 +459,21 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.assertIn("Primary generation", saved)
             self.assertIn("Repair-pass generation", saved)
             self.assertIn("invalid repair output", saved)
+            self.assertIn("raw_length: 4096", saved)
+            self.assertIn("first_brace_offset: -1", saved)
+            self.assertIn("finish_reason: length", saved)
+            self.assertIn("tail without a brace", saved)
             self.assertEqual(timings["text_llm"]["raw_diagnostic_file"], "text_llm_raw.txt")
 
     def test_text_llm_raw_diagnostics_are_bounded_and_exposed_in_api_timing(self):
         self.assertIn('failure.raw_excerpt = _text_llm_clip(raw, 2000)', self.runtime)
+        self.assertIn('failure.raw_tail_excerpt = _text_llm_clip(raw[-1500:], 1500)', self.runtime)
+        self.assertIn('"raw_length": len(raw)', self.runtime)
+        self.assertIn('"first_brace_offset": first_brace_offset', self.runtime)
         self.assertIn('failure.repair_raw_excerpt = _text_llm_clip(repaired_raw, 2000)', self.runtime)
         self.assertIn('"raw_excerpt": text_llm_raw_excerpt or None', self.runtime)
         self.assertIn('"repair_raw_excerpt": text_llm_repair_raw_excerpt or None', self.runtime)
+        self.assertIn('"generation_diagnostics": text_llm_generation_diagnostics', self.runtime)
 
     def test_text_llm_reasoning_metadata_matches_selected_backend(self):
         self.assertIn(

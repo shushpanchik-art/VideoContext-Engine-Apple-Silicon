@@ -210,6 +210,11 @@ trap finish EXIT
 mkdir -p "$TOOLS_DIR" "$OUT_ROOT"
 exec > >(tee -a "$OUT_ROOT/launcher.log") 2>&1
 
+if [[ -n "${VCE_PREFLIGHT_LOG:-}" && -f "$VCE_PREFLIGHT_LOG" ]]; then
+  /bin/cp -p "$VCE_PREFLIGHT_LOG" "$OUT_ROOT/llama_json_smoke_preflight.log"
+  note "Короткий llama.cpp JSON smoke test включён в forensic bundle."
+fi
+
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Нужен macOS на Apple Silicon."
 [[ -d "$APP" ]] || fail "Не найдено приложение: $APP"
 [[ -f "$VIDEO" ]] || fail "Не найден видеофайл: $VIDEO"
