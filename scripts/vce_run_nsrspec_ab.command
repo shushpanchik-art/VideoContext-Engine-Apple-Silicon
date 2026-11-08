@@ -185,8 +185,8 @@ finish() {
     fi
   fi
   if [[ -d "$OUT_ROOT" ]]; then
-    capture_external_logs
-    printf "launcher_exit_code=%s\nsettings_restore_status=%s\nvideo_path=%s\ndropbox_upload=attempted_by_exit_trap\n" "$status" "$RESTORE_STATUS" "$VIDEO" > "$OUT_ROOT/finalization_status.txt"
+    capture_external_logs || true
+    printf "launcher_exit_code=%s\\nsettings_restore_status=%s\\nvideo_path=%s\\ndropbox_target=%s:%s\\ndropbox_upload=attempted_by_exit_trap\\n" "$status" "$RESTORE_STATUS" "$VIDEO" "$DROPBOX_REMOTE" "$DROPBOX_BASE" > "$OUT_ROOT/finalization_status.txt" || true
     set +e
     upload_forensic_bundle
     upload_status=$?
