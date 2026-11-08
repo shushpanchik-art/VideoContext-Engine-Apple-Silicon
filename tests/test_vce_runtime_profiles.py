@@ -1,4 +1,5 @@
 import ast
+import contextvars
 import unittest
 from pathlib import Path
 
@@ -119,11 +120,36 @@ class TestRuntimeProfiles(unittest.TestCase):
         self.assertIn('value="baseline_mps_sequential"', self.ui)
         self.assertIn('value="mlx_parallel"', self.ui)
         self.assertIn("runtime_profile: document.getElementById('cfg-runtime-profile').value", self.ui)
-        self.assertIn('id="cfg-mlx-whisper" type="checkbox" hidden disabled', self.ui)
-        self.assertNotIn('id="cfg-mlx-whisper"', self.ui.replace(
-            'id="cfg-mlx-whisper" type="checkbox" hidden disabled', ''
-        ))
+        self.assertNotIn('id="cfg-mlx-whisper"', self.ui)
         self.assertIn('id="cfg-ram-mode"', self.ui)
+
+    def test_domain_profile_form_overrides_persisted_setting_per_request(self):
+        setting_node = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "setting"
+        )
+        namespace = {
+            "USER_SETTINGS": {"domain_profile": "nsrspec", "other": "stored"},
+            "VCE_REQUEST_DOMAIN_PROFILE": contextvars.ContextVar("test_domain_profile", default=None),
+        }
+        module = ast.Module(body=[setting_node], type_ignores=[])
+        exec(compile(module, str(ENGINE), "exec"), namespace)
+        get_setting = namespace["setting"]
+        self.assertEqual(get_setting("domain_profile", "generic"), "nsrspec")
+        token = namespace["VCE_REQUEST_DOMAIN_PROFILE"].set("generic")
+        try:
+            self.assertEqual(get_setting("domain_profile", "nsrspec"), "generic")
+            self.assertEqual(get_setting("other", "fallback"), "stored")
+        finally:
+            namespace["VCE_REQUEST_DOMAIN_PROFILE"].reset(token)
+        self.assertEqual(get_setting("domain_profile", "generic"), "nsrspec")
+
+        analyze = self.function_source("analyze_video")
+        self.assertIn('domain_profile: str = Form(str(setting("domain_profile", "generic"))', analyze)
+        self.assertIn('VCE_REQUEST_DOMAIN_PROFILE.set(domain_profile)', analyze)
+        self.assertIn('VCE_REQUEST_DOMAIN_PROFILE.reset(_vce_domain_profile_token)', analyze)
+        self.assertIn('if domain_profile not in {"generic", "nsrspec"}', analyze)
+        self.assertNotIn('enable_mlx_whisper = runtime_profile ==', analyze)
 
 
 if __name__ == "__main__":

@@ -549,8 +549,15 @@ def load_user_settings() -> Dict[str, Any]:
         return {}
 
 USER_SETTINGS = load_user_settings()
+VCE_REQUEST_DOMAIN_PROFILE: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_request_domain_profile", default=None
+)
 
 def setting(name: str, fallback: Any) -> Any:
+    if name == "domain_profile":
+        request_profile = VCE_REQUEST_DOMAIN_PROFILE.get()
+        if request_profile is not None:
+            return request_profile
     return USER_SETTINGS.get(name, fallback)
 
 
@@ -2302,29 +2309,6 @@ def apple_vision_ocr(image: Image.Image) -> str:
 # --- AUDIO FEATURES ---
 
 
-def _word_records(whisper_segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Flatten Whisper's word-level timestamps into stable records."""
-    records: List[Dict[str, Any]] = []
-    for segment in whisper_segments or []:
-        words = segment.get("words") or []
-        if not isinstance(words, list):
-            continue
-        for word in words:
-            if not isinstance(word, dict):
-                continue
-            try:
-                word_start = float(word.get("start"))
-                word_end = float(word.get("end"))
-            except (TypeError, ValueError):
-                continue
-            text = str(word.get("word") or word.get("text") or "")
-            if word_end <= word_start or not text.strip():
-                continue
-            records.append({"start": word_start, "end": word_end, "text": text})
-    records.sort(key=lambda item: (item["start"], item["end"]))
-    return records
-
-
 def _inside_scene(midpoint: float, start: float, end: float) -> bool:
     # Assign a word/segment to one and only one scene, even at scene boundaries.
     return start <= midpoint < end or (midpoint == end and start == end)
@@ -2544,10 +2528,6 @@ def compute_audio_features_for_scene(
         "speech_ratio": round(speech_ratio, 3),
         "silence_ratio": round(silence_ratio, 3),
     }
-
-
-def analyze_emotion_from_frame(frame_rgb: np.ndarray) -> Dict[str, Any]:
-    return {}
 
 
 # --- JSON ROBUSTE + NETTOYAGE ---
@@ -5102,17 +5082,6 @@ def _vce_validate_video_with_remux(video_path, force_remux=False, prior_error=No
 
 
 
-# VCE_PARALLEL_CPU_ASR_GPU_VLM_V1
-def _vce_transcribe_audio_safe_timed(*args, **kwargs):
-    """Run the existing safe ASR wrapper and return its actual worker wall time."""
-    started = time.perf_counter()
-    result = _vce_transcribe_audio_safe(*args, **kwargs)
-    elapsed = time.perf_counter() - started
-    if isinstance(result, tuple) and len(result) == 2:
-        return result[0], result[1], elapsed
-    raise TypeError("_vce_transcribe_audio_safe must return (audio_result, audio_error)")
-
-
 def _vce_build_audio_only_video(video_path, prior_error=""):
     """Extract readable audio and wrap it in a temporary black video so ASR can still run."""
     import os
@@ -5373,9 +5342,11 @@ async def analyze_video(
         runtime_profile = _vce_normalize_runtime_profile(runtime_profile)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    # Keep the legacy flag derived from the canonical profile; it no longer selects a separate backend.
+    # Accept the legacy flag only when it agrees with the canonical runtime profile.
     _vce_validate_legacy_mlx_whisper_flag(enable_mlx_whisper, runtime_profile)
-    enable_mlx_whisper = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+    domain_profile = str(domain_profile or "generic").strip().lower()
+    if domain_profile not in {"generic", "nsrspec"}:
+        raise HTTPException(422, "Недопустимый доменный профиль")
     if runtime_profile == VCE_RUNTIME_PROFILE_BASELINE:
         print("[VCE execution] baseline_mps_sequential: PyTorch Whisper/MPS (CPU fallback) -> MLX/Metal VLM -> MLX/Metal Text LLM", flush=True)
     else:
@@ -5452,6 +5423,7 @@ async def analyze_video(
         (VCE_MLX_RUNTIME_DIAGNOSTICS, VCE_MLX_RUNTIME_DIAGNOSTICS.set({})),
         (VCE_TEXT_LLM_GENERATION_DIAGNOSTICS, VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.set({})),
     )
+    _vce_domain_profile_token = VCE_REQUEST_DOMAIN_PROFILE.set(domain_profile)
 
     try:
         if cancel_event.is_set():
@@ -6494,6 +6466,7 @@ async def analyze_video(
         traceback.print_exc()
         raise HTTPException(500, f"Erreur interne: {str(e)}")
     finally:
+        VCE_REQUEST_DOMAIN_PROFILE.reset(_vce_domain_profile_token)
         _vce_pending_whisper_task = locals().get('_vce_whisper_task')
         if _vce_pending_whisper_task is not None:
             try:
