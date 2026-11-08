@@ -7,7 +7,7 @@ ROOT="/Users/artemijvisnevskij/VideoContext-Engine-Apple-Silicon"
 APP="/Applications/VideoContext Engine.app"
 API="http://127.0.0.1:7555"
 VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"
-PATCH_COMMIT="7e898630fddcb3ada2edc827a13a0331e0cfc4c0"
+PATCH_COMMIT="8753fdd8958ebc080a577d3291a85a3c4167befd"
 BASE_URL="https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/$PATCH_COMMIT"
 PY="$ROOT/.venv/bin/python"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -57,7 +57,7 @@ fi
 FILES="
 VideoContextEngine_v3.19.py b51b9f6e948ed780d95d5f5a7cfcce694b558672
 scripts/vce_observed_llama_cpp_run.py 7364764a3c1c4f9369cc3bfb0f0e59fc7f4e9013
-scripts/vce_run_nsrspec_ab.command 97a1f23f6c2505cef12ba8b268f556e7fdaaa0b4
+scripts/vce_run_nsrspec_ab.command a964ff46c3e962d61b944f4931dd01d49fcf8663
 scripts/vce_runtime_watchdog.py 50e91ffabcf2cb6174b068a12eea0b6b909cba5e
 scripts/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
 scripts/vce_run_nsrspec_llama_cpp.command 31356e628780a37470d3d3c7c4321c45a3cbaef4
