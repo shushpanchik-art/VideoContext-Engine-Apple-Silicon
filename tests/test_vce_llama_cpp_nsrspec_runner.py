@@ -63,7 +63,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(actual, expected)
         for sha in expected.values():
             self.assertIn(sha, self.launcher)
-        self.assertIn('RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-39fff57545c50500c3ce241fcb10ae3004204c0c}}"', self.launcher)
+        self.assertIn('RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-7364764a3c1c4f9369cc3bfb0f0e59fc7f4e9013}}"', self.launcher)
         self.assertNotIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
 
     def test_mtmd_installer_is_pinned_and_runs_before_app_start(self):
@@ -144,15 +144,35 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('merged["text_llm_model"] = TEXT_LLM_DEFAULT_MODEL', self.runtime)
 
     def test_single_bundle_contains_both_runs_and_verified_private_dropbox_upload(self):
-        self.assertIn("20261104_224554_1f098d/VCE_Forensic_Runs", self.launcher)
-        self.assertIn('ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$ARCHIVE"', self.launcher)
-        self.assertIn('rclone copyto "$ARCHIVE" "$REMOTE_FILE"', self.launcher)
-        self.assertIn('rclone size "$REMOTE_FILE" --json', self.launcher)
+        self.assertIn("20261104_224554_1f098d/VCE_forensic_runs_NSRSPEC_AB", self.launcher)
+        self.assertIn('/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive"', self.launcher)
+        self.assertIn('rclone copyto "$archive" "$remote_file" --progress', self.launcher)
+        self.assertIn('rclone size "$remote_file" --json', self.launcher)
         self.assertIn("DROPBOX_UPLOAD=SUCCESS", self.launcher)
         self.assertNotIn('rclone copyto "$VIDEO"', self.launcher)
         self.assertIn("RUN1_MLX_METAL_EXIT", self.launcher)
         self.assertIn("RUN2_LLAMA_CPP_METAL_EXIT", self.launcher)
         self.assertIn("settings_restore_report.json", self.launcher)
+
+
+    def test_exit_trap_collects_external_log_and_uploads_after_restore_failure(self):
+        finish = self.launcher[
+            self.launcher.index("finish() {"):
+            self.launcher.index("trap finish EXIT")
+        ]
+        self.assertIn("restore_settings", finish)
+        self.assertIn("capture_external_logs", finish)
+        self.assertIn("upload_forensic_bundle", finish)
+        self.assertLess(finish.index("restore_settings"), finish.index("upload_forensic_bundle"))
+        self.assertIn('local server_log="$HOME/Library/Logs/VideoContext Engine/server.log"', self.launcher)
+        self.assertIn('/bin/cp -p "$server_log" "$OUT_ROOT/server.log"', self.launcher)
+        self.assertIn("SHA256SUMS.txt", self.launcher)
+        self.assertIn('/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive"', self.launcher)
+        self.assertIn('rclone copyto "$archive" "$remote_file" --progress', self.launcher)
+        self.assertIn('rclone size "$remote_file" --json', self.launcher)
+        self.assertIn('trap finish EXIT', self.launcher)
+        self.assertNotIn('rclone copyto "$VIDEO"', self.launcher)
+        self.assertIn('20261104_224554_1f098d/VCE_forensic_runs_NSRSPEC_AB', self.launcher)
 
     def test_legacy_llama_launcher_routes_to_ab_launcher(self):
         self.assertIn('exec "$SCRIPT_DIR/vce_run_nsrspec_ab.command"', self.legacy_launcher)

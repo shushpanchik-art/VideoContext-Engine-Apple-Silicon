@@ -9,6 +9,7 @@ VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые мо
 APP="/Applications/VideoContext Engine.app"
 API="http://127.0.0.1:7555"
 SETTINGS="$ROOT/videocontext_settings.json"
+PY="$ROOT/.venv/bin/python"
 
 # Pin all downloaded tooling to the same reviewed commit, never to a moving branch.
 TOOLS_COMMIT="5d41d71599c424f8601434111df9be6cce7dfe23"
@@ -18,11 +19,13 @@ STAMP="$(date '+%Y%m%d_%H%M%S')"
 OUT_ROOT="$OUT_PARENT/$STAMP"
 ORIGINAL_API_SETTINGS="$OUT_ROOT/active_settings_before.json"
 DROPBOX_REMOTE="${VCE_DROPBOX_REMOTE:-}"
-DROPBOX_BASE="${VCE_DROPBOX_BASE:-20261104_224554_1f098d/VCE_Forensic_Runs}"
+DROPBOX_BASE="${VCE_DROPBOX_BASE:-20261104_224554_1f098d/VCE_forensic_runs_NSRSPEC_AB}"
 LLAMA_CPP_PINNED_COMMIT="1dd04befbaf1277853eb188cc4513d6089a931dd"
 VLM_HF_REPO_REVISION="f982a07559d4a2f6c8744d840bf6fccab30eea96"
 API_READY=0
 RESTORE_DONE=0
+RESTORE_STATUS="not_attempted"
+UPLOAD_DONE=0
 RUN1_EXIT=99
 RUN2_EXIT=99
 
@@ -32,6 +35,7 @@ note() { printf '\n[VCE NSRSPEC A/B] %s\n' "$*"; }
 restore_settings() {
   if [[ "$API_READY" != "1" || ! -f "$ORIGINAL_API_SETTINGS" ]]; then
     RESTORE_DONE=1
+    RESTORE_STATUS="not_needed"
     return 0
   fi
   note "Восстанавливаю исходные API-настройки (недопустимые старые GGUF в vlm_model/text_llm_model нормализуются в MLX)."
@@ -94,39 +98,120 @@ if mismatches:
 PY
   then
     RESTORE_DONE=1
+    RESTORE_STATUS="passed"
   else
     RESTORE_DONE=0
+    RESTORE_STATUS="failed"
     return 1
   fi
 }
 
+capture_external_logs() {
+  local server_log="$HOME/Library/Logs/VideoContext Engine/server.log"
+  local report="$OUT_ROOT/external_log_capture.txt"
+  if [[ -f "$server_log" ]]; then
+    if /bin/cp -p "$server_log" "$OUT_ROOT/server.log"; then
+      printf "status=copied\nsource=%s\ndestination=%s\n" "$server_log" "$OUT_ROOT/server.log" > "$report"
+    else
+      printf "status=copy_failed\nsource=%s\n" "$server_log" > "$report"
+      note "Не удалось скопировать app server.log; продолжаю сбор остальных логов."
+    fi
+  else
+    printf "status=not_present\nsource=%s\n" "$server_log" > "$report"
+  fi
+}
+
+upload_forensic_bundle() {
+  [[ "$UPLOAD_DONE" == "1" ]] && return 0
+  [[ -d "$OUT_ROOT" ]] || return 0
+  mkdir -p "$OUT_PARENT" || return 1
+  (cd "$OUT_ROOT" && find . -type f ! -name "SHA256SUMS.txt" -exec shasum -a 256 {} + > SHA256SUMS.txt) || return 1
+  local archive="$OUT_PARENT/VCE_NSRSPEC_AB_$STAMP.zip"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive" || return 1
+  local local_size
+  local_size="$(stat -f "%z" "$archive")" || return 1
+  if ! command -v rclone >/dev/null 2>&1; then
+    note "rclone отсутствует; ZIP сохранён локально: $archive"
+    return 1
+  fi
+  if [[ -z "$DROPBOX_REMOTE" ]]; then
+    local remotes
+    remotes="$(rclone listremotes 2>/dev/null || true)"
+    if printf "%s\n" "$remotes" | grep -Fxq "vce-dropbox:"; then
+      DROPBOX_REMOTE="vce-dropbox"
+    elif printf "%s\n" "$remotes" | grep -Fxq "dropbox:"; then
+      DROPBOX_REMOTE="dropbox"
+    else
+      note "Dropbox remote не найден; ZIP сохранён локально: $archive"
+      return 1
+    fi
+  fi
+  local remote_type
+  remote_type="$(rclone config show "$DROPBOX_REMOTE" 2>/dev/null | awk -F " = " '\$1 == "type" {print \$2; exit}')"
+  if [[ "$remote_type" != "dropbox" ]]; then
+    note "Remote $DROPBOX_REMOTE не подтверждён как Dropbox; ZIP сохранён локально: $archive"
+    return 1
+  fi
+  local destination="$DROPBOX_REMOTE:$DROPBOX_BASE"
+  local remote_file="$destination/$(basename "$archive")"
+  rclone mkdir "$destination" || return 1
+  note "Загружаю полный forensic ZIP в Dropbox: $remote_file"
+  rclone copyto "$archive" "$remote_file" --progress || return 1
+  local remote_json remote_size
+  remote_json="$(rclone size "$remote_file" --json)" || return 1
+  remote_size="$(printf "%s" "$remote_json" | sed -nE "s/.*\"bytes\"[[:space:]]*:[[:space:]]*([0-9]+).*/\1/p")"
+  if [[ -z "$remote_size" || "$remote_size" != "$local_size" ]]; then
+    note "Dropbox size mismatch: local=$local_size remote=\${remote_size:-unknown}; ZIP сохранён: $archive"
+    return 1
+  fi
+  UPLOAD_DONE=1
+  printf "DROPBOX_UPLOAD=SUCCESS\nDROPBOX_REMOTE=%s\nDROPBOX_PATH=%s\nDROPBOX_SIZE=%s\n" "$DROPBOX_REMOTE" "$remote_file" "$remote_size"
+}
+
 finish() {
-  status=$?
+  local status=$?
+  local restore_status=0
+  local upload_status=0
   trap - EXIT
   if [[ "$RESTORE_DONE" != "1" && "$API_READY" == "1" ]]; then
     set +e
     restore_settings
     restore_status=$?
     set -e
-    if [[ "$restore_status" -ne 0 && "$status" -eq 0 ]]; then status=2; fi
+    if [[ "$restore_status" -ne 0 ]]; then
+      RESTORE_STATUS="failed"
+      note "Не удалось подтвердить восстановление API settings; сбор логов и Dropbox upload всё равно продолжаются."
+      if [[ "$status" -eq 0 ]]; then status=2; fi
+    fi
+  fi
+  if [[ -d "$OUT_ROOT" ]]; then
+    capture_external_logs
+    printf "launcher_exit_code=%s\nsettings_restore_status=%s\nvideo_path=%s\ndropbox_upload=attempted_by_exit_trap\n" "$status" "$RESTORE_STATUS" "$VIDEO" > "$OUT_ROOT/finalization_status.txt"
+    set +e
+    upload_forensic_bundle
+    upload_status=$?
+    set -e
+    if [[ "$upload_status" -ne 0 ]]; then
+      note "Dropbox upload не подтверждён. Локальные материалы сохранены в $OUT_ROOT; архив — в $OUT_PARENT."
+      if [[ "$status" -eq 0 ]]; then status=3; fi
+    fi
   fi
   exit "$status"
 }
 trap finish EXIT
 
+mkdir -p "$TOOLS_DIR" "$OUT_ROOT"
+exec > >(tee -a "$OUT_ROOT/launcher.log") 2>&1
+
 [[ "$(uname -s)" == Darwin && "$(uname -m)" == arm64 ]] || fail "Нужен macOS на Apple Silicon."
 [[ -d "$APP" ]] || fail "Не найдено приложение: $APP"
 [[ -f "$VIDEO" ]] || fail "Не найден видеофайл: $VIDEO"
-[[ -x "$ROOT/.venv/bin/python" ]] || fail "Не найден Python проекта: $ROOT/.venv/bin/python"
-PY="$ROOT/.venv/bin/python"
+[[ -x "$PY" ]] || fail "Не найден Python проекта: $PY"
 [[ -f "$SETTINGS" ]] || fail "Не найден файл настроек: $SETTINGS"
 command -v curl >/dev/null 2>&1 || fail "Не найден curl."
 command -v git >/dev/null 2>&1 || fail "Не найден git."
 command -v ffprobe >/dev/null 2>&1 || fail "Не найден ffprobe. Установи FFmpeg."
 command -v rclone >/dev/null 2>&1 || fail "Не найден rclone; Dropbox upload обязателен."
-
-mkdir -p "$TOOLS_DIR" "$OUT_ROOT"
-exec > >(tee -a "$OUT_ROOT/launcher.log") 2>&1
 
 # Resolve and validate the Dropbox remote before spending time on either analysis.
 if [[ -z "$DROPBOX_REMOTE" ]]; then
@@ -526,21 +611,7 @@ Path(path).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", enc
 print(json.dumps(data, ensure_ascii=False))
 PY
 
-ARCHIVE="$OUT_PARENT/VCE_NSRSPEC_AB_$STAMP.zip"
-note "Создаю один архив с обоими прогонами и preflight."
-/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$ARCHIVE"
-LOCAL_SIZE="$(stat -f '%z' "$ARCHIVE")"
-printf 'Локальный архив: %s (%s bytes)\n' "$ARCHIVE" "$LOCAL_SIZE"
-
-DEST="$DROPBOX_REMOTE:$DROPBOX_BASE"
-REMOTE_FILE="$DEST/$(basename "$ARCHIVE")"
-note "Загружаю общий приватный A/B архив в Dropbox: $REMOTE_FILE"
-rclone mkdir "$DEST"
-rclone copyto "$ARCHIVE" "$REMOTE_FILE" --progress
-REMOTE_SIZE="$(rclone size "$REMOTE_FILE" --json | "$PY" -c 'import json,sys; print(json.load(sys.stdin).get("bytes", -1))')"
-[[ "$REMOTE_SIZE" == "$LOCAL_SIZE" ]] || fail "Dropbox verification failed: local=$LOCAL_SIZE remote=$REMOTE_SIZE. Архив остался локально."
-printf '\nDROPBOX_UPLOAD=SUCCESS\nDROPBOX_REMOTE=%s\nDROPBOX_PATH=%s\nDROPBOX_SIZE=%s\n' "$DROPBOX_REMOTE" "$REMOTE_FILE" "$REMOTE_SIZE"
-printf '\n=== A/B ГОТОВО ===\nПрогон 1 mlx_metal: %s\nПрогон 2 llama_cpp_metal: %s\nАрхив: %s\nИсходное видео не копировалось в Dropbox; загружен только forensic архив.\n' "$RUN1_EXIT" "$RUN2_EXIT" "$ARCHIVE"
+note "Упаковка и Dropbox upload выполняются в EXIT-trap при любом коде завершения."
 
 if [[ "$MTMD_PREFLIGHT_EXIT" -ne 0 ]]; then
   exit 42
