@@ -20,7 +20,7 @@ def load_module(name, path):
 
 
 guard_module = load_module("vce_text_llm_integrity_guard", REPO_ROOT / "patches" / "patch_vce_text_llm_quality_guard.py")
-bench_module = load_module("vce_text_llm_benchmark", REPO_ROOT / "tools" / "bench_text_llm_summary.py")
+bench_module = load_module("vce_text_llm_benchmark", REPO_ROOT / "tools" / "bench" / "bench_text_llm_summary.py")
 
 
 def fixture():

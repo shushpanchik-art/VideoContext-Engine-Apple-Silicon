@@ -224,6 +224,33 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS', self.runtime)
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
+    def test_reconciliation_selects_domain_profile_before_nested_helpers(self):
+        node = next(
+            item for item in ast.parse(self.runtime).body
+            if isinstance(item, ast.FunctionDef) and item.name == "reconcile_text_llm_result"
+        )
+        profile_assignments = [
+            item for item in node.body
+            if isinstance(item, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "nsrspec_profile" for target in item.targets)
+        ]
+        self.assertEqual(len(profile_assignments), 1)
+        profile_line = profile_assignments[0].lineno
+        nested_helper_lines = [
+            item.lineno for item in node.body
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        self.assertTrue(nested_helper_lines)
+        self.assertLess(profile_line, min(nested_helper_lines))
+
+    def test_ab_settings_snapshot_restores_domain_profile(self):
+        self.assertIn('"vlm_model", "text_llm_model", "domain_profile",', self.launcher)
+        self.assertIn('Path(snapshot).write_text(json.dumps(settings', self.launcher)
+        self.assertIn('payload = {key: value for key, value in original.items() if key in current_before', self.launcher)
+        self.assertIn('"domain_profile": "generic"', self.runtime)
+        finish = self.launcher[self.launcher.index("finish() {"):self.launcher.index("trap finish EXIT")]
+        self.assertIn("restore_settings", finish)
+
     def test_patch_installer_manifest_does_not_depend_on_git_history(self):
         self.assertIn('PATCH_REF="${VCE_PATCH_REF:-main}"', self.patch_installer)
         self.assertNotIn("PATCH_COMMIT=", self.patch_installer)
@@ -721,12 +748,10 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             "mlx_version": "0.32.4",
         })
 
-    def test_text_llm_reasoning_metadata_matches_selected_backend(self):
-        self.assertIn(
-            '"thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX)',
-            self.runtime,
-        )
-        self.assertIn('512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0', self.runtime)
+    def test_public_text_llm_metadata_omits_run_specific_reasoning_controls(self):
+        self.assertNotIn('"thinking_enabled":', self.runtime)
+        self.assertNotIn('"thinking_budget":', self.runtime)
+        self.assertIn('int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS)', self.runtime)
 
     def test_http_200_with_failed_text_llm_is_not_a_pass(self):
         verdict = _OBSERVER.classify_backend_failure(

@@ -315,7 +315,7 @@ if "runtime_profile" not in props:
 settings = get("/api/v1/ui-settings")
 required = {
     "inference_backend", "enable_ocr_cache", "llama_cpp_vlm_model", "llama_cpp_vlm_mmproj",
-    "llama_cpp_text_llm_model", "vlm_model", "text_llm_model",
+    "llama_cpp_text_llm_model", "vlm_model", "text_llm_model", "domain_profile",
 }
 missing = sorted(required - set(settings))
 if missing:

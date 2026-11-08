@@ -779,6 +779,8 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
     import difflib
     import math
 
+    nsrspec_profile = str(setting("domain_profile", "generic") or "generic").strip().lower() == "nsrspec"
+
     def _norm(value: Any) -> str:
         return re.sub(r"\W+", " ", str(value or "").casefold(), flags=re.UNICODE).strip()
 
@@ -861,7 +863,6 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
     last_sources = _field_sources(last_seg)
     last_result_in_speech = bool(result_cues.search(last_sources["speech"]))
     end_card_only = bool(end_card_cues.search(last_sources["ocr"] + " " + last_sources["visual"])) and not bool(result_cues.search(last_sources["ocr"] + " " + last_sources["visual"]))
-    nsrspec_profile = str(setting("domain_profile", "generic") or "generic").strip().lower() == "nsrspec"
     spoken_result_end_card = nsrspec_profile and end_card_only and last_result_in_speech
 
     has_buildchat_conflict = False
@@ -6394,11 +6395,7 @@ async def analyze_video(
                     "load_download_time": round(locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0), 3),
                     "generation_time": round(max(0.0, text_llm_infer_time - locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0)), 3),
                     "model_cached_before_run": bool(locals().get("_vce_text_llm_model_cached", True)) if text_llm_enabled else None,
-                    "thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX),
-                    "thinking_budget": (
-                        512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0
-                    ) if text_llm_enabled else None,
-                    "max_output_tokens": int(text_llm_max_tokens or 4096) if text_llm_enabled else None,
+                    "max_output_tokens": int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS) if text_llm_enabled else None,
                     "error": text_llm_error or None,
                 },
                 "segments": final_segments,

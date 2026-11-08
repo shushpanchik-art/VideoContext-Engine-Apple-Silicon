@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "tools" / "bench_text_llm_summary.py"
+SCRIPT = ROOT / "tools" / "bench" / "bench_text_llm_summary.py"
 SPEC = importlib.util.spec_from_file_location("bench_text_llm_summary", SCRIPT)
 BENCH = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader
