@@ -496,6 +496,10 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             find_candidate('<think>example {"executive_summary":"not final"}'),
             -1,
         )
+        self.assertEqual(
+            find_candidate('Nested example: {"outer":{"executive_summary":"not root"}}'),
+            -1,
+        )
 
     def test_text_llm_generation_cap_is_consistent_at_8192(self):
         self.assertIn("TEXT_LLM_DEFAULT_MAX_TOKENS = 8192", self.runtime)
