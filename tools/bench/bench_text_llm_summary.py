@@ -285,6 +285,27 @@ def function_supported(fn,key):
         return key in sig.parameters or any(p.kind==inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
     except Exception: return False
 
+def instrument_quality_guard(fn):
+    """Place the benchmark guard after the full shared post-processing chain.
+
+    The pinned historical snapshot still calls the former finalizer directly;
+    accepting that one legacy anchor keeps the current benchmark reproducible
+    while allowing a future source repin to use the shared pipeline entry point.
+    """
+    anchors = (
+        "        parsed = postprocess_text_llm_payload(parsed, segments, existing_summary)",
+        "        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)",
+    )
+    matches = [anchor for anchor in anchors if anchor in fn]
+    if sum(fn.count(anchor) for anchor in anchors) != 1:
+        raise RuntimeError("Unexpected source snapshot: expected exactly one post-processing quality-guard anchor.")
+    anchor = matches[0]
+    return fn.replace(
+        anchor,
+        anchor + "\n        parsed = BENCH_quality_guard(parsed, segments)",
+        1,
+    )
+
 def load_source(outdir):
     print("[3/6] Загрузка закреплённого исходника VCE")
     src=get_url(SOURCE_URL).decode("utf-8")
@@ -300,11 +321,11 @@ def load_source(outdir):
       ("        limits = (600, 650, 650)","        BENCH.prompt_started = time.perf_counter()\n        limits = (600, 650, 650)"),
       ("        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output.","        BENCH.prompt += max(0.0,time.perf_counter()-(BENCH.prompt_started or time.perf_counter()))\n        BENCH.prompt_text = instruction\n        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output."),
       ("        try:\n            parsed = _text_llm_parse_json(raw)","        BENCH.primary_raw = raw\n        try:\n            parsed = _text_llm_parse_json(raw)"),
-      ("        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)","        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n        parsed = BENCH_quality_guard(parsed, segments)"),
     ]
     for old,new in patches:
         if fn.count(old)!=1: raise RuntimeError("Unexpected source snapshot: expected exactly one patch point: "+old[:70])
         fn=fn.replace(old,new,1)
+    fn = instrument_quality_guard(fn)
     path=outdir/"_instrumented"/"vce_snapshot.py"; path.parent.mkdir(parents=True,exist_ok=True)
     path.write_text(src[:a]+fn+src[b:],encoding="utf-8")
     name="_vce_text_llm_benchmark"

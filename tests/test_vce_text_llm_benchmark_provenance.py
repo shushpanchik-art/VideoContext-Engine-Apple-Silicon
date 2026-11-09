@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -13,6 +15,85 @@ SPEC.loader.exec_module(BENCH)
 
 
 class TextLLMBenchmarkProvenanceTests(unittest.TestCase):
+    @staticmethod
+    def _source_snapshot(postprocess_call):
+        return f'''def _text_llm_parse_json(raw):
+    return raw
+
+def run_text_llm_postprocess():
+    from mlx_vlm import load, generate
+    try:
+        from mlx_vlm.generate import stream_generate
+    except Exception:
+        stream_generate = None
+    from mlx_vlm.prompt_utils import apply_chat_template
+    from mlx_vlm.utils import load_config
+    try:
+        limits = (600, 650, 650)
+        try:
+            # For this constrained extraction task, avoid spending time on long reasoning output.
+            pass
+        except TypeError:
+            pass
+        try:
+            parsed = _text_llm_parse_json(raw)
+        except Exception:
+            repaired_payload = None
+            try:
+                from json_repair import repair_json
+                repaired_payload = repair_json(raw, return_objects=True)
+            except Exception:
+                repaired_payload = None
+{postprocess_call}
+        return parsed
+    except Exception:
+        return None
+
+def format_text_llm_report():
+    pass
+'''
+
+    def test_load_source_instruments_both_pinned_and_shared_pipeline_without_network(self):
+        calls = (
+            "        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)",
+            "        parsed = postprocess_text_llm_payload(parsed, segments, existing_summary)",
+        )
+        for call in calls:
+            with self.subTest(call=call):
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    with mock.patch.object(
+                        BENCH, "get_url", return_value=self._source_snapshot(call).encode("utf-8")
+                    ):
+                        module = BENCH.load_source(Path(temp_dir))
+                    import inspect
+
+                    body = inspect.getsource(module.run_text_llm_postprocess)
+                self.assertEqual(body.count("parsed = BENCH_quality_guard(parsed, segments)"), 1)
+                self.assertLess(body.index(call.strip()), body.index("parsed = BENCH_quality_guard"))
+
+    def test_quality_guard_instruments_after_shared_pipeline_and_legacy_snapshot(self):
+        for call in (
+            "        parsed = postprocess_text_llm_payload(parsed, segments, existing_summary)",
+            "        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)",
+        ):
+            with self.subTest(call=call):
+                instrumented = BENCH.instrument_quality_guard("def run():\n" + call + "\n")
+                self.assertEqual(instrumented.count("BENCH_quality_guard(parsed, segments)"), 1)
+                self.assertLess(
+                    instrumented.index(call),
+                    instrumented.index("parsed = BENCH_quality_guard(parsed, segments)"),
+                )
+
+    def test_quality_guard_rejects_unknown_or_ambiguous_pipeline_anchor(self):
+        with self.assertRaisesRegex(RuntimeError, "exactly one post-processing"):
+            BENCH.instrument_quality_guard("def run():\n    return parsed\n")
+        ambiguous = (
+            "        parsed = postprocess_text_llm_payload(parsed, segments, existing_summary)\n"
+            "        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)\n"
+        )
+        with self.assertRaisesRegex(RuntimeError, "exactly one post-processing"):
+            BENCH.instrument_quality_guard(ambiguous)
+
     def test_parser_strips_think_block_and_keeps_only_model_json(self):
         raw = (
             "<think>private reasoning that must not be published</think>\n"

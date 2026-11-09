@@ -12,8 +12,11 @@ mistakes the chain is supposed to repair.
 from __future__ import annotations
 
 import copy
+import contextlib
+import io
 import json
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from vce_core import text_reconcile as core
@@ -219,6 +222,42 @@ class TextCoreGoldenTests(unittest.TestCase):
         self._run("generic")
         self.assertEqual(payload_copy, self.payload)
         self.assertEqual(segments_copy, self.segments)
+
+    def test_finalizer_grounds_summary_links_entities_and_reports_validation_issues(self):
+        """Exercise finalizer-only repairs that reconcile already performs elsewhere."""
+        core.configure_settings_reader(_reader("nsrspec"))
+        segments = [{
+            "scene_id": 1,
+            "start": 0.0,
+            "end": 12.0,
+            "audio_transcript": "Диктор сообщает, что уклон пандусов не соответствует нормативу.",
+            "ocr_text": "CADLib\nПроверка коллизий\nСП 1.13130.2020",
+            "visual_description": "Открыто окно проверки коллизий без отображённого результата.",
+        }]
+        payload = {
+            "executive_summary": "В 3D-модели выявлено, что уклон пандусов не соответствует нормативу.",
+            "topics": ["проверка"],
+            "key_points": [],
+            "entities": [{"name": "CADLib", "type": "software", "scene_ids": [99]}],
+            "scene_enrichment": [],
+            "uncertainties": [],
+        }
+        # Keep this case focused on finalization: the earlier reconcile stage also
+        # repairs entity references and would otherwise mask a broken finalizer.
+        with mock.patch.object(core, "reconcile_text_llm_result", side_effect=lambda value, *_: value):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = core.postprocess_text_llm_payload(
+                    copy.deepcopy(payload), segments, "Старое резюме. СП 1.13.132.020"
+                )
+
+        self.assertIn("По словам диктора", result["executive_summary"])
+        self.assertIn("визуально не подтверждены", result["executive_summary"])
+        self.assertEqual(result["entities"][0]["scene_ids"], [1])
+        self.assertIn(
+            "неисправленный вариант номера СП остался в global_summary",
+            output.getvalue(),
+        )
 
 
 if __name__ == "__main__":
