@@ -789,6 +789,13 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertNotIn('"thinking_budget":', self.runtime)
         self.assertIn('int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS)', self.runtime)
 
+    def test_native_grammar_abort_is_not_mtmd_failure(self):
+        result = _OBSERVER.classify_backend_failure(
+            None, None, ["mtmd context loaded", "Unexpected empty grammar stack after accepting piece"]
+        )
+        self.assertEqual(result["code"], "NATIVE_GRAMMAR_ABORT")
+        self.assertTrue(any("grammar stack" in line for line in result["evidence_lines"]))
+
     def test_http_200_with_failed_text_llm_is_not_a_pass(self):
         verdict = _OBSERVER.classify_backend_failure(
             200,

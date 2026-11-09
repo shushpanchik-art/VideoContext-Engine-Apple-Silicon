@@ -67,6 +67,7 @@ sudo install -m 644 "$TMP_DIR/VideoContextStatusBar.swift" "$RESOURCE_DIR/VideoC
 sudo install -m 755 "$TMP_DIR/start_server.command" "$RESOURCE_DIR/start_server.command" || fail "Не удалось установить start_server.command."
 sudo /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable VideoContextStatusBar" "$APP_TARGET/Contents/Info.plist"
 sudo /usr/libexec/PlistBuddy -c "Set :LSUIElement false" "$APP_TARGET/Contents/Info.plist"
+sudo /usr/bin/xattr -cr "$APP_TARGET" || fail "Не удалось очистить метаданные приложения перед подписью."
 sudo /usr/bin/codesign --force --deep --sign - "$APP_TARGET" || fail "Не удалось переподписать приложение."
 
 echo "[5/6] Подпись приложения и регистрация…"

@@ -51,6 +51,10 @@ printf '\n[1/4] Исправление Whisper/MPS и добавление кн�
 "$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/patches/patch_vce_stop_and_mps.py" || fail "Патч не прошёл проверку. Приложение не устанавливалось."
 
 printf '\n[2/4] Сохранение фирменной иконки и сборка значка меню…\n'
+if [[ ! -f "$APP_ICON" && -n "${VCE_PREVIOUS_APP_ICON:-}" && -f "$VCE_PREVIOUS_APP_ICON" ]]; then
+  /bin/cp -X "$VCE_PREVIOUS_APP_ICON" "$APP_ICON" || fail "Не удалось перенести иконку предыдущей установки."
+fi
+
 # Keep the user's installed custom icon when replacing the app bundle.
 if [[ ! -f "$APP_ICON" && -f "$APP_TARGET/Contents/Resources/VideoContextEngine.icns" ]]; then
   /bin/cp "$APP_TARGET/Contents/Resources/VideoContextEngine.icns" "$APP_ICON" || fail "Не удалось сохранить текущую иконку."
@@ -98,6 +102,7 @@ APP_SUPPORT_DIR="$HOME/Library/Application Support/VideoContext Engine"
 mkdir -p "$APP_SUPPORT_DIR"
 echo "$PROJECT_DIR" > "$APP_SUPPORT_DIR/project_path"
 chmod 600 "$APP_SUPPORT_DIR/project_path"
+sudo /usr/bin/xattr -cr "$APP_TARGET" || fail "Не удалось очистить метаданные приложения перед подписью."
 sudo /usr/bin/codesign --force --deep --sign - "$APP_TARGET" || fail "Не удалось подписать установленное приложение."
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 /usr/bin/env "$LSREGISTER" -f "$APP_TARGET" >/dev/null 2>&1 || true

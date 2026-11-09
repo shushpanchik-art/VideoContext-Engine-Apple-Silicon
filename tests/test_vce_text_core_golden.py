@@ -223,6 +223,17 @@ class TextCoreGoldenTests(unittest.TestCase):
         self.assertEqual(payload_copy, self.payload)
         self.assertEqual(segments_copy, self.segments)
 
+    def test_unsupported_claim_uses_current_scene_speech(self):
+        scenes = [
+            {"scene_id": 1, "audio_transcript": "Первый кадр показывает таблицу."},
+            {"scene_id": 2, "audio_transcript": "Диктор объясняет настройку камеры."},
+        ]
+        payload = {"key_points": [{"scene_id": 2, "text": "Марсоход отправился на орбиту."}]}
+        result = core.postprocess_text_llm_payload(payload, scenes)
+        point = next(point for point in result["key_points"] if point["scene_id"] == 2)
+        self.assertIn("Диктор объясняет настройку камеры", point["text"])
+        self.assertEqual(point["evidence"], ["speech"])
+
     def test_requirement_scene_does_not_invent_a_specific_id(self):
         scene = {
             "scene_id": 1,

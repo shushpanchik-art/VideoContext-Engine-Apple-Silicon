@@ -412,6 +412,7 @@ def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, 
         evidence = _get_supported_sources(text_value, seg)
         # If model's wording cannot be grounded in any source, prefer a short source-derived statement.
         if not evidence:
+            src = _field_sources(seg)
             speech = src["speech"]
             if speech and _supports(speech, speech):
                 text_value = "В речи говорится: «" + _compact(speech, 180).strip(" .;:") + "»."

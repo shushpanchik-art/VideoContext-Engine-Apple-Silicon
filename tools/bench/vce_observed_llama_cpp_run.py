@@ -132,11 +132,12 @@ def classify_backend_failure(
         code = "TEXT_LLM_FAILED"
     elif http_status == 200:
         code = "PASS"
+    elif "unexpected empty grammar stack" in lowered:
+        code = "NATIVE_GRAMMAR_ABORT"
     elif any(marker in lowered for marker in (
         "failed to load mtmd context",
-        "mtmd_init_from_file",
-        "mtmd context",
-        "_init_mtmd_context",
+        "failed to initialize mtmd context",
+        "mtmd_init_from_file failed",
     )):
         code = "MTMD_CONTEXT_FAILED"
     elif http_status is not None or detail:
@@ -149,7 +150,7 @@ def classify_backend_failure(
         "text_llm_status": text_llm_status or None,
         "error_text": str(text_llm_error or detail or next((line for line in (server_event_lines or []) if line), "")) or None,
         "evidence_lines": [line for line in (server_event_lines or []) if any(
-            token in line.lower() for token in ("mtmd", "mmproj", "context", "traceback", "exception", "text llm", "invalid json", "jsondecodeerror")
+            token in line.lower() for token in ("mtmd", "mmproj", "context", "traceback", "exception", "text llm", "invalid json", "jsondecodeerror", "grammar stack")
         )][-40:],
     }
 

@@ -110,6 +110,6 @@ cp "$TARGET/config/videocontext_settings.apple_silicon.example.json" "$TARGET/vi
 VCE_PROJECT_DIR="$TARGET" VCE_LANGUAGE_BUNDLE="$TARGET/patches/vce-recognition-languages-patcher.tar.gz" \
   bash "$TARGET/scripts/install_vce_recognition_languages_patch.command"
 "$TARGET/.venv/bin/python" -m py_compile "$TARGET/VideoContextEngine_v3.19.py"
-VCE_PROJECT_DIR="$TARGET" VCE_CLEAN_INSTALL=1 bash "$TARGET/macos/install_video_context_mac.command"
+VCE_PROJECT_DIR="$TARGET" VCE_CLEAN_INSTALL=1 VCE_PREVIOUS_APP_ICON="$BACKUP/VideoContext Engine.app/Contents/Resources/VideoContextEngine.icns" bash "$TARGET/macos/install_video_context_mac.command"
 trap - ERR
 printf '\nУстановка завершена. Предыдущие файлы: %s\n' "$BACKUP"
