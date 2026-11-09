@@ -36,10 +36,12 @@ command -v xcrun >/dev/null 2>&1 || fail "Не найден xcrun/swiftc. Уст
 
 echo "Важно: перед установкой закончи анализ, закрой VideoContext Engine.app и останови старый сервер (Ctrl+C в его Terminal-окне)."
 echo "После обновления новый сервер будет запускаться из приложения без Terminal; журнал: ~/Library/Logs/VideoContext Engine/server.log."
-read -r -p "Если сервер остановлен, введи STOP для продолжения: " STOP_CONFIRM </dev/tty
-if [[ "$STOP_CONFIRM" != "STOP" ]]; then
-  echo "Установка отменена. Никакие файлы не менялись."
-  exit 0
+if [[ "${VCE_CLEAN_INSTALL:-0}" != 1 ]]; then
+  read -r -p "Если сервер остановлен, введи STOP для продолжения: " STOP_CONFIRM </dev/tty
+  if [[ "$STOP_CONFIRM" != "STOP" ]]; then
+    echo "Установка отменена. Никакие файлы не менялись."
+    exit 0
+  fi
 fi
 if /usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN >/dev/null 2>&1; then
   fail "Порт 7555 ещё занят. Дождитесь окончания анализа и остановите сервер, чтобы не оборвать задачу."
@@ -55,7 +57,7 @@ if [[ ! -f "$APP_ICON" && -f "$APP_TARGET/Contents/Resources/VideoContextEngine.
 fi
 
 # If there is no installed ICNS yet, build one from the old project favicon when available.
-if [[ ! -f "$APP_ICON" && -f "$ICON_SOURCE" ]]; then
+if [[ "${VCE_CLEAN_INSTALL:-0}" != 1 && ! -f "$APP_ICON" && -f "$ICON_SOURCE" ]]; then
   ICON_TMP="$(/usr/bin/mktemp -d)"
   ICONSET="$ICON_TMP/VideoContextEngine.iconset"
   /bin/mkdir -p "$ICONSET"
@@ -100,10 +102,17 @@ sudo /usr/bin/codesign --force --deep --sign - "$APP_TARGET" || fail "Не уд�
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 /usr/bin/env "$LSREGISTER" -f "$APP_TARGET" >/dev/null 2>&1 || true
 
+if [[ "${VCE_CLEAN_INSTALL:-0}" == 1 ]]; then
+  echo "Приложение установлено: $APP_TARGET"
+  exit 0
+fi
+
 printf '\n[4/4] Создание ярлыка на рабочем столе…\n'
 # Remove an older alias or symlink with this name only; do not touch the project.
 if [[ -e "$DESKTOP_ALIAS" || -L "$DESKTOP_ALIAS" ]]; then
-  /bin/rm -rf "$DESKTOP_ALIAS"
+  if [[ ! -d "$DESKTOP_ALIAS" || -L "$DESKTOP_ALIAS" ]]; then
+    /bin/rm -f "$DESKTOP_ALIAS"
+  fi
 fi
 if [[ -L "$DESKTOP_LINK" ]]; then
   /bin/rm -f "$DESKTOP_LINK"
