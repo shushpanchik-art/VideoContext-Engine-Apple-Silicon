@@ -217,10 +217,13 @@ def _vce_prepare_mlx_vlm_runtime():
     import importlib as _vce_importlib
     _vce_mlx_vlm_common = _vce_importlib.import_module("mlx_vlm.generate.common")
     _vce_mlx_vlm_dispatch = _vce_importlib.import_module("mlx_vlm.generate.dispatch")
+    autoregressive = _vce_importlib.import_module("mlx_vlm.generate.ar")
 
     _vce_generation_stream = mx.new_thread_local_stream(mx.gpu)
     _vce_mlx_vlm_common.generation_stream = _vce_generation_stream
     _vce_mlx_vlm_dispatch.generation_stream = _vce_generation_stream
+    # The token generator imports the stream by name before this initialization.
+    autoregressive.generation_stream = _vce_generation_stream
 
     # mlx-vlm 0.7.10 calls mx.device_info() with no device after checking only
     # mx.metal.is_available(). CPU device_info lacks the GPU-only working-set key.
@@ -2282,6 +2285,7 @@ def run_text_llm_postprocess(
             return str((choices[0].get("message") or {}).get("content") or "") if choices else ""
     else:
         _vce_configure_mlx_metal("text_llm")
+        _vce_prepare_mlx_vlm_runtime()
         from mlx_vlm import load, generate
         try:
             from mlx_vlm.generate import stream_generate

@@ -48,5 +48,9 @@
   "recognition_languages": [
     "ru",
     "en"
-  ]
+  ],
+  "enable_ocr_cache": false,
+  "text_llm_enabled": true,
+  "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+  "text_llm_max_tokens": 8192
 }

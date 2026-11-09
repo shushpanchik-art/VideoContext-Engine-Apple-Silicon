@@ -48,14 +48,17 @@ class MlxWiredLimitTests(unittest.TestCase):
                 mlx.core = mx
                 common = types.SimpleNamespace(wired_limit=None, tree_reduce=lambda *args: 0)
                 dispatch = types.SimpleNamespace()
+                autoregressive = types.SimpleNamespace(generation_stream="cpu")
                 with patch.dict(sys.modules, {
                     "mlx": mlx,
                     "mlx.core": mx,
                     "mlx_vlm.generate.common": common,
                     "mlx_vlm.generate.dispatch": dispatch,
+                    "mlx_vlm.generate.ar": autoregressive,
                 }):
                     namespace["_vce_prepare_mlx_vlm_runtime"]()
                     self.assertIs(dispatch.wired_limit, common.wired_limit)
+                    self.assertIs(autoregressive.generation_stream, common.generation_stream)
                     with self.assertRaises(MetalSyncError) as caught:
                         with common.wired_limit(object(), streams):
                             self.assertEqual(limits, [99])
