@@ -223,6 +223,25 @@ class TextCoreGoldenTests(unittest.TestCase):
         self.assertEqual(payload_copy, self.payload)
         self.assertEqual(segments_copy, self.segments)
 
+    def test_requirement_scene_does_not_invent_a_specific_id(self):
+        scene = {
+            "scene_id": 1,
+            "start": 0.0,
+            "end": 4.0,
+            "ocr_text": "ID требования: 90210. Сегментация. Генерация калькулятора.",
+        }
+        claim = "Сегментация. Генерация калькулятора."
+        payload = {
+            "executive_summary": claim,
+            "key_points": [{"scene_id": 1, "text": claim, "evidence": ["ocr"]}],
+        }
+        for profile in ("generic", "nsrspec"):
+            with self.subTest(profile=profile):
+                core.configure_settings_reader(_reader(profile))
+                result = core.postprocess_text_llm_payload(copy.deepcopy(payload), [scene])
+                self.assertTrue(result["key_points"])
+                self.assertNotIn("44846", json.dumps(result, ensure_ascii=False))
+
     def test_finalizer_grounds_summary_links_entities_and_reports_validation_issues(self):
         """Exercise finalizer-only repairs that reconcile already performs elsewhere."""
         core.configure_settings_reader(_reader("nsrspec"))

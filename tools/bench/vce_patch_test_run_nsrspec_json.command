@@ -40,7 +40,7 @@ REGRESSION_TESTS_PASSED=0
 AB_STARTED=0
 MISSING_FILES=""
 FILES="
-VideoContextEngine_v3.19.py 351eb36e498b45b85ee8b5d8e2561f1fd55c7f02
+VideoContextEngine_v3.19.py a3e33f7ef80946f75abc9b95487af707da46b2b2
 tools/bench/vce_observed_llama_cpp_run.py ac131e02ada0f44687e1fd9cddc42a7cf33d6b5b
 tools/bench/vce_run_nsrspec_ab.command 56bc59d653803b9508b778c4dc5084fe35e201b1
 tools/bench/vce_runtime_watchdog.py 6d60468a5ba2251d0c639fb917018234d5a0bf89
@@ -50,7 +50,7 @@ domain_profiles/__init__.py 00c837b7966783e071ec17ebfecf347cfe6dd12d
 domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098
 tools/bench/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
 vce_core/__init__.py 04afc9998ab40a0f5c70d0f5d05b0ce04fbd33bd
-vce_core/text_reconcile.py 4305fd15fe9b2fd7738901e70e9a607b55f32cc4
+vce_core/text_reconcile.py 21d4e641674c0a22b2b7a1cd61742bb1b6a08615
 "
 
 upload_patch_validation_logs() {

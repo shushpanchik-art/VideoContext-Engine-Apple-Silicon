@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """Local A-E benchmark for VideoContext Engine Text LLM. Video and raw scene data stay local."""
 from __future__ import annotations
-import argparse, base64, copy, csv, datetime as dt, hashlib, importlib, importlib.util, inspect, json, os, platform, re, statistics, subprocess, sys, tempfile, time, urllib.error, urllib.request, uuid
+import argparse, ast, base64, copy, csv, datetime as dt, hashlib, importlib, importlib.util, inspect, json, os, platform, re, statistics, subprocess, sys, time, uuid
 from pathlib import Path
 
 REPO = "shushpanchik-art/VideoContext-Engine-Apple-Silicon"
@@ -306,28 +306,66 @@ def instrument_quality_guard(fn):
         1,
     )
 
-def load_source(outdir):
-    print("[3/6] Загрузка закреплённого исходника VCE")
-    src=get_url(SOURCE_URL).decode("utf-8")
-    a=src.find("def run_text_llm_postprocess("); b=src.find("\ndef format_text_llm_report(",a)
-    if a<0 or b<0: raise RuntimeError("В закреплённом исходнике не найдена run_text_llm_postprocess.")
-    fn=src[a:b]
+def instrument_source(src):
+    """Instrument the text benchmark without modifying the engine on disk."""
+    a = src.find("def run_text_llm_postprocess(")
+    b = src.find("\ndef format_text_llm_report(", a)
+    if a < 0 or b < 0:
+        raise RuntimeError("В закреплённом исходнике не найдена run_text_llm_postprocess.")
+    fn = src[a:b]
+    tree = ast.parse(fn)
+    hooks = {
+        ("mlx_vlm", "load", "generate"): "load, generate = BENCH_load, BENCH_generate",
+        ("mlx_vlm.generate", "stream_generate"): "stream_generate = BENCH_stream",
+        ("mlx_vlm.prompt_utils", "apply_chat_template"): "apply_chat_template = BENCH_template",
+        ("mlx_vlm.utils", "load_config"): "load_config = BENCH_config",
+    }
+    insertions = {}
+    for signature, hook in hooks.items():
+        imports = [
+            node for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and (node.module, *(alias.name for alias in node.names)) == signature
+            and all(alias.asname is None for alias in node.names)
+        ]
+        if len(imports) != 1:
+            raise RuntimeError(f"Expected exactly one MLX import for {signature!r}.")
+        node = imports[0]
+        insertions[node.end_lineno] = " " * node.col_offset + hook + "\n"
+
+    instructions = [
+        node for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "instruction" for target in node.targets)
+    ]
+    if len(instructions) != 1:
+        raise RuntimeError("Expected exactly one benchmark prompt assignment.")
+    node = instructions[0]
+    indent = " " * node.col_offset
+    insertions[node.end_lineno] = (
+        indent + "BENCH.prompt += time.perf_counter() - BENCH.prompt_started\n"
+        + indent + "BENCH.prompt_text = instruction\n"
+    )
+    lines = fn.splitlines(keepends=True)
+    for line_number, hook in sorted(insertions.items(), reverse=True):
+        lines.insert(line_number, hook)
+    fn = "".join(lines)
     patches=[
-      ("    from mlx_vlm import load, generate","    from mlx_vlm import load as _real_load, generate as _real_generate\n    load, generate = BENCH_load, BENCH_generate"),
-      ("    try:\n        from mlx_vlm.generate import stream_generate\n    except Exception:\n        stream_generate = None","    try:\n        from mlx_vlm.generate import stream_generate as _real_stream\n        stream_generate = BENCH_stream\n    except Exception:\n        stream_generate = None"),
-      ("    from mlx_vlm.prompt_utils import apply_chat_template","    from mlx_vlm.prompt_utils import apply_chat_template as _real_template\n    apply_chat_template = BENCH_template"),
-      ("    from mlx_vlm.utils import load_config","    from mlx_vlm.utils import load_config as _real_config\n    load_config = BENCH_config"),
       ("                from json_repair import repair_json","                from json_repair import repair_json as _real_repair\n                repair_json = BENCH_repair"),
       ("        limits = (600, 650, 650)","        BENCH.prompt_started = time.perf_counter()\n        limits = (600, 650, 650)"),
-      ("        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output.","        BENCH.prompt += max(0.0,time.perf_counter()-(BENCH.prompt_started or time.perf_counter()))\n        BENCH.prompt_text = instruction\n        try:\n            # For this constrained extraction task, avoid spending time on long reasoning output."),
       ("        try:\n            parsed = _text_llm_parse_json(raw)","        BENCH.primary_raw = raw\n        try:\n            parsed = _text_llm_parse_json(raw)"),
     ]
     for old,new in patches:
         if fn.count(old)!=1: raise RuntimeError("Unexpected source snapshot: expected exactly one patch point: "+old[:70])
         fn=fn.replace(old,new,1)
-    fn = instrument_quality_guard(fn)
+    return src[:a] + instrument_quality_guard(fn) + src[b:]
+
+
+def load_source(outdir):
+    print("[3/6] Загрузка закреплённого исходника VCE")
+    source = instrument_source(get_url(SOURCE_URL).decode("utf-8"))
     path=outdir/"_instrumented"/"vce_snapshot.py"; path.parent.mkdir(parents=True,exist_ok=True)
-    path.write_text(src[:a]+fn+src[b:],encoding="utf-8")
+    path.write_text(source,encoding="utf-8")
     name="_vce_text_llm_benchmark"
     spec=importlib.util.spec_from_file_location(name,path)
     mod=importlib.util.module_from_spec(spec); sys.modules[name]=mod; spec.loader.exec_module(mod)
@@ -725,7 +763,7 @@ def main():
                 if m.get("success") or raw_model_output_text: outputs[name].append(build_output_record(n,o,raw_model_output,m,raw_model_output_text))
                 write_json(outdir/"runs.partial.local.json",flat)
                 print("    ",m.get("total_seconds"),"s; success=",m.get("success"),"tokens=",m.get("output_tokens"))
-        agg=med_agg(runs); base=agg.get("baseline",{}).get("total_seconds_median"); base_cov=agg.get("baseline",{}).get("critical_atom_coverage_median")
+        agg=med_agg(runs); base_cov=agg.get("baseline",{}).get("critical_atom_coverage_median")
         candidates=[]
         for name in ("A_thinking_off","B_fast_summary","C_compact_context"):
             r=agg.get(name,{})

@@ -2231,7 +2231,7 @@ def run_text_llm_postprocess(
     video_duration: float,
     existing_summary: str,
     segments: List[Dict[str, Any]],
-    max_tokens: int = 4096,
+    max_tokens: int = TEXT_LLM_DEFAULT_MAX_TOKENS,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Run text-only enrichment on exactly the selected MLX or llama.cpp backend."""
@@ -2264,11 +2264,8 @@ def run_text_llm_postprocess(
         def load_config(_path):
             return None
 
-        def _llama_completion(instance, prompt, max_tokens, temperature, stream):
-            return _vce_llama_json_completion(instance, prompt, max_tokens, temperature, stream)
-
         def stream_generate(instance, _processor, prompt, max_tokens, temperature=0.1, **_kwargs):
-            for chunk in _llama_completion(instance, prompt, max_tokens, temperature, True):
+            for chunk in _vce_llama_json_completion(instance, prompt, max_tokens, temperature, True):
                 choices = chunk.get("choices") or []
                 delta = (choices[0].get("delta") or {}) if choices else {}
                 piece = delta.get("content")
@@ -2276,7 +2273,7 @@ def run_text_llm_postprocess(
                     yield str(piece)
 
         def generate(instance, _processor, prompt, max_tokens, temperature=0.1, **_kwargs):
-            response = _llama_completion(instance, prompt, max_tokens, temperature, False)
+            response = _vce_llama_json_completion(instance, prompt, max_tokens, temperature, False)
             choices = response.get("choices") or []
             return str((choices[0].get("message") or {}).get("content") or "") if choices else ""
     else:
@@ -2989,7 +2986,7 @@ async def video_context_web_ui():
     ui_path = Path(__file__).with_name("videocontext_web_ui.html")
     if not ui_path.is_file():
         return HTMLResponse(
-            "UI file not found. Re-run patch_vce_ui_batch_progress.py from the project folder.",
+            "UI file not found. Restore videocontext_web_ui.html from the application package.",
             status_code=500,
         )
     return HTMLResponse(ui_path.read_text(encoding="utf-8"))

@@ -3,12 +3,14 @@ name: VCE unattended benchmark validation
 on:
   push:
     paths:
+      - "VideoContextEngine_v3.19.py"
       - "scripts/vce_unattended_benchmark.py"
       - "tools/bench/bench_text_llm_summary.py"
       - "tests/test_vce_text_llm_benchmark_provenance.py"
       - ".github/workflows/vce-benchmark-validation.yml"
   pull_request:
     paths:
+      - "VideoContextEngine_v3.19.py"
       - "scripts/vce_unattended_benchmark.py"
       - "tools/bench/bench_text_llm_summary.py"
       - "tests/test_vce_text_llm_benchmark_provenance.py"

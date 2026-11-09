@@ -30,6 +30,7 @@ def run_text_llm_postprocess():
     from mlx_vlm.utils import load_config
     try:
         limits = (600, 650, 650)
+        instruction = "test prompt"
         try:
             # For this constrained extraction task, avoid spending time on long reasoning output.
             pass
@@ -70,6 +71,13 @@ def format_text_llm_report():
                     body = inspect.getsource(module.run_text_llm_postprocess)
                 self.assertEqual(body.count("parsed = BENCH_quality_guard(parsed, segments)"), 1)
                 self.assertLess(body.index(call.strip()), body.index("parsed = BENCH_quality_guard"))
+
+    def test_current_engine_snapshot_can_be_instrumented(self):
+        source = (ROOT / "VideoContextEngine_v3.19.py").read_text(encoding="utf-8")
+        instrumented = BENCH.instrument_source(source)
+        compile(instrumented, "vce_snapshot.py", "exec")
+        self.assertIn("            stream_generate = BENCH_stream", instrumented)
+        self.assertEqual(instrumented.count("BENCH.prompt_text = instruction"), 1)
 
     def test_quality_guard_instruments_after_shared_pipeline_and_legacy_snapshot(self):
         for call in (
