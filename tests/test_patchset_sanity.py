@@ -11,11 +11,19 @@ PATCHES = ROOT / "patches"
 
 class PatchsetSanityTests(unittest.TestCase):
     def test_patchers_parse_as_python(self):
-        files = sorted(PATCHES.glob("*.py"))
+        files = sorted(PATCHES.glob("*.py")) + sorted((PATCHES / "archive").glob("*.py"))
         self.assertGreaterEqual(len(files), 8)
         for path in files:
             with self.subTest(path=path.name):
                 ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+
+
+    def test_removed_product_helpers_are_in_archived_patchers_only(self):
+        archive = PATCHES / "archive"
+        self.assertTrue((archive / "README.md").is_file())
+        self.assertFalse((PATCHES / "patch_vce_ui_batch_progress.py").exists())
+        self.assertFalse((PATCHES / "patch_vce_parallel_cpu_asr_vlm.py").exists())
+        self.assertIn("Do not run them", (archive / "README.md").read_text(encoding="utf-8"))
 
     def test_mps_word_timing_fix_is_present(self):
         src = (PATCHES / "patch_vce_stop_and_mps.py").read_text(encoding="utf-8")
@@ -23,10 +31,10 @@ class PatchsetSanityTests(unittest.TestCase):
         self.assertIn('MPS_OLD = "return dtw_cpu(x.double().cpu().numpy())"', src)
 
     def test_batch_settings_cancel_and_save_hooks_are_in_patchers(self):
-        batch = (PATCHES / "patch_vce_ui_batch_progress.py").read_text(encoding="utf-8")
+        batch = (PATCHES / "archive" / "patch_vce_ui_batch_progress.py").read_text(encoding="utf-8")
         stop = (PATCHES / "patch_vce_stop_and_mps.py").read_text(encoding="utf-8")
-        beside = (PATCHES / "patch_vce_save_next_to_video.py").read_text(encoding="utf-8")
-        settings = (PATCHES / "patch_vce_settings_button.py").read_text(encoding="utf-8")
+        beside = (PATCHES / "archive" / "patch_vce_save_next_to_video.py").read_text(encoding="utf-8")
+        settings = (PATCHES / "archive" / "patch_vce_settings_button.py").read_text(encoding="utf-8")
         self.assertIn("word_timestamps", batch)
         self.assertIn("generate_json", batch)
         self.assertIn("/api/v1/cancel/", stop)
@@ -36,7 +44,7 @@ class PatchsetSanityTests(unittest.TestCase):
         self.assertIn("videocontext_settings.json", settings)
 
     def test_name_reconciliation_prompt_requires_cross_field_consistency(self):
-        patcher = (PATCHES / "patch_vce_name_reconciliation_prompt.py").read_text(encoding="utf-8")
+        patcher = (PATCHES / "archive" / "patch_vce_name_reconciliation_prompt.py").read_text(encoding="utf-8")
         self.assertIn("один канонический вариант", patcher)
         self.assertIn("executive_summary, topics, key_points, entities", patcher)
         self.assertIn("original_summary", patcher)
@@ -44,7 +52,7 @@ class PatchsetSanityTests(unittest.TestCase):
         self.assertIn("Не объявляй действие завершённым", patcher)
 
     def test_name_consistency_v2_patch_has_ocr_gated_canonicalizer(self):
-        patch_path = PATCHES / "patch_vce_name_consistency_v2.py"
+        patch_path = PATCHES / "archive" / "patch_vce_name_consistency_v2.py"
         patch_source = patch_path.read_text(encoding="utf-8")
         self.assertIn("VCE_CONFIRMED_STANDARD_CANONICALIZATION_V2", patch_source)
         self.assertIn("СП 1.13.132.020", patch_source)

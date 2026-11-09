@@ -8,7 +8,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCHER_PATH = ROOT / "patches" / "patch_vce_audio_resilience_acceleration_v6.py"
+PATCHER_PATH = ROOT / "patches" / "archive" / "patch_vce_audio_resilience_acceleration_v6.py"
 SPEC = importlib.util.spec_from_file_location("vce_audio_resilience_v6", PATCHER_PATH)
 PATCH = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

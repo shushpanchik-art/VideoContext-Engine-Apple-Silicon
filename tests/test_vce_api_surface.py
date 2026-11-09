@@ -9,7 +9,7 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT / "VideoContextEngine_v3.19.py"
 UI = ROOT / "videocontext_web_ui.html"
-WHISPER_PATCH = ROOT / "patches" / "patch_vce_whisper_ocr_fullres_fixed.py"
+WHISPER_PATCH = ROOT / "patches" / "archive" / "patch_vce_whisper_ocr_fullres_fixed.py"
 _PATCH_SPEC = importlib.util.spec_from_file_location("vce_whisper_patch_under_test", WHISPER_PATCH)
 _WHISPER_PATCH_MODULE = importlib.util.module_from_spec(_PATCH_SPEC)
 _PATCH_SPEC.loader.exec_module(_WHISPER_PATCH_MODULE)
@@ -52,17 +52,50 @@ class TestApiSurface(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
             and node.name == "_vce_media_conversion_timeout_seconds"
         )
+        bounded_helper = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_vce_bounded_timeout_seconds"
+        )
         self.assertIn('"media_conversion_timeout": 3600', self.source)
         self.assertIn('"media_conversion_timeout": (60, 7200)', self.source)
         self.assertIn('cfg-media-conversion-timeout', self.ui)
         self.assertIn('value="3600"', self.ui)
         self.assertIn("timeout=conversion_timeout", self.source)
         namespace = {"setting": lambda _name, fallback: fallback}
-        module = ast.Module(body=[helper], type_ignores=[])
+        module = ast.Module(body=[bounded_helper, helper], type_ignores=[])
         exec(compile(module, str(ENGINE), "exec"), namespace)
         for configured, expected in ((1, 60), (1800, 1800), (9000, 7200), ("invalid", 3600)):
             namespace["setting"] = lambda _name, _fallback, value=configured: value
             self.assertEqual(namespace["_vce_media_conversion_timeout_seconds"](), expected)
+
+    def test_external_tool_timeouts_are_saved_bounded_settings(self):
+        helper = next(
+            node for node in ast.walk(self.tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "_vce_bounded_timeout_seconds"
+        )
+        cases = (
+            ("ffprobe_timeout", 45, 5, 300, 1, 5),
+            ("ffmpeg_ocr_timeout", 1800, 60, 7200, 9000, 7200),
+            ("tesseract_timeout", 90, 5, 600, "bad", 90),
+            ("binary_probe_timeout", 15, 5, 120, 30, 30),
+            ("audio_probe_timeout", 20, 5, 300, 20, 20),
+            ("media_recovery_timeout", 240, 30, 7200, 240, 240),
+        )
+        module = ast.Module(body=[helper], type_ignores=[])
+        for name, default, minimum, maximum, configured, expected in cases:
+            with self.subTest(name=name):
+                namespace = {"setting": lambda key, fallback: configured if key == name else fallback}
+                exec(compile(module, str(ENGINE), "exec"), namespace)
+                self.assertEqual(
+                    namespace["_vce_bounded_timeout_seconds"](name, default, minimum, maximum),
+                    expected,
+                )
+                self.assertIn(f'"{name}": {default}', self.source)
+                self.assertIn(f'"{name}": ({minimum}, {maximum})', self.source)
+                field_id = name.replace("_", "-")
+                self.assertIn(f"{name}: Number(document.getElementById('cfg-{field_id}')", self.ui)
+                self.assertIn(f"'cfg-{field_id}':'{name}'", self.ui)
 
     def test_whisper_patcher_checks_form_and_runtime_use_with_ast(self):
         valid = '''

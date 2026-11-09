@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "patches"))
+sys.path.insert(0, str(ROOT / "patches" / "archive"))
 import patch_vce_url_batch_ingestion as patch
 
 

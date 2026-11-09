@@ -3,14 +3,14 @@ name: URL batch ingestion tests
 on:
   pull_request:
     paths:
-      - "patches/patch_vce_url_batch_ingestion.py"
+      - "patches/archive/patch_vce_url_batch_ingestion.py"
       - "tests/test_vce_url_batch_ingestion.py"
       - ".github/workflows/url-batch-ingestion-tests.yml"
   push:
     branches:
       - feat/vk-url-batch-ingestion-20261102
     paths:
-      - "patches/patch_vce_url_batch_ingestion.py"
+      - "patches/archive/patch_vce_url_batch_ingestion.py"
       - "tests/test_vce_url_batch_ingestion.py"
       - ".github/workflows/url-batch-ingestion-tests.yml"
 
@@ -23,6 +23,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Self-tests
-        run: python patches/patch_vce_url_batch_ingestion.py --self-test
+        run: python patches/archive/patch_vce_url_batch_ingestion.py --self-test
       - name: Regression tests
         run: python -m unittest tests/test_vce_url_batch_ingestion.py -v

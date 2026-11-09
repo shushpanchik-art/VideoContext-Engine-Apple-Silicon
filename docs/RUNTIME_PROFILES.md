@@ -28,3 +28,16 @@ For a valid A/B test, run the exact same input file with the same scene boundari
 ## Separate architecture track
 
 A future `llama.cpp`/GGUF VLM or Text LLM backend is a distinct architecture experiment, not a runtime-profile variant and not a reproduction of the 25 October baseline. Its model-size/quantization and output-quality trade-offs require a separate benchmark and must not silently replace either canonical profile.
+
+## Environment overrides and internal markers
+
+Saved settings are the normal configuration surface. The following environment values are
+explicit process-level overrides and take precedence over saved settings:
+
+- `VIDEOCONTEXT_MLX_WHISPER_MODEL` overrides the selected Whisper model for the MLX Whisper adapter.
+- `VIDEOCONTEXT_MLX_DEVICE` overrides `mlx_device`; only `auto` and `metal` are accepted for the VLM.
+- `VCE_MLX_WHISPER_REPO` is consulted only when the selected Whisper model is not one of the built-in presets.
+- `VCE_DEV_DOCS` enables Swagger/ReDoc only for `1`, `true`, `yes`, or `on` (case-insensitive).
+
+`VCE_CANCELLED_BY_USER` is an internal downloader error sentinel used to distinguish a user
+cancellation from a download failure. It is not a user setting and should not be set manually.

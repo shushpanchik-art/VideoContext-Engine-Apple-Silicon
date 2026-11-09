@@ -19,7 +19,7 @@ def load_module(name, path):
     return module
 
 
-guard_module = load_module("vce_text_llm_integrity_guard", REPO_ROOT / "patches" / "patch_vce_text_llm_quality_guard.py")
+guard_module = load_module("vce_text_llm_integrity_guard", REPO_ROOT / "patches" / "archive" / "patch_vce_text_llm_quality_guard.py")
 bench_module = load_module("vce_text_llm_benchmark", REPO_ROOT / "tools" / "bench" / "bench_text_llm_summary.py")
 
 

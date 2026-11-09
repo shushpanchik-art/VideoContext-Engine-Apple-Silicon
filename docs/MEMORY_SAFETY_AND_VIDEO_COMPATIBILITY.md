@@ -1,15 +1,11 @@
 # Memory safety and video decode recovery
 
+> **Архивная инструкция:** файл описывает исторический патч. Текущий `VideoContextEngine_v3.19.py` уже содержит эту функциональность; патчеры в `patches/archive/` сохранены для истории и не предназначены для запуска.
+
+
 The VCE runtime may hit a Metal allocation failure or GPU command-buffer timeout while running MLX inference. A timeout followed by `kIOGPUCommandBufferCallbackErrorSubmissionsIgnored` indicates that Metal is no longer accepting work after the prior GPU error; repeatedly submitting the same VLM workload is not a useful recovery strategy. On macOS this can also be aggravated by cached PyTorch MPS allocations left after Whisper inference. Large file size alone does not prove the cause; frame resolution, model allocations, other GPU clients, and unified-memory pressure matter.
 
-For an already patched project, use the dedicated migration patcher rather than rerunning the full installer:
-
-```bash
-curl -fL --retry 3 "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/fix/vce-speed-profile-and-menubar-20261024/patches/patch_vce_memory_safety.py" -o "$HOME/VideoContext-Engine/patch_vce_memory_safety.py"
-"$HOME/VideoContext-Engine/.venv/bin/python" "$HOME/VideoContext-Engine/patch_vce_memory_safety.py" --project "$HOME/VideoContext-Engine" --dry-run
-```
-
-If the dry run lists the expected memory-safety changes, run the same command without `--dry-run` after confirming no analysis is active. The patcher makes timestamped backups of the Python engine and settings JSON. It deliberately forces one keyframe per scene in this recovery profile; for technical text, Apple Vision OCR runs against the source frame independently of the VLM input resize.
+The current engine already includes the memory cleanup and media recovery behavior described below. Do not download or run the archived migration patcher. Use the supported runtime and media settings in the VCE UI.
 
 ## What it changes
 

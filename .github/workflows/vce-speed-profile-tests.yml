@@ -3,10 +3,10 @@ name: VCE speed profile and macOS menu bar tests
 on:
   pull_request:
     paths:
-      - "patches/patch_vce_speed_profile.py"
-      - "patches/patch_vce_defaults.py"
-      - "patches/patch_vce_quality_prompt.py"
-      - "patches/patch_vce_memory_safety.py"
+      - "patches/archive/patch_vce_speed_profile.py"
+      - "patches/archive/patch_vce_defaults.py"
+      - "patches/archive/patch_vce_quality_prompt.py"
+      - "patches/archive/patch_vce_memory_safety.py"
       - "tests/test_vce_quality_prompt.py"
       - "tests/test_vce_native_app_lifecycle.py"
       - "docs/**"
@@ -19,9 +19,9 @@ on:
     branches:
       - main
     paths:
-      - "patches/patch_vce_speed_profile.py"
-      - "patches/patch_vce_defaults.py"
-      - "patches/patch_vce_quality_prompt.py"
+      - "patches/archive/patch_vce_speed_profile.py"
+      - "patches/archive/patch_vce_defaults.py"
+      - "patches/archive/patch_vce_quality_prompt.py"
       - "tests/test_vce_quality_prompt.py"
       - "docs/**"
       - "macos/**"
@@ -41,6 +41,6 @@ jobs:
       - name: Test reversible VLM speed profile
         run: python -m unittest discover -s tests -p "test_vce_*.py" -v
       - name: Validate patcher syntax
-        run: python -m py_compile patches/patch_vce_speed_profile.py patches/patch_vce_defaults.py patches/patch_vce_quality_prompt.py patches/patch_vce_memory_safety.py scripts/vce_unattended_benchmark.py
+        run: python -m py_compile patches/archive/patch_vce_speed_profile.py patches/archive/patch_vce_defaults.py patches/archive/patch_vce_quality_prompt.py patches/archive/patch_vce_memory_safety.py scripts/vce_unattended_benchmark.py
       - name: Validate installer shell syntax
         run: bash -n macos/install_video_context_mac.command macos/repair_installed_native_app.command

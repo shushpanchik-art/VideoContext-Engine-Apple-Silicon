@@ -202,7 +202,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
     def test_nsrspec_evidence_rewrites_are_profile_gated(self):
         self.assertIn('if str(setting("domain_profile", "generic") or "generic").strip().lower() != "nsrspec":', self.runtime)
-        self.assertIn('_vce4_is_nsrspec = str(setting("domain_profile", "generic")', self.runtime)
+        self.assertIn('_report_is_nsrspec = str(setting("domain_profile", "generic")', self.runtime)
 
     def test_generic_technical_cues_do_not_name_nsrspec_products(self):
         line = next(x for x in self.runtime.splitlines() if "technical_cues = re.compile" in x)
@@ -211,7 +211,11 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertNotIn("пандус", line.lower())
 
     def test_generic_entity_scene_matching_is_not_profile_gated(self):
-        self.assertIn('if n.replace(" ", "") in src_blob.replace(" ", "") or (nsrspec_profile and has_buildchat_conflict', self.runtime)
+        compact_runtime = re.sub(r"\s+", " ", self.runtime)
+        self.assertIn(
+            'if n.replace(" ", "") in src_blob.replace(" ", "") or ( nsrspec_profile and has_buildchat_conflict',
+            compact_runtime,
+        )
         self.assertIn('elif nsrspec_profile and (compact_name == "кси" or', self.runtime)
 
     def test_observer_checks_only_required_backend_settings(self):

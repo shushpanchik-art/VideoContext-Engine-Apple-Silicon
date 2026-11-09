@@ -96,6 +96,12 @@ button#stop:disabled { color:#4b4217 !important; }
       <label class="setting">Мин. длительность сцены (с)<input id="cfg-min-scene-duration" type="number" min="0.5" max="60" step="0.5" value="1.5"></label>
       <label class="setting">Макс. длительность сцены (с)<input id="cfg-max-scene-duration" type="number" min="5" max="300" step="1" value="20"></label>
       <label class="setting">Лимит конвертации FFmpeg (сек)<input id="cfg-media-conversion-timeout" type="number" min="60" max="7200" step="60" value="3600"><span class="hint">Если файл слишком большой для выбранного лимита, анализ завершится с сообщением об ошибке. Максимум — 2 часа.</span></label>
+      <label class="setting">Лимит проверки видео ffprobe (сек)<input id="cfg-ffprobe-timeout" type="number" min="5" max="300" step="5" value="45"></label>
+      <label class="setting">Лимит OCR через FFmpeg (сек)<input id="cfg-ffmpeg-ocr-timeout" type="number" min="60" max="7200" step="60" value="1800"></label>
+      <label class="setting">Лимит Tesseract на кадр (сек)<input id="cfg-tesseract-timeout" type="number" min="5" max="600" step="5" value="90"></label>
+      <label class="setting">Лимит проверки инструментов (сек)<input id="cfg-binary-probe-timeout" type="number" min="5" max="120" step="5" value="15"></label>
+      <label class="setting">Лимит проверки аудио (сек)<input id="cfg-audio-probe-timeout" type="number" min="5" max="300" step="5" value="20"></label>
+      <label class="setting">Лимит восстановления видео (сек)<input id="cfg-media-recovery-timeout" type="number" min="30" max="7200" step="30" value="240"></label>
       <label class="setting">Кадров на сцену<input id="cfg-keyframes" type="number" min="1" max="5" step="1" value="1"></label>
       <label class="setting">Токенов на сцену<input id="cfg-scene-tokens" type="number" min="16" max="1024" step="16" value="1024"></label>
       <label class="setting">Токенов на резюме<input id="cfg-summary-tokens" type="number" min="16" max="2048" step="16" value="2048"></label>
@@ -199,6 +205,12 @@ button#stop:disabled { color:#4b4217 !important; }
     min_scene_duration: Number(document.getElementById('cfg-min-scene-duration').value),
     max_scene_duration: Number(document.getElementById('cfg-max-scene-duration').value),
     media_conversion_timeout: Number(document.getElementById('cfg-media-conversion-timeout').value),
+    ffprobe_timeout: Number(document.getElementById('cfg-ffprobe-timeout').value),
+    ffmpeg_ocr_timeout: Number(document.getElementById('cfg-ffmpeg-ocr-timeout').value),
+    tesseract_timeout: Number(document.getElementById('cfg-tesseract-timeout').value),
+    binary_probe_timeout: Number(document.getElementById('cfg-binary-probe-timeout').value),
+    audio_probe_timeout: Number(document.getElementById('cfg-audio-probe-timeout').value),
+    media_recovery_timeout: Number(document.getElementById('cfg-media-recovery-timeout').value),
     keyframes_per_scene: Number(document.getElementById('cfg-keyframes').value),
     vlm_max_tokens_scene: Number(document.getElementById('cfg-scene-tokens').value),
     vlm_max_tokens_summary: Number(document.getElementById('cfg-summary-tokens').value),
@@ -227,6 +239,9 @@ button#stop:disabled { color:#4b4217 !important; }
       'cfg-scene-threshold':'scene_threshold','cfg-min-scene-duration':'min_scene_duration',
       'cfg-max-scene-duration':'max_scene_duration','cfg-keyframes':'keyframes_per_scene',
       'cfg-media-conversion-timeout':'media_conversion_timeout',
+      'cfg-ffprobe-timeout':'ffprobe_timeout','cfg-ffmpeg-ocr-timeout':'ffmpeg_ocr_timeout',
+      'cfg-tesseract-timeout':'tesseract_timeout','cfg-binary-probe-timeout':'binary_probe_timeout',
+      'cfg-audio-probe-timeout':'audio_probe_timeout','cfg-media-recovery-timeout':'media_recovery_timeout',
       'cfg-scene-tokens':'vlm_max_tokens_scene','cfg-summary-tokens':'vlm_max_tokens_summary',
       'cfg-text-llm-model':'text_llm_model','cfg-text-llm-max-tokens':'text_llm_max_tokens'
     };
