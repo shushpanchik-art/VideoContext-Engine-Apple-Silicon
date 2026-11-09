@@ -255,12 +255,15 @@ def _vce_prepare_mlx_vlm_runtime():
             try:
                 yield
             finally:
-                if streams is not None:
-                    for _vce_stream in streams:
-                        mx.synchronize(_vce_stream)
-                else:
-                    mx.synchronize()
-                mx.set_wired_limit(_vce_old_limit)
+                try:
+                    if streams is not None:
+                        for _vce_stream in streams:
+                            mx.synchronize(_vce_stream)
+                    else:
+                        mx.synchronize()
+                finally:
+                    # A Metal synchronization error must not leave the raised limit installed.
+                    mx.set_wired_limit(_vce_old_limit)
 
         _vce_wired_limit._vce_gpu_info_compat = True
         _vce_mlx_vlm_common.wired_limit = _vce_wired_limit
