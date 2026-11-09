@@ -5122,8 +5122,6 @@ async def analyze_video(
                     if ram_mode == "ram-":
                         if "_vce_whisper_model" in locals():
                             del _vce_whisper_model
-                        if "w_model" in locals():
-                            del w_model
                         release_accelerator_memory("after concurrent Whisper inference")
                 # Sequential baseline guarantees no Whisper/VLM overlap by scheduling.
                 # Do not infer it from timestamps: report an explicit contractual zero.
