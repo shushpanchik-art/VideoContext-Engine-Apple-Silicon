@@ -396,7 +396,8 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         device_info = {str(k): str(v) for k, v in mx.device_info(mx.gpu).items()}
     except Exception:
         device_info = {}
-    default_device_observed = str(mx.default_device())
+    default_device = mx.default_device()
+    default_device_observed = str(default_device)
     info = {
         "backend": "MLX",
         "accelerator": "Metal",
@@ -421,7 +422,7 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     }
     _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)[stage] = info
     _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)[stage] = info
-    if default_device_observed != str(mx.gpu):
+    if default_device.type != mx.gpu:
         print(
             f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
             f"but process-global mx.default_device() snapshot was {default_device_observed}. "

@@ -19,6 +19,7 @@ on:
       - "tests/test_vce_pipeline_contract.py"
       - "tests/test_vce_text_core_golden.py"
       - "tests/test_vce_mlx_wired_limit.py"
+      - "tests/test_vce_mlx_device_diagnostic.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
       - "scripts/**"
   push:
@@ -39,6 +40,7 @@ on:
       - "tests/test_vce_pipeline_contract.py"
       - "tests/test_vce_text_core_golden.py"
       - "tests/test_vce_mlx_wired_limit.py"
+      - "tests/test_vce_mlx_device_diagnostic.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
       - "scripts/**"
 
