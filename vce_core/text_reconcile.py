@@ -8,7 +8,8 @@ the Text LLM returns JSON::
     _finalize_analysis_payload()          # validate + repair + entity IDs
 
 It performs no I/O, imports no ML framework and never touches a model, so the
-whole chain can be imported by tests and tools. The engine simply re-exports it.
+whole chain can be imported by tests and tools. The engine delegates the Text
+LLM post-processing pipeline here and reuses a summary helper separately.
 
 Settings access is injected through ``configure_settings_reader`` so the engine's
 request-scoped ``setting()`` (with ContextVar domain-profile override) keeps

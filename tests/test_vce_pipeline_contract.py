@@ -86,6 +86,28 @@ class EngineCoreWiringTests(unittest.TestCase):
             "the engine must not re-orchestrate individual core stages",
         )
 
+    def test_baseline_summary_helper_is_imported_from_the_core(self):
+        imported_names = {
+            alias.name
+            for node in self.tree.body
+            if isinstance(node, ast.ImportFrom) and node.module == "vce_core.text_reconcile"
+            for alias in node.names
+        }
+        self.assertIn("_add_evidence_grounding_to_summary", imported_names)
+        analysis = next(
+            node for node in self.tree.body
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "analyze_video"
+        )
+        self.assertTrue(
+            any(
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_add_evidence_grounding_to_summary"
+                for node in ast.walk(analysis)
+            ),
+            "the baseline summary path must call its imported core helper",
+        )
+
     def test_core_imports_no_ml_or_web_dependency(self):
         core_src = (ROOT / "vce_core" / "text_reconcile.py").read_text(encoding="utf-8")
         tree = ast.parse(core_src)

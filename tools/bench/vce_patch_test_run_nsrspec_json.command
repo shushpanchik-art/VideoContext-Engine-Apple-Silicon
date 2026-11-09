@@ -50,7 +50,7 @@ domain_profiles/__init__.py 00c837b7966783e071ec17ebfecf347cfe6dd12d
 domain_profiles/nsrspec.py aada467c7060b44487e9d2e3ee038c1b67b7f098
 tools/bench/install_vce_mtmd_loader_fix.py 934739bd0b5f70dc26665adc115a181d365330e0
 vce_core/__init__.py 04afc9998ab40a0f5c70d0f5d05b0ce04fbd33bd
-vce_core/text_reconcile.py d489a99f7d599a53d6f9bcb1067a14e1bc62499c
+vce_core/text_reconcile.py 4305fd15fe9b2fd7738901e70e9a607b55f32cc4
 "
 
 upload_patch_validation_logs() {
