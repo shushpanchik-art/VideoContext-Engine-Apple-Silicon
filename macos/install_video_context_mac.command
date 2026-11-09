@@ -104,6 +104,10 @@ echo "$PROJECT_DIR" > "$APP_SUPPORT_DIR/project_path"
 chmod 600 "$APP_SUPPORT_DIR/project_path"
 sudo /usr/bin/xattr -cr "$APP_TARGET" || fail "Не удалось очистить метаданные приложения перед подписью."
 sudo /usr/bin/codesign --force --deep --sign - "$APP_TARGET" || fail "Не удалось подписать установленное приложение."
+# Clean install uses a private umask for backups. The app seal must be readable by its users.
+sudo /bin/chmod 755 "$APP_TARGET/Contents/_CodeSignature" || fail "Не удалось выставить права каталога подписи."
+sudo /bin/chmod 644 "$APP_TARGET/Contents/_CodeSignature/CodeResources" || fail "Не удалось выставить права подписи."
+/usr/bin/codesign --verify --deep --strict "$APP_TARGET" || fail "Подпись приложения не прошла проверку."
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 /usr/bin/env "$LSREGISTER" -f "$APP_TARGET" >/dev/null 2>&1 || true
 

@@ -69,6 +69,10 @@ sudo /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable VideoContextStatusBar" 
 sudo /usr/libexec/PlistBuddy -c "Set :LSUIElement false" "$APP_TARGET/Contents/Info.plist"
 sudo /usr/bin/xattr -cr "$APP_TARGET" || fail "Не удалось очистить метаданные приложения перед подписью."
 sudo /usr/bin/codesign --force --deep --sign - "$APP_TARGET" || fail "Не удалось переподписать приложение."
+# Clean install uses a private umask for backups. The app seal must be readable by its users.
+sudo /bin/chmod 755 "$APP_TARGET/Contents/_CodeSignature" || fail "Не удалось выставить права каталога подписи."
+sudo /bin/chmod 644 "$APP_TARGET/Contents/_CodeSignature/CodeResources" || fail "Не удалось выставить права подписи."
+/usr/bin/codesign --verify --deep --strict "$APP_TARGET" || fail "Подпись приложения не прошла проверку."
 
 echo "[5/6] Подпись приложения и регистрация…"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP_TARGET" >/dev/null 2>&1 || true
