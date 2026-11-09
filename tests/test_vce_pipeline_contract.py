@@ -50,7 +50,7 @@ class EngineCoreWiringTests(unittest.TestCase):
         for name in (
             "reconcile_text_llm_result",
             "_vce_canonicalize_confirmed_standard_names",
-            "_vce_v4_finalize_analysis_payload",
+            "_finalize_analysis_payload",
         ):
             self.assertNotIn(
                 f"\ndef {name}(",
@@ -66,7 +66,25 @@ class EngineCoreWiringTests(unittest.TestCase):
         self.assertLess(idx_import, idx_configure, "reader wired before the import exists")
 
     def test_engine_uses_the_core_pipeline_entry_point(self):
-        self.assertIn("postprocess_text_llm_payload", self.source)
+        run_function = next(
+            node for node in self.tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "run_text_llm_postprocess"
+        )
+        calls = [
+            node.func.id
+            for node in ast.walk(run_function)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+        ]
+        self.assertEqual(
+            calls.count("postprocess_text_llm_payload"),
+            1,
+            "run_text_llm_postprocess must call the shared core pipeline exactly once",
+        )
+        self.assertFalse(
+            {"reconcile_text_llm_result", "_vce_canonicalize_confirmed_standard_names", "_finalize_analysis_payload"}
+            & set(calls),
+            "the engine must not re-orchestrate individual core stages",
+        )
 
     def test_core_imports_no_ml_or_web_dependency(self):
         core_src = (ROOT / "vce_core" / "text_reconcile.py").read_text(encoding="utf-8")

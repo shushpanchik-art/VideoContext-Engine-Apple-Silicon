@@ -5,7 +5,7 @@ the Text LLM returns JSON::
 
     reconcile_text_llm_result(...)               # claims, evidence, dedup
     _vce_canonicalize_confirmed_standard_names() # OCR-confirmed standard IDs
-    _vce_v4_finalize_analysis_payload()          # validate + repair + entity IDs
+    _finalize_analysis_payload()          # validate + repair + entity IDs
 
 It performs no I/O, imports no ML framework and never touches a model, so the
 whole chain can be imported by tests and tools. The engine simply re-exports it.
@@ -45,7 +45,7 @@ def postprocess_text_llm_payload(payload, segments, original_summary=""):
     """Run the full deterministic post-processing chain in engine order."""
     parsed = reconcile_text_llm_result(payload, segments, original_summary)
     parsed = _vce_canonicalize_confirmed_standard_names(parsed, segments)
-    parsed = _vce_v4_finalize_analysis_payload(parsed, segments, original_summary)
+    parsed = _finalize_analysis_payload(parsed, segments, original_summary)
     return parsed
 
 
@@ -1086,7 +1086,7 @@ def _vce_canonicalize_confirmed_standard_names(payload, segments):
         print(f"🧭 [Evidence guard] Смягчено {_vce_action_edits} утверждений о действиях без подтверждения результата.")
     return payload
 
-def _vce_v4_evidence_summary(text, segments):
+def _add_evidence_grounding_to_summary(text, segments):
     """Apply NSR-specific spoken-vs-screened-result wording only for the NSR profile."""
     if str(setting("domain_profile", "generic") or "generic").strip().lower() != "nsrspec":
         return text
@@ -1154,7 +1154,7 @@ def _vce_v4_evidence_summary(text, segments):
         )
     return _report_result
 
-def _vce_v4_name_pattern(name):
+def _report_entity_name_pattern(name):
     """Build a case-insensitive OCR literal matcher while allowing line-wrap whitespace."""
     import re as _report_re
     if not isinstance(name, str) or not name.strip():
@@ -1164,7 +1164,7 @@ def _vce_v4_name_pattern(name):
         return None
     return _report_re.compile(r"(?i)(?<![\w])" + r"\s+".join(_report_re.escape(_report_t) for _report_t in _report_tokens) + r"(?![\w])")
 
-def _vce_v4_update_entity_scene_ids(payload, segments):
+def _link_entities_to_source_scenes(payload, segments):
     """Add scene IDs only when an entity's literal name is visible in that scene's OCR."""
     import re as _report_re
     if not isinstance(payload, dict) or not isinstance(payload.get("entities"), list) or not isinstance(segments, list):
@@ -1180,7 +1180,7 @@ def _vce_v4_update_entity_scene_ids(payload, segments):
         if not isinstance(_report_entity, dict):
             continue
         _report_name = _report_entity.get("name")
-        _report_pattern = _vce_v4_name_pattern(_report_name)
+        _report_pattern = _report_entity_name_pattern(_report_name)
         if _report_pattern is None:
             continue
         _report_old = _report_entity.get("scene_ids")
@@ -1208,7 +1208,7 @@ def _vce_v4_update_entity_scene_ids(payload, segments):
             _report_changes += 1
     return _report_changes
 
-def _vce_v4_validate_analysis(payload, segments, global_summary=""):
+def _validate_analysis_payload(payload, segments, global_summary=""):
     """Validate the derived analysis JSON contract; warn rather than abort a video run."""
     import re as _report_re
     _report_issues = []
@@ -1280,7 +1280,7 @@ def _vce_v4_validate_analysis(payload, segments, global_summary=""):
         elif isinstance(value, str) and _report_has_canonical_sp and _report_re.search(r"(?i)(?<![\w])СП\s*1\s*\.\s*13\s*\.\s*132\s*\.\s*0?20(?!\d)", value):
             _report_issues.append(f"неисправленный вариант номера СП в {path}")
     _report_scan_alias(payload)
-    _report_entity_changes = _vce_v4_update_entity_scene_ids(payload, segments)
+    _report_entity_changes = _link_entities_to_source_scenes(payload, segments)
     if _report_entity_changes:
         print(f"🧭 [JSON integrity V4] Обновлены связи сущностей со сценами: {_report_entity_changes} сущностей.")
     _report_scenes = len(_report_valid_ids)
@@ -1292,14 +1292,14 @@ def _vce_v4_validate_analysis(payload, segments, global_summary=""):
         print(f"✅ [JSON integrity V4] Структура аналитики проверена; доступно {_report_scenes} scene_id, ссылки сущностей сверены с OCR.")
     return payload
 
-def _vce_v4_finalize_analysis_payload(payload, segments, global_summary=""):
+def _finalize_analysis_payload(payload, segments, global_summary=""):
     """Apply evidence-grounded consistency repairs, then validate the derived analysis payload."""
     if not isinstance(payload, dict):
         return payload
     if isinstance(payload.get("executive_summary"), str):
-        _report_new = _vce_v4_evidence_summary(payload["executive_summary"], segments)
+        _report_new = _add_evidence_grounding_to_summary(payload["executive_summary"], segments)
         if _report_new != payload["executive_summary"]:
             payload["executive_summary"] = _report_new
             print("🧭 [Summary integrity V4] Executive summary reconciled with audio/OCR evidence.")
-    _vce_v4_update_entity_scene_ids(payload, segments)
-    return _vce_v4_validate_analysis(payload, segments, global_summary)
+    _link_entities_to_source_scenes(payload, segments)
+    return _validate_analysis_payload(payload, segments, global_summary)

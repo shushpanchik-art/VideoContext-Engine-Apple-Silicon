@@ -663,12 +663,9 @@ JOB_PROGRESS_PHASE_BOUNDS_COLD = {
 
 # Report post-processing lives in the importable, model-free core module so it can be
 # unit-tested without ML dependencies. The engine re-exports it for backward compatibility.
-from vce_core.text_reconcile import (  # noqa: F401
-    format_text_llm_scene_timestamp,
-    reconcile_text_llm_result,
+from vce_core.text_reconcile import (
     _text_llm_normalize_list,
-    _vce_canonicalize_confirmed_standard_names,
-    _vce_v4_finalize_analysis_payload,
+    _add_evidence_grounding_to_summary,
     postprocess_text_llm_payload,
     configure_settings_reader as _vce_core_configure_settings,
 )
@@ -2603,9 +2600,7 @@ def run_text_llm_postprocess(
                         flush=True,
                     )
                     raise failure from second_error
-        parsed = reconcile_text_llm_result(parsed, segments, existing_summary)
-        parsed = _vce_canonicalize_confirmed_standard_names(parsed, segments)
-        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)
+        parsed = postprocess_text_llm_payload(parsed, segments, existing_summary)
         if coverage_note != "Все сцены включены в контекст.":
             parsed["uncertainties"] = (parsed.get("uncertainties", []) + [coverage_note])[:30]
         return parsed
@@ -5265,7 +5260,7 @@ async def analyze_video(
             if _vce_global_summary_fixed != str(global_summary_text or ""):
                 global_summary_text = _vce_global_summary_fixed
                 print("🧭 [ASR/OCR] Исправлено название норматива в global_summary по подтверждённому OCR.")
-        global_summary_text = _vce_v4_evidence_summary(global_summary_text, final_segments)
+        global_summary_text = _add_evidence_grounding_to_summary(global_summary_text, final_segments)
 
 # TEXT_LLM_POSTPROCESS_STAGE
         text_llm_result = None
