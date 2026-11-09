@@ -38,6 +38,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         cls.observer = OBSERVER_PATH.read_text(encoding="utf-8")
         cls.watchdog = (ROOT / "tools/bench/vce_runtime_watchdog.py").read_text(encoding="utf-8")
         cls.runtime = (ROOT / "VideoContextEngine_v3.19.py").read_text(encoding="utf-8")
+        # Report post-processing now lives in the importable core module.
+        cls.core = (ROOT / "vce_core" / "text_reconcile.py").read_text(encoding="utf-8")
         cls.installer = (ROOT / "tools/bench/install_vce_mtmd_loader_fix.py").read_text(encoding="utf-8")
         cls.patch_installer = (ROOT / "tools/bench/vce_patch_test_run_nsrspec_json.command").read_text(encoding="utf-8")
         cls.legacy_patch_installer = (ROOT / "tools/bench/vce_patch_test_run_nsrspec_ab.command").read_text(encoding="utf-8")
@@ -201,22 +203,22 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn('"domain_profile": "nsrspec"', self.observer)
 
     def test_nsrspec_evidence_rewrites_are_profile_gated(self):
-        self.assertIn('if str(setting("domain_profile", "generic") or "generic").strip().lower() != "nsrspec":', self.runtime)
-        self.assertIn('_report_is_nsrspec = str(setting("domain_profile", "generic")', self.runtime)
+        self.assertIn('if str(setting("domain_profile", "generic") or "generic").strip().lower() != "nsrspec":', self.core)
+        self.assertIn('_report_is_nsrspec = str(setting("domain_profile", "generic")', self.core)
 
     def test_generic_technical_cues_do_not_name_nsrspec_products(self):
-        line = next(x for x in self.runtime.splitlines() if "technical_cues = re.compile" in x)
+        line = next(x for x in self.core.splitlines() if "technical_cues = re.compile" in x)
         self.assertNotIn("cadlib", line.lower())
         self.assertNotIn("nanocad", line.lower())
         self.assertNotIn("пандус", line.lower())
 
     def test_generic_entity_scene_matching_is_not_profile_gated(self):
-        compact_runtime = re.sub(r"\s+", " ", self.runtime)
+        compact_core = re.sub(r"\s+", " ", self.core)
         self.assertIn(
             'if n.replace(" ", "") in src_blob.replace(" ", "") or ( nsrspec_profile and has_buildchat_conflict',
-            compact_runtime,
+            compact_core,
         )
-        self.assertIn('elif nsrspec_profile and (compact_name == "кси" or', self.runtime)
+        self.assertIn('elif nsrspec_profile and (compact_name == "кси" or', compact_core)
 
     def test_observer_checks_only_required_backend_settings(self):
         self.assertIn("required_experiment_mismatches", self.observer)
@@ -230,7 +232,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
     def test_reconciliation_selects_domain_profile_before_nested_helpers(self):
         node = next(
-            item for item in ast.parse(self.runtime).body
+            item for item in ast.parse(self.core).body
             if isinstance(item, ast.FunctionDef) and item.name == "reconcile_text_llm_result"
         )
         profile_assignments = [
@@ -290,7 +292,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         for line in manifest.splitlines():
             path, sha = line.split()
             entries[path] = sha
-        self.assertEqual(len(entries), 9)
+        self.assertEqual(len(entries), 11)
         self.assertEqual(set(entries), {
             "VideoContextEngine_v3.19.py",
             "tools/bench/vce_observed_llama_cpp_run.py",
@@ -301,6 +303,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             "domain_profiles/__init__.py",
             "domain_profiles/nsrspec.py",
             "tools/bench/install_vce_mtmd_loader_fix.py",
+            "vce_core/__init__.py",
+            "vce_core/text_reconcile.py",
         })
         for path, expected_sha in entries.items():
             current_sha = git_blob_sha(ROOT / path)

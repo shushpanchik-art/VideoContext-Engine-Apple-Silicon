@@ -5,7 +5,11 @@ on:
     paths:
       - "tools/bench/**"
       - "VideoContextEngine_v3.19.py"
+      - "vce_core/**"
       - "domain_profiles/**"
+      - "tests/fixtures/reconcile/**"
+      - "tests/test_vce_pipeline_contract.py"
+      - "tests/test_vce_text_core_golden.py"
       - ".github/workflows/nsrspec-ab-bench.yml"
   workflow_dispatch:
 

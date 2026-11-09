@@ -13,6 +13,11 @@ on:
       - "macos/**"
       - "tests/test_vce_speed_profile.py"
       - "tests/test_vce_memory_safety.py"
+      - "VideoContextEngine_v3.19.py"
+      - "vce_core/**"
+      - "tests/fixtures/reconcile/**"
+      - "tests/test_vce_pipeline_contract.py"
+      - "tests/test_vce_text_core_golden.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
       - "scripts/**"
   push:
@@ -27,6 +32,11 @@ on:
       - "macos/**"
       - "tests/test_vce_speed_profile.py"
       - "tests/test_vce_native_app_lifecycle.py"
+      - "VideoContextEngine_v3.19.py"
+      - "vce_core/**"
+      - "tests/fixtures/reconcile/**"
+      - "tests/test_vce_pipeline_contract.py"
+      - "tests/test_vce_text_core_golden.py"
       - ".github/workflows/vce-speed-profile-tests.yml"
       - "scripts/**"
 
