@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = REPO_ROOT / "tools" / "quality_check_text_llm_variants.py"
+MODULE_PATH = REPO_ROOT / "tools" / "eval" / "quality_check_text_llm_variants.py"
 SPEC = importlib.util.spec_from_file_location("vce_quality_audit", MODULE_PATH)
 audit_module = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

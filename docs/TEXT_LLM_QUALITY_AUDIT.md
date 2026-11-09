@@ -61,17 +61,17 @@ Runtime is only a tie-breaker after the required quality checks pass. The fastes
 
 ## Current CLI
 
-    python tools/quality_check_text_llm_variants.py --results-dir /path/to/benchmark-run --source-json /path/to/context.json
+    python tools/eval/quality_check_text_llm_variants.py --results-dir /path/to/benchmark-run --source-json /path/to/context.json
 
 To reproduce the old NSR-specific diagnostics, opt in explicitly:
 
-    python tools/quality_check_text_llm_variants.py --results-dir /path/to/benchmark-run --source-json /path/to/context.json --profile nsr-case-study
+    python tools/eval/quality_check_text_llm_variants.py --results-dir /path/to/benchmark-run --source-json /path/to/context.json --profile nsr-case-study
 
 The source JSON is read locally. The audit writes its JSON/Markdown result into the selected run folder by default and does not upload the source payload.
 
 ## Source-aware grounding screen: lexical evidence pointers, not semantic scoring
 
-The separate `tools/evaluate_text_llm_grounding.py` tool is an additional diagnostic step after the structural audit. It is universal by default and uses the source context JSON supplied by the caller; it contains no NSR/product/topic vocabulary.
+The separate `tools/eval/evaluate_text_llm_grounding.py` tool is an additional diagnostic step after the structural audit. It is universal by default and uses the source context JSON supplied by the caller; it contains no NSR/product/topic vocabulary.
 
 It extracts report-facing text from the executive summary, selected key points, topics, entity names and per-scene enrichment. Each output phrase is compared with text evidence in the source context:
 - Summary-level claims are compared with text evidence across the video.
@@ -91,12 +91,12 @@ This is deliberately a **lexical overlap screen**, not a semantic entailment eva
 Run both stages locally against the same historical benchmark folder:
 
 ```bash
-python tools/quality_check_text_llm_variants.py \
+python tools/eval/quality_check_text_llm_variants.py \
   --results-dir /path/to/benchmark-run \
   --source-json /path/to/context.json \
   --profile generic
 
-python tools/evaluate_text_llm_grounding.py \
+python tools/eval/evaluate_text_llm_grounding.py \
   --results-dir /path/to/benchmark-run \
   --source-json /path/to/context.json
 ```

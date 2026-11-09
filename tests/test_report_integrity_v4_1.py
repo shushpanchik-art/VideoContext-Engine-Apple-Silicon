@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCH = ROOT / "patches" / "patch_vce_report_integrity_v4_1.py"
+PATCH = ROOT / "patches" / "archive" / "patch_vce_report_integrity_v4_1.py"
 SPEC = importlib.util.spec_from_file_location("vce_v4_1", PATCH)
 patch = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

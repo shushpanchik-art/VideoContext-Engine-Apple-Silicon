@@ -299,7 +299,7 @@ def main() -> int:
     print("Persistent settings applied successfully.")
     print(f"Backup: {backup.resolve()}")
     print(f"Settings: {CONFIG.resolve()}")
-    print("Restart the server for JSON defaults to appear in Swagger.")
+    print("Restart the server to load JSON defaults; user settings are available in the local /ui interface.")
     print("Explicit VIDEOCONTEXT_RAM_MODE / VIDEOCONTEXT_MLX_DEVICE environment variables override JSON values.")
     print("skip_audio remains false by default to preserve lecture transcription; enable it per request for silent/music-only clips.")
     return 0

@@ -12,38 +12,38 @@ Description:
 Local-first microservice for video understanding (Scene Detection + Whisper + Qwen3-VL).
 
 -------------------------
-INSTALLATION DES DÉPENDANCES (copier/coller) :
+DEPENDENCY INSTALLATION (copy and paste):
 
-# macOS (Apple Silicon / Intel) – CPU (ou Metal) :
+# macOS (Apple Silicon / Intel) – CPU or Metal:
 #   python -m pip install --upgrade pip
 #   pip install fastapi uvicorn[standard] opencv-python yt-dlp pillow numpy openai-whisper huggingface_hub
 #   pip install mlx-vlm torchvision
 
-# Windows / Linux – CPU (ou GPU si vous avez déjà PyTorch CUDA) :
+# Windows / Linux – CPU, or GPU with an existing PyTorch CUDA setup:
 #   python -m pip install --upgrade pip
 #   pip install fastapi uvicorn[standard] opencv-python yt-dlp pillow numpy openai-whisper huggingface_hub
 #   pip install llama-cpp-python
 
-(⚠️ PyTorch est requis par Whisper. Si besoin : pip install torch)
+(Note: Whisper requires PyTorch. Install it with `pip install torch` if needed.)
 
 -------------------------
-- Prompts techniques (structure JSON, etc.) figés dans le code.
-- L'utilisateur ne modifie que des "user prompts" qui s'ajoutent par-dessus.
-- 1 seul appel VLM par scène (description + tags en JSON).
-- Nombre de keyframes par scène paramétrable (1 à 5), 2 par défaut.
-- Audio_features activés par défaut, désactivables.
-- Résumé global activé par défaut, désactivable.
-- Chronos détaillés (Whisper + VLM + total).
-- max_tokens VLM réglables avec valeurs par défaut (1024 / 2048).
-- safe_json_parse robuste (réparation JSON) pour scènes + résumé global.
-- Nettoyage du texte brut quand le JSON échoue (on extrait la valeur de "description" / "summary").
-- Mode RAM :
-    - RAM_MODE = "ram+" (par env VIDEOCONTEXT_RAM_MODE) :
-        * précharge VLM par défaut + Whisper small
-        * garde tout en RAM
-    - RAM_MODE = "ram-":
-        * charge/décharge Whisper et VLM à chaque requête
-- Swagger patché pour afficher de grands textarea pour les prompts utilisateur.
+- Technical prompts (including JSON structure) are defined in the code.
+- Users can add instructions through the prompt fields.
+- One VLM call per scene produces a description and JSON tags.
+- Keyframes per scene are configurable from 1 to 5; the default is 1.
+- Audio features are enabled by default and can be disabled.
+- Global summary generation is enabled by default and can be disabled.
+- Detailed timings include Whisper, VLM, and total processing time.
+- VLM token limits are configurable; defaults are 1024 and 2048.
+- `safe_json_parse` attempts bounded recovery for scene and summary JSON.
+- If JSON parsing fails, plain text is reduced to the `description` or `summary` value.
+- RAM behavior is controlled by saved settings:
+    - `ram_mode = "ram+"` preloads and caches models.
+        * Preloads the VLM and Whisper model.
+        * Keeps models cached in memory.
+    - `ram_mode = "ram-"` loads and unloads models for each request.
+        * Loads and unloads Whisper and VLM for each request.
+- The machine-readable API schema is available at `/openapi.json` for diagnostic tools.
 """
 
 import os
@@ -64,6 +64,7 @@ import tempfile
 import secrets
 import subprocess
 import threading
+import contextvars
 
 from typing import Optional, Dict, Any, List, Union, Literal
 from io import BytesIO
@@ -71,18 +72,16 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Request
-from fastapi.responses import PlainTextResponse, HTMLResponse, FileResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse, FileResponse, RedirectResponse
 from fastapi.openapi.utils import get_openapi
 from PIL import Image
 
 import whisper
 import torch
 
-
-# VCE_MLX_METAL_CPU_PARALLEL_MLXWHISPER_V2
-VCE_MLX_RUNTIME_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
-
-# VCE_MLX_VLM_SINGLE_THREAD_EXECUTOR_V1
+VCE_MLX_RUNTIME_DIAGNOSTICS: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_mlx_runtime_diagnostics", default=None
+)
 import concurrent.futures as _vce_mlx_concurrent_futures
 import functools as _vce_mlx_functools
 
@@ -96,16 +95,31 @@ _VCE_MLX_EXECUTOR = _vce_mlx_concurrent_futures.ThreadPoolExecutor(
 async def _vce_mlx_run(fn, *args, **kwargs):
     loop = asyncio.get_running_loop()
     call = _vce_mlx_functools.partial(_vce_mlx_invoke_traced, fn, *args, **kwargs)
-    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, contextvars.copy_context().run, call)
 
 
 async def _vce_backend_run(fn, *args, **kwargs):
     """Run llama.cpp backend work on the dedicated executor without emitting MLX traces."""
     loop = asyncio.get_running_loop()
     call = _vce_mlx_functools.partial(fn, *args, **kwargs)
-    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, call)
+    return await loop.run_in_executor(_VCE_MLX_EXECUTOR, contextvars.copy_context().run, call)
 
-# VCE_MLX_VLM_RUNTIME_TRACE_V1
+
+def _vce_request_diagnostics(variable: contextvars.ContextVar) -> Dict[str, Any]:
+    """Return a request-local diagnostics map, never shared between API requests."""
+    value = variable.get()
+    if value is None:
+        value = {}
+        variable.set(value)
+    return value
+
+
+def _vce_public_runtime_summary(value: Any) -> Dict[str, Any]:
+    """Keep only compact device facts in product responses; full evidence stays in logs."""
+    if not isinstance(value, dict):
+        return {}
+    allowed = ("device", "device_verified", "mlx_version")
+    return {key: value[key] for key in allowed if key in value}
 import sys as _vce_mlx_trace_sys
 import threading as _vce_mlx_trace_threading
 
@@ -184,11 +198,6 @@ def _vce_mlx_invoke_traced(fn, *args, **kwargs):
     if should_trace:
         _vce_mlx_trace_runtime("after", function_name)
     return result
-
-
-
-
-# VCE_MLX_VLM_WIRED_LIMIT_COMPAT_V1
 import contextlib as _vce_mlx_contextlib
 
 
@@ -300,6 +309,7 @@ class _VCEWhisperMLXCPU:
     """mlx-whisper adapter that pins each MLX operation to a CPU thread-local stream."""
 
     def __init__(self, model_name: str):
+        # Process environment intentionally overrides the saved/API-selected MLX Whisper model.
         model_override = os.environ.get("VIDEOCONTEXT_MLX_WHISPER_MODEL", "").strip()
         self.model_name = model_override or model_name
         self.model_path = _vce_mlx_whisper_model_id(self.model_name)
@@ -324,7 +334,7 @@ class _VCEWhisperMLXCPU:
                 )
                 mx.synchronize(cpu_stream)
         elapsed = time.perf_counter() - started
-        VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"] = {
+        _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"] = {
             "backend": "mlx-whisper",
             "device": "cpu",
             "stream": "mx.cpu",
@@ -334,7 +344,7 @@ class _VCEWhisperMLXCPU:
         }
         print(
             "[VCE runtime] "
-            + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"], ensure_ascii=False, sort_keys=True)
+            + json.dumps(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"], ensure_ascii=False, sort_keys=True)
         )
         return result
 
@@ -350,9 +360,6 @@ class _VCEWhisperMLXCPU:
                 holder.model = None
                 holder.model_path = None
             gc.collect()
-
-
-# VCE_MLX_EXPLICIT_GPU_PROBE_V1
 def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
     """Select the MLX GPU on native Apple Silicon and fail closed without Metal."""
     if platform.system() != "Darwin" or platform.machine().lower() not in {"arm64", "aarch64"}:
@@ -395,6 +402,7 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         # Backward-compatible field: this is the explicitly configured target,
         # not a claim that every operator in the model ran on this device.
         "device": str(mx.gpu),
+        "device_verified": True,
         "configured_device": str(mx.gpu),
         "device_source": "explicit_gpu_target",
         "default_device_observed": default_device_observed,
@@ -408,8 +416,8 @@ def _vce_configure_mlx_metal(stage: str) -> Dict[str, Any]:
         "device_info": device_info,
         "metal_smoke_test": "passed",
     }
-    VCE_MLX_RUNTIME_DIAGNOSTICS[stage] = info
-    VCE_BACKEND_DIAGNOSTICS[stage] = info
+    _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)[stage] = info
+    _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)[stage] = info
     if default_device_observed != str(mx.gpu):
         print(
             f"[VCE warning] {stage}: GPU target and explicit GPU stream probe passed, "
@@ -432,9 +440,6 @@ VCE_RUNTIME_PROFILES = {
 def _vce_normalize_runtime_profile(value: Optional[str] = None) -> str:
     if value is None or not str(value).strip():
         stored_profile = USER_SETTINGS.get("runtime_profile") if isinstance(USER_SETTINGS, dict) else None
-        if stored_profile is None and bool(setting("enable_mlx_whisper", False)):
-            # Migrate legacy settings created before runtime_profile existed.
-            stored_profile = VCE_RUNTIME_PROFILE_MLX_PARALLEL
         profile = str(stored_profile or VCE_RUNTIME_PROFILE_BASELINE).strip().lower()
     else:
         profile = str(value).strip().lower()
@@ -459,6 +464,7 @@ def resolve_whisper_device(
             if torch.backends.mps.is_available():
                 return "mps"
         except Exception:
+            # Backend probing is optional; an unavailable MPS API falls back to CPU.
             pass
     return "cpu"
 
@@ -493,7 +499,7 @@ def load_whisper_model(
     print(f"[VCE Whisper] backend=openai-whisper device={device} model={model_name}", flush=True)
     model = whisper.load_model(model_name, device=device)
     observed_device = str(getattr(model, "device", device))
-    VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"] = {
+    _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"] = {
         "backend": "openai-whisper",
         "device": observed_device,
         "requested_device": device,
@@ -505,15 +511,15 @@ def load_whisper_model(
     }
     print(
         "[VCE runtime] "
-        + json.dumps(VCE_MLX_RUNTIME_DIAGNOSTICS["whisper"], ensure_ascii=False, sort_keys=True),
+        + json.dumps(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS)["whisper"], ensure_ascii=False, sort_keys=True),
         flush=True,
     )
     return model
 
-# Optionnel : supprimer le warning HF tokenizers
+# Optional: suppress the Hugging Face tokenizer warning
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
-# --- MODE RAM ---
+# --- SETTINGS ---
 
 SETTINGS_FILE = Path(__file__).with_name("videocontext_settings.json")
 
@@ -531,11 +537,48 @@ def load_user_settings() -> Dict[str, Any]:
         return {}
 
 USER_SETTINGS = load_user_settings()
+VCE_REQUEST_DOMAIN_PROFILE: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_request_domain_profile", default=None
+)
 
 def setting(name: str, fallback: Any) -> Any:
+    if name == "domain_profile":
+        request_profile = VCE_REQUEST_DOMAIN_PROFILE.get()
+        if request_profile is not None:
+            return request_profile
     return USER_SETTINGS.get(name, fallback)
 
-RAM_MODE = os.getenv("VIDEOCONTEXT_RAM_MODE", str(setting("ram_mode", "ram-"))).lower()  # "ram+" ou "ram-"
+
+
+def _vce_dev_docs_enabled() -> bool:
+    return os.getenv("VCE_DEV_DOCS", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _vce_bounded_timeout_seconds(name: str, fallback: int, minimum: int, maximum: int) -> int:
+    try:
+        configured = int(setting(name, fallback))
+    except (TypeError, ValueError):
+        configured = fallback
+    return max(minimum, min(configured, maximum))
+
+
+def _vce_media_conversion_timeout_seconds() -> int:
+    return _vce_bounded_timeout_seconds("media_conversion_timeout", 3600, 60, 7200)
+
+
+def _vce_validate_legacy_mlx_whisper_flag(
+    legacy_flag: Optional[bool], runtime_profile: str
+) -> None:
+    """Reject conflicting deprecated API input instead of silently ignoring it."""
+    if legacy_flag is None:
+        return
+    selected_parallel = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
+    if bool(legacy_flag) != selected_parallel:
+        raise HTTPException(
+            422,
+            "enable_mlx_whisper больше не выбирает профиль; передайте согласованный runtime_profile.",
+        )
+
 WHISPER_CACHE: Dict[str, Any] = {}
 
 # --- CONFIGURATION GLOBALE ---
@@ -551,7 +594,9 @@ DEFAULT_TEXT_LLM_REPO_GGUF = "gguf/Qwen3.5-9B-GGUF"
 DEFAULT_TEXT_LLM_MODEL_GGUF = "qwen3.5-9b-Q4_K_M.gguf"
 VCE_INFERENCE_BACKEND_MLX = "mlx_metal"
 VCE_INFERENCE_BACKEND_LLAMA_CPP = "llama_cpp_metal"
-VCE_BACKEND_DIAGNOSTICS: Dict[str, Dict[str, Any]] = {}
+VCE_BACKEND_DIAGNOSTICS: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_backend_diagnostics", default=None
+)
 DEFAULT_WHISPER_MODEL = "large"
 
 DEFAULT_SCENE_THRESHOLD = 0.15
@@ -573,8 +618,6 @@ gpu_lock = asyncio.Lock()
 CANCEL_EVENTS: Dict[str, threading.Event] = {}
 
 JOB_PROGRESS: Dict[str, Dict[str, Any]] = {}
-
-# VCE_WEIGHTED_PROGRESS_V4
 JOB_PROGRESS_PHASE_BOUNDS = {
     "starting": (0.5, 1.5, 4.0),
     "validated": (1.5, 2.8, 3.0),
@@ -616,6 +659,19 @@ JOB_PROGRESS_PHASE_BOUNDS_COLD = {
     "compile_output": (99.0, 99.6, 3.0),
     "completed": (100.0, 100.0, 0.0),
 }
+
+
+# Report post-processing lives in the importable, model-free core module so it can be
+# unit-tested without ML dependencies. The engine re-exports it for backward compatibility.
+from vce_core.text_reconcile import (
+    _text_llm_normalize_list,
+    _add_evidence_grounding_to_summary,
+    postprocess_text_llm_payload,
+    configure_settings_reader as _vce_core_configure_settings,
+)
+
+# Let the core module resolve settings through this request-aware reader.
+_vce_core_configure_settings(setting)
 
 
 def set_job_progress(
@@ -736,718 +792,17 @@ def set_job_progress(
             if old_id != job_id:
                 JOB_PROGRESS.pop(old_id, None)
 
-def format_text_llm_scene_timestamp(seconds: Any) -> str:
-    """Return HH:MM:SS based on engine scene timing, never on LLM-generated strings."""
-    try:
-        total = max(0, int(round(float(seconds or 0))))
-    except (TypeError, ValueError):
-        total = 0
-    hours, remainder = divmod(total, 3600)
-    minutes, seconds_part = divmod(remainder, 60)
-    return f"{hours:02d}:{minutes:02d}:{seconds_part:02d}"
 
 
 
 
 
 
-def reconcile_text_llm_result(payload: Dict[str, Any], segments: List[Dict[str, Any]], original_summary: str) -> Dict[str, Any]:
-    """VCE_SEMANTIC_QUALITY_V5_7: reconcile claims, keep evidence strict, and avoid duplicate key points."""
-    import difflib
-    import math
-
-    def _norm(value: Any) -> str:
-        return re.sub(r"\W+", " ", str(value or "").casefold(), flags=re.UNICODE).strip()
-
-    def _compact(value: Any, limit: int = 260) -> str:
-        value = re.sub(r"\s+", " ", str(value or "")).strip()
-        if len(value) <= limit:
-            return value
-        return value[:limit - 1].rstrip(" ,;:.") + "…"
-
-    def _source_text(seg: Dict[str, Any]) -> str:
-        tags = seg.get("visual_tags") if isinstance(seg.get("visual_tags"), dict) else {}
-        parts = [seg.get("audio_transcript", ""), seg.get("ocr_text", ""), seg.get("visual_description", "")]
-        parts.extend(f"{k}: {v}" for k, v in list(tags.items())[:16])
-        return " ".join(str(p or "") for p in parts).strip()
-
-    def _tag_text(seg: Dict[str, Any]) -> str:
-        tags = seg.get("visual_tags") if isinstance(seg.get("visual_tags"), dict) else {}
-        return " ".join(f"{k}: {v}" for k, v in list(tags.items())[:16] if str(v or "").strip())
-
-    def _field_sources(seg: Dict[str, Any]) -> Dict[str, str]:
-        return {
-            "speech": str(seg.get("audio_transcript", "") or "").strip(),
-            "ocr": str(seg.get("ocr_text", "") or "").strip(),
-            "visual": str(seg.get("visual_description", "") or "").strip(),
-            "tags": _tag_text(seg).strip(),
-        }
-
-    _STOP = set((
-        "и в во на по к ко с со у о об от до для из за как что это этот эта эти тот там где при ли же а но не ни да или если чтобы также можно должен должна должны было были быть есть уже ещё еще всего более менее например именно сразу затем потом который которая которые между через один одна одни свой свои их его ее её она они он мы вы я мне нам вам вас их под что бы то all the a an is are was were be been of in on at to from and or for with this that it as into by then than shows shown use using user system video scene screen result said says says that" ).split())
-
-    def _tokens(value: Any) -> List[str]:
-        raw = re.findall(r"[^\W_]+", str(value or "").casefold(), flags=re.UNICODE)
-        aliases = {
-            "соответствует": "соответств", "соответствуют": "соответств", "соответствовал": "соответств",
-            "соответствие": "соответств", "соответствия": "соответств", "соответствии": "соответств",
-            "несоответствие": "несоответств", "несоответствия": "несоответств",
-            "уклона": "уклон", "уклоне": "уклон", "уклону": "уклон", "уклоны": "уклон",
-            "пандусов": "пандус", "пандуса": "пандус", "пандусами": "пандус",
-            "требования": "требован", "требованию": "требован", "требований": "требован",
-            "нормативу": "норматив", "нормативом": "норматив", "нормативные": "норматив",
-            "проверки": "провер", "проверку": "провер", "проверка": "провер", "проверке": "провер",
-            "генерации": "генерац", "генерация": "генерац", "калькуляторов": "калькулятор",
-            "загружается": "загруз", "загружается": "загруз", "выгрузка": "выгруз", "выгрузить": "выгруз",
-            "коллизий": "коллиз", "коллизии": "коллиз", "атрибутивным": "атрибут", "атрибутам": "атрибут",
-            "объектов": "объект", "объекта": "объект", "объект": "объект",
-        }
-        output = []
-        for token in raw:
-            if token in _STOP or len(token) < 2:
-                continue
-            token = aliases.get(token, token)
-            if token not in output:
-                output.append(token)
-        return output
-
-    result_cues = re.compile(r"не\s*соответ|несоответ|не\s*соответств|нарушен|нарушени|не\s*пройден|ошибк|неверн|не\s*выполн|fail(?:ed)?|error|warning", re.I)
-    result_topic_cues = re.compile(r"не\s*соответ|несоответ|нарушен|нарушени|результат|итог|вывод|заключен|ошибк|предупрежден|warning|error|failed|\bfail\b", re.I)
-    technical_cues = re.compile(r"\bxml\b|экспорт|выгруз|интеграц|импорт|\bbim\b|\bcad\b|cadlib|nanocad|модел|сценар|калькулят|провер|функц|продукт|поиск|стандарт|норматив|данн|интерфейс|api\b|атрибут|классифик|требован|пандус|уклон|эвакуац|\bСП\s*\d|\bГОСТ\b|1\s*[:к]\s*20", re.I)
-    end_card_cues = re.compile(r"\bthe\s*end\b|\bend\s*card\b|конец\s+видео|финальн\w*\s+заставк|конец\s+ролика", re.I)
-
-    source_by_id: Dict[int, Dict[str, Any]] = {}
-    ordered_ids: List[int] = []
-    for seg in segments:
-        try:
-            sid = int(seg.get("scene_id", 0))
-        except (TypeError, ValueError):
-            continue
-        if sid > 0:
-            source_by_id[sid] = seg
-            if sid not in ordered_ids:
-                ordered_ids.append(sid)
-    ordered_ids.sort(key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))
-    if not ordered_ids:
-        return payload
-
-    # Detect whether the final scene is an end card while the actual conclusion is spoken.
-    last_sid = ordered_ids[-1]
-    last_seg = source_by_id[last_sid]
-    last_sources = _field_sources(last_seg)
-    last_result_in_speech = bool(result_cues.search(last_sources["speech"]))
-    end_card_only = bool(end_card_cues.search(last_sources["ocr"] + " " + last_sources["visual"])) and not bool(result_cues.search(last_sources["ocr"] + " " + last_sources["visual"]))
-    spoken_result_end_card = end_card_only and last_result_in_speech
-
-    # OCR-backed canonicalization: only link the phonetic ASR variant to BuildChat when the
-    # evidence appears in temporally adjacent scenes (within 30 seconds), not merely somewhere in the video.
-    alias_variants = {"белчат", "белчата", "билдчат", "билдчата", "билд чат", "бел чат"}
-    buildchat_ocr_candidates: List[int] = []
-    spoken_alias_candidates: List[int] = []
-    for sid in ordered_ids:
-        src = _field_sources(source_by_id[sid])
-        if re.search(r"build\s*chat", src["ocr"], re.I):
-            buildchat_ocr_candidates.append(sid)
-        spoken_compact = _norm(src["speech"]).replace(" ", "")
-        if any(alias.replace(" ", "") in spoken_compact for alias in alias_variants):
-            spoken_alias_candidates.append(sid)
-    paired_ocr_ids = set()
-    paired_speech_ids = set()
-    for speech_sid in spoken_alias_candidates:
-        try:
-            speech_start = float(source_by_id[speech_sid].get("start", 0) or 0)
-        except (TypeError, ValueError):
-            speech_start = 0.0
-        for ocr_sid in buildchat_ocr_candidates:
-            try:
-                ocr_start = float(source_by_id[ocr_sid].get("start", 0) or 0)
-            except (TypeError, ValueError):
-                ocr_start = 0.0
-            speech_evidence = _field_sources(source_by_id[speech_sid])
-            ocr_evidence = _field_sources(source_by_id[ocr_sid])
-            shared_context = set(_tokens(speech_evidence["speech"])) & set(_tokens(ocr_evidence["ocr"] + " " + ocr_evidence["visual"]))
-            if abs(speech_start - ocr_start) <= 30.0 and shared_context:
-                paired_speech_ids.add(speech_sid)
-                paired_ocr_ids.add(ocr_sid)
-    buildchat_ocr_ids = sorted(paired_ocr_ids)
-    spoken_alias_ids = sorted(paired_speech_ids)
-    has_buildchat_conflict = bool(buildchat_ocr_ids and spoken_alias_ids)
-    canonical_buildchat_ids = sorted(set(buildchat_ocr_ids + spoken_alias_ids), key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))
-
-    # Normalize only derived Text-LLM fields, and only when source evidence supports the correction.
-    all_ocr_text_for_normalization = " ".join(str(source_by_id[sid].get("ocr_text", "") or "") for sid in ordered_ids)
-    has_verified_sp_standard = bool(re.search(r"\bСП\s*1\.13130\.2020\b", all_ocr_text_for_normalization, re.I))
-    def _normalize_derived_strings(value: Any) -> Any:
-        if isinstance(value, str):
-            if has_verified_sp_standard:
-                value = re.sub(r"(?i)\bСП\s*1\.13\.130\.2020\b", "СП 1.13130.2020", value)
-            if has_buildchat_conflict:
-                value = re.sub(r"(?i)\b(?:белчат\s*/\s*белчата|белчат(?:а)?|билдчат(?:а)?|бел\s+чат|билд\s+чат)\b", "BuildChat", value)
-            return value
-        if isinstance(value, list):
-            return [_normalize_derived_strings(item) for item in value]
-        if isinstance(value, dict):
-            return {key: _normalize_derived_strings(item) for key, item in value.items()}
-        return value
-    payload = _normalize_derived_strings(payload)
-    original_summary = _normalize_derived_strings(str(original_summary or ""))
-
-    # Scene enrichment: drop foreign/duplicate scene IDs, keep concise descriptions, add missing scenes.
-    raw_enrichment = payload.get("scene_enrichment", [])
-    enrich_by_id: Dict[int, Dict[str, Any]] = {}
-    for item in raw_enrichment if isinstance(raw_enrichment, list) else []:
-        if not isinstance(item, dict):
-            continue
-        try:
-            sid = int(item.get("scene_id"))
-        except (TypeError, ValueError):
-            continue
-        if sid not in source_by_id or sid in enrich_by_id:
-            continue
-        enrich_by_id[sid] = {
-            "scene_id": sid,
-            "topic": _compact(item.get("topic", ""), 180),
-            "improved_description": _compact(item.get("improved_description", ""), 1200),
-            "key_points": [_compact(p, 180) for p in _text_llm_normalize_list(item.get("key_points"), 8) if _compact(p, 180)],
-        }
-
-    def _fallback_enrichment(sid: int) -> Dict[str, Any]:
-        seg = source_by_id[sid]
-        src = _field_sources(seg)
-        evidence = " ".join(src.values())
-        if result_topic_cues.search(evidence):
-            topic = "Результат проверки"
-        elif technical_cues.search(evidence):
-            topic = "Технический этап"
-        elif src["speech"]:
-            topic = _compact(re.split(r"[.!?\n]", src["speech"], maxsplit=1)[0], 100) or "Речь в сцене"
-        elif src["ocr"]:
-            topic = "Текст на экране"
-        else:
-            topic = "Визуальное содержание"
-        desc_parts = []
-        if src["visual"]: desc_parts.append("Визуально: " + _compact(src["visual"], 360))
-        if src["speech"]: desc_parts.append("Речь: " + _compact(src["speech"], 240))
-        if src["ocr"]: desc_parts.append("Текст на экране: " + _compact(src["ocr"], 220))
-        points = []
-        if result_topic_cues.search(evidence): points.append("Сцена содержит результат проверки или итоговый вывод.")
-        elif technical_cues.search(evidence): points.append("Сцена показывает технический этап или работу с данными.")
-        elif src["speech"]: points.append("Сцена содержит речевое пояснение.")
-        elif src["ocr"]: points.append("Сцена содержит текстовую информацию на экране.")
-        return {"scene_id": sid, "topic": topic, "improved_description": " ".join(desc_parts) or "В исходных данных недостаточно описательного материала.", "key_points": points}
-
-    missing = [sid for sid in ordered_ids if sid not in enrich_by_id]
-    if len(ordered_ids) <= 80:
-        for sid in missing:
-            enrich_by_id[sid] = _fallback_enrichment(sid)
-    else:
-        for sid in (ordered_ids[0], ordered_ids[-1]):
-            if sid not in enrich_by_id:
-                enrich_by_id[sid] = _fallback_enrichment(sid)
-
-    # Distinguish spoken conclusions from what is literally shown on the last frame.
-    if spoken_result_end_card:
-        final_item = enrich_by_id.get(last_sid, _fallback_enrichment(last_sid))
-        final_item["topic"] = final_item.get("topic") or "Итог проверки"
-        quoted_speech = _compact(last_sources["speech"], 200).strip(" .;:")
-        final_item["improved_description"] = "На экране показана завершающая заставка «THE END»; итог о несоответствии сообщается в аудиодорожке: «" + quoted_speech + "». Конкретный нарушенный параметр на финальном экране не показан."
-        final_item["key_points"] = [
-            "В речи сообщается: «" + quoted_speech + "».",
-            "На экране показана только завершающая заставка «THE END».",
-        ]
-        enrich_by_id[last_sid] = final_item
-
-    # If the spoken scene describes ramp-slope compliance while OCR shows a collision-check dialog,
-    # describe both observations without claiming they are the same operation.
-    for sid in ordered_ids:
-        src = _field_sources(source_by_id[sid])
-        if re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
-            item = enrich_by_id.get(sid)
-            if item:
-                item["topic"] = "Проверка в CADLib"
-                item["improved_description"] = "В речи описываются отбор объектов по атрибутам и проверка уклона пандусов; на экране открыто окно «Проверка коллизий». По этим источникам нельзя однозначно подтвердить, что окно показывает именно проверку уклона."
-                item["key_points"] = [
-                    "Диктор говорит об отборе объектов по атрибутивным данным для проверки уклона пандусов.",
-                    "В интерфейсе CADLib показано окно «Проверка коллизий».",
-                ]
-
-    # V5.6: never let a verbose multimodal dump (OCR/transcript/frame labels) leak into improved_description.
-    description_dump_markers = re.compile(r"\[Кадр\s*\d|Текст на экране\s*:|\bВизуально\s*:|\bРечь\s*:", re.I)
-    for sid, item in enrich_by_id.items():
-        desc = str(item.get("improved_description", "") or "").strip()
-        if not (description_dump_markers.search(desc) or len(desc) > 480 or desc.count("\n") >= 2):
-            continue
-        seg = source_by_id[sid]
-        src = _field_sources(seg)
-        visual = re.sub(r"\[Кадр\s+[^\]]+\]\s*", "", src["visual"], flags=re.I).strip()
-        speech = src["speech"]
-        if re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I) and re.search(r"КСИ|классификац", src["ocr"] + " " + visual, re.I) and re.search(r"уклон|пандус", src["ocr"] + " " + visual, re.I):
-            desc = _compact(visual, 300) if visual else "На экране показана схема классификации требования об уклоне пандусов."
-            desc = desc.rstrip(" .;:") + ". Диктор оценивает схему как логичную и наглядную."
-        elif sid == last_sid and spoken_result_end_card:
-            desc = "На экране показана завершающая заставка «THE END»; вывод о несоответствии произносится в аудио."
-        elif re.search(r"пандус|уклон", speech, re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
-            desc = "Диктор описывает проверку уклона пандусов; на экране показано окно настройки проверки коллизий. Связь между ними не подтверждена."
-        elif visual:
-            desc = _compact(visual, 340)
-        elif speech and len(speech.split()) >= 8:
-            desc = "Диктор говорит: " + _compact(speech, 220).rstrip(" .;:") + "."
-        elif src["ocr"]:
-            desc = "Сцена показывает интерфейс с техническими подписями; подробный OCR сохранён в исходном поле."
-        else:
-            desc = "В исходных материалах недостаточно сведений для более подробного описания сцены."
-        item["improved_description"] = _compact(desc, 430)
-        # Scene-level points should summarize meaning, not contain frame/OCR dumps or generic placeholders.
-        points = item.get("key_points", []) if isinstance(item.get("key_points"), list) else []
-        points = [str(p).strip() for p in points if str(p).strip()]
-        if re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I) and re.search(r"КСИ|классификац", src["ocr"] + " " + visual, re.I) and re.search(r"уклон|пандус", src["ocr"] + " " + visual, re.I):
-            points = ["Диктор оценивает схему как логичную и наглядную.", "На экране показано требование к уклону пандусов не более 1:20."]
-        elif any(description_dump_markers.search(p) for p in points):
-            points = []
-        item["key_points"] = [_compact(p, 180) for p in points[:3]]
-
-    payload["scene_enrichment"] = [enrich_by_id[sid] for sid in ordered_ids if sid in enrich_by_id]
-
-    # Source-specific entailment check for evidence labels. A source is attached only when it
-    # supports at least the core terms of the claim; the mere presence of OCR is not evidence.
-    def _supports(claim: str, source_text: str) -> bool:
-        if not claim.strip() or not source_text.strip():
-            return False
-        claim_n = _norm(claim)
-        source_n = _norm(source_text)
-        if len(claim_n) >= 12 and claim_n in source_n:
-            return True
-        # Result claims must be supported by an explicit result statement, not by an end card.
-        if result_cues.search(claim) and result_cues.search(source_text):
-            claim_result = re.search(r"не\s*соответ\w*(?:\s+\w+){0,3}|несоответ\w*(?:\s+\w+){0,3}|нарушен\w*(?:\s+\w+){0,3}|ошибк\w*(?:\s+\w+){0,3}", claim, re.I)
-            if claim_result:
-                source_result = re.search(r"не\s*соответ\w*(?:\s+\w+){0,3}|несоответ\w*(?:\s+\w+){0,3}|нарушен\w*(?:\s+\w+){0,3}|ошибк\w*(?:\s+\w+){0,3}", source_text, re.I)
-                if source_result and ("соответ" in claim_result.group(0).casefold() and "соответ" in source_result.group(0).casefold() or "наруш" in claim_result.group(0).casefold() and "наруш" in source_result.group(0).casefold() or "ошибк" in claim_result.group(0).casefold() and "ошибк" in source_result.group(0).casefold()):
-                    return True
-        claim_tokens = _tokens(claim)
-        source_tokens = set(_tokens(source_text))
-        if not claim_tokens:
-            return False
-        overlap = sum(1 for token in claim_tokens if token in source_tokens)
-        if len(claim_tokens) <= 3:
-            required = min(2, len(claim_tokens))
-        else:
-            required = max(2, math.ceil(len(claim_tokens) * 0.30))
-        # A distinct product/protocol name alone is not sufficient to support a broad factual claim.
-        return overlap >= required
-
-    source_kinds = ("speech", "ocr", "visual", "tags")
-    def _get_supported_sources(claim: str, seg: Dict[str, Any]) -> List[str]:
-        sources = _field_sources(seg)
-        return [kind for kind in source_kinds if _supports(claim, sources.get(kind, ""))]
-
-    # Repair the specific mixed-source description: UI shows a collision dialog, voice describes slope checking.
-    # This is only a wording repair in derived analysis; raw segment fields remain unchanged.
-    point_records = payload.get("key_points", []) if isinstance(payload.get("key_points"), list) else []
-    clean_points: Dict[int, Dict[str, Any]] = {}
-    seen_by_scene = set()
-    for point in point_records:
-        if not isinstance(point, dict):
-            continue
-        try:
-            sid = int(point.get("scene_id"))
-        except (TypeError, ValueError):
-            continue
-        seg = source_by_id.get(sid)
-        if seg is None:
-            continue
-        text_value = re.sub(r"\s+", " ", str(point.get("text", "") or "")).strip()
-        if not text_value:
-            continue
-        src = _field_sources(seg)
-        combined_visual_text = src["ocr"] + " " + src["visual"]
-        source_specific_evidence = None
-
-        # Prefer compact analytical claims to generic interface descriptions or clipped ASR fragments.
-        if re.search(r"какой\s+уклон\s+пандусов", src["speech"], re.I) and re.search(r"релевантн|семантическ|ранжирован", combined_visual_text, re.I):
-            text_value = "Пользователь спрашивает об уклоне пандусов на путях эвакуации; система показывает релевантные фрагменты."
-            source_specific_evidence = ["speech", "ocr", "visual"]
-        if re.search(r"уклон", src["speech"], re.I) and re.search(r"пандус", src["speech"], re.I) and re.search(r"1\s*(?:к|:)\s*20", src["speech"], re.I) and re.search(r"СП\s*1\.13130\.2020", src["ocr"], re.I):
-            text_value = "По СП 1.13130.2020 уклон пандусов на путях эвакуации должен быть не более 1:20."
-            source_specific_evidence = ["speech", "ocr"]
-        if re.search(r"создавать проверки вручную", src["speech"], re.I) and re.search(r"искусственн\w* интеллект|\bИИ\b", src["speech"], re.I):
-            text_value = "ИИ помогает ускорить создание проверок, которые иначе выполнялись бы вручную."
-            source_specific_evidence = ["speech"]
-        if re.search(r"сырой результат", src["ocr"], re.I) and re.search(r"калькулятор", src["ocr"], re.I) and re.search(r"коррект", src["ocr"], re.I):
-            text_value = "Калькулятор разбивает требование на шаги и показывает результат корректировки формулировки."
-            source_specific_evidence = ["ocr", "visual"]
-        if re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I) and re.search(r"коллиз|несоответ", text_value, re.I):
-            text_value = "Диктор описывает загрузку XML в CADLib, отбор объектов по атрибутивным данным и проверку уклона пандусов."
-        short_speech_fragment = len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I))
-        if short_speech_fragment and re.search(r"формат\s*:\s*NSR", src["ocr"], re.I) and re.search(r"выгруз", src["speech"], re.I) and re.search(r"уклон", src["ocr"], re.I):
-            text_value = "Речь переходит к выгрузке; на экране показаны формат NSR и атрибут «Уклон»."
-            source_specific_evidence = ["speech", "ocr"]
-        elif short_speech_fragment and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"ГОСТ\s*Р?\s*58908\.12-2020", src["ocr"], re.I):
-            text_value = "В интерфейсе показан атрибут «Код КСИ» для класса «пандус» со ссылкой на ГОСТ Р 58908.12-2020."
-            source_specific_evidence = ["ocr"]
-        elif short_speech_fragment and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"пандус|уклон", combined_visual_text, re.I):
-            text_value = "На экране продолжается настройка классификатора КСИ и правила для требования об уклоне пандусов."
-            source_specific_evidence = ["ocr", "visual"]
-        elif short_speech_fragment and re.search(r"ID\s+требования", src["ocr"], re.I) and re.search(r"исходный текст|комментарий", src["ocr"], re.I) and re.search(r"пандус|уклон", combined_visual_text, re.I):
-            text_value = "В интерфейсе показана структура технического требования с исходным текстом, полем комментария и ID требования."
-            source_specific_evidence = ["ocr", "visual"]
-
-        # Make the final spoken finding explicitly attributable to speech, while representing the end card separately.
-        if sid == last_sid and spoken_result_end_card and result_cues.search(text_value):
-            text_value = "В речи сообщается, что объект не соответствует нормативу."
-        text_key = _norm(text_value)
-        if not text_key or (sid, text_key) in seen_by_scene:
-            continue
-        seen_by_scene.add((sid, text_key))
-        evidence = source_specific_evidence or _get_supported_sources(text_value, seg)
-        # If model's wording cannot be grounded in any source, prefer a short source-derived statement.
-        if not evidence:
-            speech = src["speech"]
-            if speech and _supports(speech, speech):
-                text_value = "В речи говорится: «" + _compact(speech, 180).strip(" .;:") + "»."
-                evidence = ["speech"]
-            else:
-                candidates = []
-                if speech: candidates.append(("speech", speech))
-                if src["ocr"]: candidates.append(("ocr", src["ocr"]))
-                if src["visual"]: candidates.append(("visual", src["visual"]))
-                # Do not turn a long OCR dump into a key point; use a short first sentence/line.
-                fallback_source = next(((kind, value) for kind, value in candidates if value.strip()), None)
-                if fallback_source:
-                    kind, value = fallback_source
-                    compact_source = re.sub(r"\[Кадр\s+[^\]]+\]\s*", "", value, flags=re.I)
-                    compact_source = re.split(r"[\n.!?]+", compact_source, maxsplit=1)[0].strip()
-                    if compact_source and len(compact_source) <= 220:
-                        text_value = _compact(compact_source, 220)
-                        evidence = [kind]
-                    else:
-                        continue
-                else:
-                    continue
-        # Correct near-verbatim long source dumps to concise source-backed enrichment wording.
-        norm_source = _norm(_source_text(seg))
-        norm_point = _norm(text_value)
-        if len(norm_point) >= 70 and (norm_point in norm_source or difflib.SequenceMatcher(None, norm_point, norm_source).ratio() >= 0.80):
-            enrichment = enrich_by_id.get(sid, {})
-            alternatives = enrichment.get("key_points", []) if isinstance(enrichment.get("key_points"), list) else []
-            replacement = next((str(candidate).strip() for candidate in alternatives if str(candidate).strip() and _get_supported_sources(str(candidate), seg)), "")
-            if replacement:
-                text_value = replacement
-                evidence = _get_supported_sources(text_value, seg)
-        clean_points[sid] = {
-            "scene_id": sid,
-            "time": format_text_llm_scene_timestamp(seg.get("start", 0)),
-            "text": _compact(text_value, 260),
-            "evidence": evidence,
-        }
-
-    # If the model omitted a final/technical beat, recover it with a claim directly grounded in a source.
-    for sid in ordered_ids:
-        if sid in clean_points:
-            continue
-        seg = source_by_id[sid]
-        src = _field_sources(seg)
-        enrich = enrich_by_id.get(sid, {})
-        candidate = ""
-        if sid == last_sid and spoken_result_end_card:
-            candidate = "В речи сообщается, что объект не соответствует нормативу."
-        elif re.search(r"пандус|уклон", src["speech"], re.I) and re.search(r"проверка\s+коллизий", src["ocr"], re.I):
-            candidate = "Диктор описывает загрузку XML в CADLib, отбор объектов по атрибутивным данным и проверку уклона пандусов."
-        elif src["speech"] and result_cues.search(src["speech"]):
-            candidate = "В речи сообщается: «" + _compact(src["speech"], 170).strip(" .;:") + "»."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"формат\s*:\s*NSR", src["ocr"], re.I) and re.search(r"выгруз", src["speech"], re.I) and re.search(r"уклон", src["ocr"], re.I):
-            candidate = "Речь переходит к выгрузке; на экране показаны формат NSR и атрибут «Уклон»."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"ГОСТ\s*Р?\s*58908\.12-2020", src["ocr"], re.I):
-            candidate = "В интерфейсе показан атрибут «Код КСИ» для класса «пандус» со ссылкой на ГОСТ Р 58908.12-2020."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"КСИ", src["ocr"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
-            candidate = "На экране продолжается настройка классификатора КСИ и правила для требования об уклоне пандусов."
-        elif len(src["speech"].split()) <= 7 and (not re.search(r"[.!?]\s*$", src["speech"]) or re.match(r"^(?:и|а|но|чтобы|находитесь)\b", src["speech"].strip(), re.I)) and re.search(r"ID\s+требования", src["ocr"], re.I) and re.search(r"исходный текст|комментарий", src["ocr"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
-            candidate = "В интерфейсе показана структура технического требования с исходным текстом, полем комментария и ID требования."
-        elif re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", src["speech"], re.I) and re.search(r"пандус|уклон", src["ocr"] + " " + src["visual"], re.I):
-            candidate = "На экране показана схема требования об уклоне пандусов."
-        elif src["speech"] and technical_cues.search(src["speech"]) and len(src["speech"]) <= 220:
-            candidate = _compact(src["speech"].rstrip(" .;:—–"), 220)
-        else:
-            alt = next((str(p).strip() for p in enrich.get("key_points", []) if str(p).strip() and _get_supported_sources(str(p), seg)), "")
-            candidate = alt or ""
-        if candidate:
-            supported = _get_supported_sources(candidate, seg)
-            if supported:
-                clean_points[sid] = {"scene_id": sid, "time": format_text_llm_scene_timestamp(seg.get("start", 0)), "text": candidate, "evidence": supported}
-
-    # Make repetitive interface scenes distinct by the evidence actually present in each one.
-    for sid in ordered_ids:
-        if sid not in clean_points:
-            continue
-        seg = source_by_id[sid]
-        src = _field_sources(seg)
-        combined_visual_text = src["ocr"] + " " + src["visual"]
-        speech = src["speech"]
-        ocr = src["ocr"]
-        revised = None
-        revised_evidence = None
-        # Scene displaying the segmented requirement and its ID, before the AI-helper view.
-        if (not speech.strip() and re.search(r"ID\s+требования", ocr, re.I)
-                and re.search(r"сегментац", ocr, re.I)
-                and re.search(r"генерац\w* калькулятор", ocr, re.I)):
-            revised = "Требование 44846 показано в разделах сегментации и классификации; доступна генерация калькулятора."
-            revised_evidence = ["ocr"]
-        # The next short/fragmented spoken scene should not repeat the previous screen description.
-        elif (re.search(r"находитесь\s+в\s+модуле\s+семантическ", speech, re.I)
-                and re.search(r"ИИ\s*ПОМОЩНИК", ocr, re.I)
-                and re.search(r"сегментац|классификац", combined_visual_text, re.I)):
-            revised = "В интерфейсе показан ИИ-помощник рядом со схемой семантической обработки требования."
-            revised_evidence = ["ocr", "visual"]
-        # KSI + calculator generation is a different beat from the later export configuration.
-        elif (re.search(r"правила\s+проверки", speech, re.I)
-                and re.search(r"КСИ", ocr, re.I)
-                and re.search(r"генерац\w* калькулятор", ocr, re.I)
-                and re.search(r"уклон|пандус", combined_visual_text, re.I)):
-            revised = "На экране показаны классификатор КСИ и функция генерации калькуляторов для требования об уклоне пандусов."
-            revised_evidence = ["ocr", "visual"]
-        # Export scene: use format + attribute instead of the generic KSI setup sentence.
-        elif (re.search(r"затем\s+выгрузить|выгруз", speech, re.I)
-                and re.search(r"ФОРМАТ\s*:", ocr, re.I)
-                and re.search(r"\bNSR\b", ocr, re.I)
-                and re.search(r"атрибут\s+КСИ|XPG_0016|Уклон", ocr, re.I)):
-            revised = "Настраивается выгрузка правила в формате NSR с атрибутом «Уклон»."
-            revised_evidence = ["speech", "ocr"]
-        # The spoken evaluation is useful evidence for the otherwise visually repetitive scene.
-        elif (re.search(r"логичн\w*.*наглядн\w*|наглядн\w*.*логичн\w*", speech, re.I)
-                and re.search(r"КСИ", ocr, re.I)
-                and re.search(r"уклон|пандус", combined_visual_text, re.I)):
-            revised = "Диктор оценивает схему как логичную и наглядную; на экране показано требование об уклоне пандусов."
-            revised_evidence = ["speech", "ocr"]
-        if revised:
-            clean_points[sid]["text"] = revised
-            clean_points[sid]["evidence"] = revised_evidence
-
-    # Remove repeated or near-repeated key-point wording across different scenes. Prefer a
-    # scene-enrichment alternative only when the alternative is supported by that scene's own sources.
-    def _near_duplicate_claim(a: str, b: str) -> bool:
-        na, nb = _norm(a), _norm(b)
-        if not na or not nb:
-            return False
-        if na == nb or difflib.SequenceMatcher(None, na, nb).ratio() >= 0.80:
-            return True
-        ta, tb = set(_tokens(a)), set(_tokens(b))
-        if len(ta) >= 4 and len(tb) >= 4:
-            overlap = len(ta & tb) / max(1, min(len(ta), len(tb)))
-            if overlap >= 0.86:
-                return True
-        return False
-
-    accepted = []
-    for sid in ordered_ids:
-        point = clean_points.get(sid)
-        if not point:
-            continue
-        if not any(_near_duplicate_claim(point["text"], previous["text"]) for previous in accepted):
-            accepted.append(point)
-            continue
-        seg = source_by_id[sid]
-        enrichment = enrich_by_id.get(sid, {})
-        candidates = []
-        for candidate in enrichment.get("key_points", []) if isinstance(enrichment.get("key_points"), list) else []:
-            candidate = _compact(candidate, 240)
-            if not candidate or _near_duplicate_claim(candidate, point["text"]):
-                continue
-            if any(_near_duplicate_claim(candidate, previous["text"]) for previous in accepted):
-                continue
-            supported = _get_supported_sources(candidate, seg)
-            if supported:
-                candidates.append((candidate, supported))
-        if candidates:
-            candidate, supported = max(candidates, key=lambda item: (len(_tokens(item[0])), len(item[1])))
-            point["text"] = candidate
-            point["evidence"] = supported
-        # If no grounded alternative exists, keep the original claim rather than inventing facts;
-        # a content-preserving duplicate is preferable to an unsupported paraphrase.
-        accepted.append(point)
-
-    # BuildChat canonical entity and calibrated uncertainty for a paired speech/OCR name mismatch.
-    standard_name = re.compile(r"(?:\bГОСТ\b|\bСП\s*\d|\bSP\s*\d|\bСНиП\b|\bISO\s*\d|\bIEC\s*\d|\bEN\s*\d|\bASTM\b|\bANSI\b)", re.I)
-    fixed_entities: Dict[str, Dict[str, Any]] = {}
-    raw_entities = payload.get("entities", []) if isinstance(payload.get("entities"), list) else []
-    for entity in raw_entities:
-        if not isinstance(entity, dict) or not str(entity.get("name", "")).strip():
-            continue
-        name = re.sub(r"\s+", " ", str(entity["name"])).strip()[:200]
-        n = _norm(name)
-        compact_name = n.replace(" ", "")
-        if re.fullmatch(r"(?:ai)?иипомощник|иипомощник|aиипомощник|aiиипомощник", compact_name, re.I):
-            continue  # Generic UI label, not a named entity.
-        if has_buildchat_conflict and compact_name in {"белчат", "белчата", "билдчат", "билдчата", "buildchat", "buildchatsoftware"}:
-            name = "BuildChat"
-            n = _norm(name)
-        try:
-            input_ids = entity.get("scene_ids", [])
-            input_ids = input_ids if isinstance(input_ids, list) else []
-        except Exception:
-            input_ids = []
-        ids = []
-        for raw_id in input_ids:
-            try: sid = int(raw_id)
-            except (TypeError, ValueError): continue
-            if sid not in source_by_id: continue
-            src_blob = _norm(_source_text(source_by_id[sid]))
-            if n.replace(" ", "") in src_blob.replace(" ", "") or (has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids):
-                if sid not in ids: ids.append(sid)
-        if has_buildchat_conflict and name == "BuildChat":
-            ids = sorted(set(ids + canonical_buildchat_ids), key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))
-        if not ids:
-            for sid in ordered_ids:
-                blob = _norm(_source_text(source_by_id[sid])).replace(" ", "")
-                match = n.replace(" ", "") in blob
-                if has_buildchat_conflict and name == "BuildChat" and sid in canonical_buildchat_ids:
-                    match = True
-                if match:
-                    ids.append(sid)
-        # No source-backed scene reference means this entity is not supported by the supplied evidence.
-        if not ids:
-            continue
-        entity_type = str(entity.get("type", "other") or "other").strip().lower()[:80]
-        compact_name = n.replace(" ", "")
-        if standard_name.search(name):
-            entity_type = "standard"
-        elif compact_name == "кси" or "классификатор строительной информации" in n:
-            entity_type = "classification_system"
-        elif compact_name in {"nanocad", "cadlib"}:
-            entity_type = "software"
-        elif compact_name == "buildchat":
-            entity_type = "software"
-        elif entity_type in {"regulatory document", "regulation document", "normative document", "нормативный документ"}:
-            entity_type = "standard"
-        key = _norm(name)
-        if key not in fixed_entities:
-            fixed_entities[key] = {"name": name, "type": entity_type, "scene_ids": sorted(set(ids))[:30]}
-        else:
-            current = fixed_entities[key]
-            current["scene_ids"] = sorted(set(current["scene_ids"] + ids))[:30]
-            if entity_type == "standard" or entity_type == "classification_system":
-                current["type"] = entity_type
-
-    if has_buildchat_conflict:
-        key = _norm("BuildChat")
-        if key not in fixed_entities:
-            fixed_entities[key] = {"name": "BuildChat", "type": "software", "scene_ids": canonical_buildchat_ids}
-        else:
-            fixed_entities[key]["scene_ids"] = sorted(set(fixed_entities[key]["scene_ids"] + canonical_buildchat_ids), key=lambda sid: (float(source_by_id[sid].get("start", 0) or 0), sid))[:30]
-            fixed_entities[key]["type"] = "software"
-    payload["entities"] = list(fixed_entities.values())[:60]
-
-    # Keep grounded source-quality notes and actual cross-source disagreements; drop speculative architecture inferences.
-    uncertainties = _text_llm_normalize_list(payload.get("uncertainties"), 30)
-    channel = re.compile(r"аудио|\bреч\w*\b|расшифров\w*|транскрип\w*|субтитр\w*|на экран\w*|экранн\w*|\bocr\b|визуальн\w*|\bкадр\w*\b|\baudio\b|\bspeech\b|\btranscript\b|on.screen|\bvisual\b", re.I)
-    conflict = re.compile(r"не совп|противореч|расход|отлича|звучит как|указан\w*|показан\w*|распознан\w* как|может быть ошиб\w* распозн|неясн\w*|неч[её]тк|неразборч|unclear|contradict|differs|mismatch|heard as|shown as|read as|однако|тогда как|а на экран", re.I)
-    quality_only = re.compile(r"неразборч|неч[её]тк|нечитаем|обрезан\w*|плох\w* качеств\w*|не удалось различ|неуверенн\w* распознан|искаж[её]н\w* звук|unclear|unreadable|cut off", re.I)
-    weak_port_inference = re.compile(r"localhost|127\.0\.0\.1|postgres(?:ql)?|:\s*\d{2,5}|порт|database|баз\w* данн", re.I)
-    inference_words = re.compile(r"может указывать|указывает на|говорит о том|предполагает|возможно означает|вероятно означает|implies|suggests|indicates|could mean", re.I)
-    clean_uncertainties = []
-    for item in uncertainties:
-        supported_conflict = bool(channel.search(item) and conflict.search(item))
-        # Replace any model-authored BuildChat/ASR notes with one canonical, source-grounded note below.
-        if has_buildchat_conflict and re.search(r"build\s*chat|белчат|белчата|билдчат", item, re.I):
-            continue
-        # Model-generated KSI date notes often mislabel OCR as speech/transcript and duplicate the same issue.
-        if re.search(r"\bКСИ\b|классификатор строительной информации", item, re.I) and re.search(r"20\d{2}|дата|верс|диапазон", item, re.I):
-            continue
-        if weak_port_inference.search(item) and inference_words.search(item) and not supported_conflict:
-            continue
-        # A spoken conclusion alongside an end card is a source distinction already captured in the report, not an unresolved contradiction.
-        if spoken_result_end_card and end_card_cues.search(item) and result_cues.search(item):
-            continue
-        # Do not flag the standard number as truncated when the full number is present in any OCR source.
-        all_ocr_text = " ".join(str(source_by_id[sid].get("ocr_text", "") or "") for sid in ordered_ids)
-        if re.search(r"обрезан|усеч[её]н|неполный|truncated|cut off", item, re.I) and re.search(r"СП\s*1\.13130\.2020", item, re.I) and re.search(r"СП\s*1\.13130\.2020", all_ocr_text, re.I):
-            continue
-        if quality_only.search(item) or supported_conflict:
-            clean_uncertainties.append(item)
-    # A temporally linked, readable OCR product label resolves this transliteration mismatch.
-
-    # A displayed KSI date/version difference is a note, not proof of a contradiction.
-    ksi_labels = []
-    for sid in ordered_ids:
-        for match in re.finditer(r"КСИ\s*\(([^)]{4,80})\)", str(source_by_id[sid].get("ocr_text", "") or ""), re.I):
-            label = re.sub(r"\s+", " ", match.group(1)).strip().replace("–", "-").replace("—", "-")
-            if label and label not in ksi_labels:
-                ksi_labels.append(label)
-    if len(ksi_labels) >= 2 and any("2025" in x for x in ksi_labels) and any("2024" in x for x in ksi_labels):
-        clean_uncertainties.append("В разных кадрах отображаются подписи КСИ с разными датами: «" + ksi_labels[0] + "» и «" + next(x for x in ksi_labels[1:] if ("2025" in x) != ("2025" in ksi_labels[0])) + "». Это может отражать разные версии или диапазоны действия классификатора; по этим кадрам нельзя уверенно заключить, что данные противоречат друг другу.")
-    payload["uncertainties"] = list(dict.fromkeys(clean_uncertainties))[:20]
-
-    # Rebuild a near-duplicate summary from distinct source-backed stages and correctly label the ending.
-    enhanced = str(payload.get("executive_summary", "") or "").strip()
-    prior = str(original_summary or "").strip()
-    similarity = difflib.SequenceMatcher(None, _norm(enhanced), _norm(prior)).ratio() if enhanced and prior else 0.0
-    if similarity >= 0.78 or spoken_result_end_card:
-        points = sorted(clean_points.values(), key=lambda p: (float(source_by_id[p["scene_id"]].get("start", 0) or 0), p["scene_id"]))
-        useful = [p for p in points if p["scene_id"] != last_sid and technical_cues.search(p["text"]) and len(_tokens(p["text"])) >= 4]
-        selected = []
-        if useful:
-            selected.append(useful[0])
-            if len(useful) >= 3:
-                middle_target = float(source_by_id[ordered_ids[len(ordered_ids) // 2]].get("start", 0) or 0)
-                middle = min((p for p in useful[1:] if p["scene_id"] != useful[-1]["scene_id"]), key=lambda p: abs(float(source_by_id[p["scene_id"]].get("start", 0) or 0) - middle_target), default=None)
-                if middle and middle["scene_id"] not in {x["scene_id"] for x in selected}:
-                    selected.append(middle)
-            if useful[-1]["scene_id"] not in {x["scene_id"] for x in selected}:
-                selected.append(useful[-1])
-        selected_text = [_compact(p["text"], 150).rstrip(".; ") for p in selected[:3]]
-        protected_starts = {"nsr", "cadlib", "nanocad", "buildchat", "bim", "xml", "сп", "гост", "снип", "iso", "iec", "ксі"}
-        for ix, fragment in enumerate(selected_text):
-            first_word = re.match(r"[^\W_]+", fragment, flags=re.UNICODE)
-            if fragment and first_word and first_word.group(0).casefold() not in protected_starts:
-                selected_text[ix] = fragment[0].lower() + fragment[1:]
-        if len(selected_text) >= 3:
-            summary = "В ролике показана последовательность этапов: " + selected_text[0] + "; далее — " + selected_text[1] + "; ближе к концу — " + selected_text[2] + "."
-        elif len(selected_text) == 2:
-            summary = "В ролике показана последовательность этапов: " + selected_text[0] + "; затем — " + selected_text[1] + "."
-        elif selected_text:
-            summary = "Ключевой этап видео: " + selected_text[0].rstrip(".; ") + "."
-        else:
-            topics = [_compact(t, 100) for t in _text_llm_normalize_list(payload.get("topics"), 3)]
-            summary = "Видео раскрывает темы: " + ", ".join(topics) + "." if topics else "Видео объединяет несколько связанных демонстрационных этапов."
-        # Preserve a concrete normative fact if it exists, even when stage selection prioritises another beat.
-        normative_fact = ""
-        for sid in ordered_ids:
-            fact_sources = _field_sources(source_by_id[sid])
-            fact_text = fact_sources["speech"] + " " + fact_sources["ocr"]
-            if (re.search(r"\bСП\s*1\.13130\.2020\b", fact_text, re.I)
-                    and re.search(r"уклон|пандус", fact_text, re.I)
-                    and re.search(r"1\s*(?:[:к])\s*20", fact_text, re.I)):
-                normative_fact = "Для уклона пандусов по СП 1.13130.2020 указан предел не более 1:20."
-                break
-        if normative_fact and "1:20" not in summary:
-            summary += " " + normative_fact
-        if last_result_in_speech:
-            spoken = _compact(last_sources["speech"], 190).strip(" .;:")
-            summary += " В финальной речи сообщается: «" + spoken + "»."
-        elif points:
-            ending_point = next((p for p in reversed(points) if p["scene_id"] == last_sid), None)
-            if ending_point:
-                summary += " В финале: " + _compact(ending_point["text"], 140).rstrip(".; ") + "."
-        mixed_collision_slope = any(
-            re.search(r"пандус|уклон", _field_sources(source_by_id[sid])["speech"], re.I)
-            and re.search(r"проверка\s+коллизий", _field_sources(source_by_id[sid])["ocr"], re.I)
-            for sid in ordered_ids
-        )
-        if mixed_collision_slope:
-            summary += " В CADLib видно окно «Проверка коллизий», но его связь с описанной проверкой уклона не подтверждена."
-        if spoken_result_end_card:
-            summary += " Финальный экран содержит только «THE END»; параметр нарушения визуально не указан."
-        summary_words = summary.split()
-        if len(summary_words) > 105:
-            summary = " ".join(summary_words[:105]).rstrip(" ,;:") + "…"
-        payload["executive_summary"] = summary
-
-    payload["key_points"] = sorted(clean_points.values(), key=lambda p: (float(source_by_id[p["scene_id"]].get("start", 0) or 0), p["scene_id"]))[:18]
-    return payload
 
 LOCAL_VIDEO_SELECTIONS: Dict[str, str] = {}
 OUTPUT_FILE_REGISTRY: Dict[str, tuple[Path, str]] = {}
 
-# --- PROMPTS SYSTÈME ---
+# --- SYSTEM PROMPTS ---
 
 BASE_VISUAL_PROMPT = """
 You are an assistant that analyzes one or several frames from the SAME video scene.
@@ -1467,7 +822,7 @@ You MUST answer with VALID JSON using EXACTLY this structure:
 Rules:
 - Do NOT add any text outside of this JSON.
 - Do NOT change field names.
-- The description and tag values should be in the same language as the user instructions if any, otherwise in French.
+- Use the language of the user instructions when present; otherwise use the predominant language in the scene context.
 """.strip()
 
 BASE_SUMMARY_PROMPT = """
@@ -1480,7 +835,7 @@ Write a global summary of the video, answering:
 
 Rules:
 - Use clear, natural language.
-- Use the same language as the user instructions if any, otherwise French.
+- Use the language of the user instructions when present; otherwise use the predominant language in the source material.
 - If you return JSON, use exactly: {"summary": "..."} and nothing else.
 """.strip()
 
@@ -1496,6 +851,7 @@ def release_accelerator_memory(stage: str = "") -> None:
             try:
                 torch.mps.synchronize()
             except Exception:
+                # Synchronization only improves cache cleanup; continue if unsupported.
                 pass
             torch.mps.empty_cache()
     except Exception as exc:
@@ -1574,7 +930,7 @@ def ensure_opencv_compatible_video(file_path: str) -> str:
         probe = subprocess.run(
             [ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)],
             capture_output=True, text=True, encoding="utf-8", errors="replace",
-            check=False, timeout=45,
+            check=False, timeout=_vce_bounded_timeout_seconds("ffprobe_timeout", 45, 5, 300),
         )
     except Exception as exc:
         raise HTTPException(400, f"Не удалось проверить видео «{path.name}» через ffprobe: {exc}") from exc
@@ -1607,6 +963,7 @@ def ensure_opencv_compatible_video(file_path: str) -> str:
     import os
     os.close(fd)
     os.unlink(proxy_path)  # FFmpeg creates the output file itself.
+    conversion_timeout = _vce_media_conversion_timeout_seconds()
     command = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y", "-i", str(path),
         "-map", "0:v:0", "-map", "0:a:0?",
@@ -1617,7 +974,7 @@ def ensure_opencv_compatible_video(file_path: str) -> str:
     try:
         converted = subprocess.run(
             command, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            check=False, timeout=7200,
+            check=False, timeout=conversion_timeout,
         )
         if converted.returncode != 0 or not Path(proxy_path).is_file() or Path(proxy_path).stat().st_size == 0:
             details = (converted.stderr or "").strip()[-1000:]
@@ -1632,6 +989,7 @@ def ensure_opencv_compatible_video(file_path: str) -> str:
         try:
             Path(proxy_path).unlink(missing_ok=True)
         except OSError:
+            # The original validation error is more useful than a secondary proxy cleanup error.
             pass
         raise HTTPException(
             400,
@@ -1676,13 +1034,14 @@ class MLXEngine(VLMProvider):
 
     def load_model(self, model_path: str):
         if self.model is not None and self.current_model_path == model_path:
-            print(f"🍎 [MLX] Modèle VLM déjà chargé : {model_path}")
+            print(f"🍎 [MLX] VLM model already loaded : {model_path}")
             self.last_load_time = 0.0
             return
 
-        print(f"🍎 [MLX] Chargement VLM : {model_path}")
+        print(f"🍎 [MLX] Loading VLM : {model_path}")
         t0 = time.time()
         try:
+            # Process environment intentionally overrides the saved mlx_device setting.
             device_override = os.environ.get(
                 "VIDEOCONTEXT_MLX_DEVICE", str(setting("mlx_device", "metal"))
             ).strip().lower()
@@ -1705,10 +1064,10 @@ class MLXEngine(VLMProvider):
             self._generate_fn = generate
             self.current_model_path = model_path
             self.last_load_time = time.time() - t0
-            print(f"✅ [MLX] VLM chargé en {self.last_load_time:.2f}s")
+            print(f"✅ [MLX] VLM loaded in {self.last_load_time:.2f}s")
         except ImportError:
             raise RuntimeError(
-                "Erreur: installez 'mlx-vlm' (pip install mlx-vlm torchvision)"
+                "Install 'mlx-vlm' in the active environment (python -m pip install mlx-vlm torchvision)."
             )
 
     def describe_scene(
@@ -1718,7 +1077,7 @@ class MLXEngine(VLMProvider):
         max_tokens: int,
     ) -> str:
         if not self.model:
-            raise RuntimeError("Modèle VLM MLX non chargé")
+            raise RuntimeError("The MLX VLM model is not loaded.")
 
         from mlx_vlm.prompt_utils import apply_chat_template
 
@@ -1864,7 +1223,7 @@ class LlamaCppEngine(VLMProvider):
         self.chat_handler = None
         self.mmproj_path = None
 
-    def load_model(self, model_path: str):
+    def load_model(self, model_path: str, context_size: Optional[int] = None):
         _vce_require_llama_metal()
         import inspect
         import llama_cpp
@@ -1883,6 +1242,7 @@ class LlamaCppEngine(VLMProvider):
                 ) from exc
 
         mmproj_name = str(setting("llama_cpp_vlm_mmproj", DEFAULT_MMPROJ_GGUF))
+        context_size = int(context_size or setting("llama_cpp_vlm_context", 8192))
         mmproj_path = _vce_hf_gguf_file(
             DEFAULT_VLM_REPO_GGUF, mmproj_name, revision=DEFAULT_VLM_GGUF_REVISION
         )
@@ -1900,7 +1260,7 @@ class LlamaCppEngine(VLMProvider):
             "hf_model_revision": DEFAULT_VLM_GGUF_REVISION,
             "mmproj_path": mmproj_path,
         }, ensure_ascii=False, sort_keys=True), flush=True)
-        cache_key = model_file + "|" + mmproj_path
+        cache_key = model_file + "|" + mmproj_path + "|n_ctx=" + str(context_size)
         if self.llm is not None and self.current_model_path == cache_key:
             self.last_load_time = 0.0
             return
@@ -1916,7 +1276,7 @@ class LlamaCppEngine(VLMProvider):
             model_path=model_file,
             chat_handler=self.chat_handler,
             n_gpu_layers=-1,
-            n_ctx=8192,
+            n_ctx=context_size,
             verbose=True,
         )
         # Initialize MTMD now, rather than deferring mmproj failure until the first scene.
@@ -1929,7 +1289,7 @@ class LlamaCppEngine(VLMProvider):
         self.current_model_path = cache_key
         self.mmproj_path = mmproj_path
         self.last_load_time = time.perf_counter() - started
-        VCE_BACKEND_DIAGNOSTICS["vlm"] = {
+        _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["vlm"] = {
             "backend": "llama.cpp",
             "accelerator": "Metal",
             "model": model_file,
@@ -1946,7 +1306,7 @@ class LlamaCppEngine(VLMProvider):
             "metal_offload_requested": True,
             "load_seconds": round(self.last_load_time, 3),
         }
-        print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
+        print("[VCE runtime] " + json.dumps(_vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["vlm"], ensure_ascii=False, sort_keys=True), flush=True)
 
     def describe_scene(self, images: List[Image.Image], prompt: str, max_tokens: int) -> str:
         if self.llm is None:
@@ -1992,7 +1352,7 @@ def get_vlm_engine() -> VLMProvider:
     return MLXEngine() if platform.system() == "Darwin" else LlamaCppEngine()
 
 
-# --- UTILS SCÈNES & VIDÉO ---
+# --- SCENE AND VIDEO UTILITIES ---
 
 def compute_hsv_histogram(frame_bgr: np.ndarray) -> np.ndarray:
     hsv = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2HSV)
@@ -2015,7 +1375,7 @@ def detect_scenes(
 ) -> List[Dict[str, float]]:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise ValueError("Erreur lecture vidéo")
+        raise ValueError("Could not read the video.")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
     frame_interval = int(fps)
@@ -2057,9 +1417,6 @@ def detect_scenes(
 
     cap.release()
     return scenes
-
-
-# VCE_URL_BATCH_INGESTION_V1
 def _vce_auto_download_dimension(
     vlm_resolution: int,
     analysis_mode: str,
@@ -2125,7 +1482,7 @@ def download_video_from_url(url: str, output_template: str, max_dimension: int |
             return ydl.prepare_filename(info)
         except yt_dlp.utils.DownloadError as e:
             if "video is too long" in str(e).lower():
-                raise ValueError("Vidéo trop longue")
+                raise ValueError("The video exceeds the maximum allowed duration.")
             raise e
 
 
@@ -2140,7 +1497,7 @@ def sanitize_filename(filename: str) -> str:
 def validate_video_file(file_path: str) -> float:
     cap = cv2.VideoCapture(file_path)
     if not cap.isOpened():
-        raise HTTPException(400, "Fichier vidéo invalide")
+        raise HTTPException(400, "Invalid or unreadable video file.")
 
     fps = cap.get(cv2.CAP_PROP_FPS) or 0.0
     frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0
@@ -2149,7 +1506,7 @@ def validate_video_file(file_path: str) -> float:
     duration = frames / fps if fps > 0 else 0
     if duration > MAX_TOTAL_VIDEO_DURATION:
         raise HTTPException(
-            400, f"Vidéo trop longue ({duration/60:.1f} min)"
+            400, f"Video is too long ({duration / 60:.1f} min)."
         )
     return duration
 
@@ -2247,29 +1604,6 @@ def apple_vision_ocr(image: Image.Image) -> str:
 # --- AUDIO FEATURES ---
 
 
-def _word_records(whisper_segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Flatten Whisper's word-level timestamps into stable records."""
-    records: List[Dict[str, Any]] = []
-    for segment in whisper_segments or []:
-        words = segment.get("words") or []
-        if not isinstance(words, list):
-            continue
-        for word in words:
-            if not isinstance(word, dict):
-                continue
-            try:
-                word_start = float(word.get("start"))
-                word_end = float(word.get("end"))
-            except (TypeError, ValueError):
-                continue
-            text = str(word.get("word") or word.get("text") or "")
-            if word_end <= word_start or not text.strip():
-                continue
-            records.append({"start": word_start, "end": word_end, "text": text})
-    records.sort(key=lambda item: (item["start"], item["end"]))
-    return records
-
-
 def _inside_scene(midpoint: float, start: float, end: float) -> bool:
     # Assign a word/segment to one and only one scene, even at scene boundaries.
     return start <= midpoint < end or (midpoint == end and start == end)
@@ -2351,9 +1685,6 @@ def _union_duration(intervals: List[tuple]) -> float:
             current_start, current_end = interval_start, interval_end
     total += current_end - current_start
     return max(0.0, total)
-
-
-# VCE_BOUNDED_KEYFRAME_PREFETCH_V1
 def _vce_start_bounded_keyframe_prefetch(
     video_path: str,
     scenes: List[Dict[str, Any]],
@@ -2414,6 +1745,7 @@ def _vce_start_bounded_keyframe_prefetch(
                 try:
                     capture.release()
                 except Exception:
+                    # Capture may already have been closed during cancellation.
                     pass
             if not stop_event.is_set():
                 put_item((None, None, None))
@@ -2491,11 +1823,7 @@ def compute_audio_features_for_scene(
     }
 
 
-def analyze_emotion_from_frame(frame_rgb: np.ndarray) -> Dict[str, Any]:
-    return {}
-
-
-# --- JSON ROBUSTE + NETTOYAGE ---
+# --- JSON RECOVERY AND CLEANUP ---
 
 def safe_json_parse(text: str) -> Dict[str, Any]:
     text = (text or "").strip()
@@ -2504,7 +1832,8 @@ def safe_json_parse(text: str) -> Dict[str, Any]:
 
     try:
         return json.loads(text)
-    except Exception:
+    except json.JSONDecodeError:
+        # Malformed JSON is expected here; the tolerant parser tries recovery below.
         pass
 
     start = text.find("{")
@@ -2515,7 +1844,8 @@ def safe_json_parse(text: str) -> Dict[str, Any]:
 
     try:
         return json.loads(candidate)
-    except Exception:
+    except json.JSONDecodeError:
+        # The extracted candidate may still be truncated; continue with bounded repairs.
         pass
 
     for _ in range(3):
@@ -2535,7 +1865,8 @@ def safe_json_parse(text: str) -> Dict[str, Any]:
 
         try:
             return json.loads(candidate)
-        except Exception:
+        except json.JSONDecodeError:
+            # Try the next candidate when this fragment is not valid JSON.
             continue
 
     return {}
@@ -2543,8 +1874,8 @@ def safe_json_parse(text: str) -> Dict[str, Any]:
 
 def _extract_field_loose(raw: str, field: str) -> str:
     """
-    Essaie d'extraire la valeur d'un champ JSON (ex: "summary", "description")
-    dans un texte potentiellement tronqué et/ou entouré de ```json, {, } etc.
+    Extract a field value from JSON (for example, `summary` or `description`)
+    inside possibly truncated text or a fenced JSON block.
     """
     if not raw:
         return ""
@@ -2590,28 +1921,47 @@ def clean_raw_summary_text(raw: str) -> str:
         return s
     text = raw.strip().lstrip("{").rstrip("}")
     return text.strip()
-
-
-# VCE_NAME_RECONCILIATION_PROMPT_V1
 TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT = r'''
 ### Согласование названий и собственных имён между источниками
 
 При подготовке итогового отчёта сопоставляй распознанную речь (ASR), визуальное описание и текст на экране (OCR).
 
-1. Не считай фонетическую запись ASR правильным написанием имени. Распознавание речи может искажать названия программ, брендов, продуктов, аббревиатуры и имена собственные.
-2. Используй читаемую надпись на экране для уточнения написания, если она явно относится к сущности, о которой говорит диктор в том же или соседнем связанном эпизоде. Учитывай смысл фразы и последовательность событий, а не только сходство звучания.
-3. Если связь между произнесённым названием и видимой надписью достаточно убедительна, используй написание с экрана в нормализованных полях итогового отчёта: entities, topics, key_points, описаниях сцен и сводках. Не дублируй одну сущность под фонетическим вариантом ASR и написанием с экрана.
-4. Не изменяй исходные данные. Поля audio_transcript, ocr_text, visual_description и временные метки должны оставаться исходными. Нормализация относится только к производным аналитическим полям.
-5. Не считай любое слово на экране подтверждением услышанного названия. Надпись должна относиться к тому же продукту или объекту по контексту. Если связь неоднозначна, противоречива или OCR ненадёжен, сохрани неопределённость и укажи, какие источники дают разные варианты.
-6. Не придумывай официальное написание на основании одного только звучания или общих знаний. Приоритет доказательств: чёткая относящаяся к объекту надпись на экране, контекст речи и видео, затем внешние сведения — если они доступны и разрешены. Не делай категоричного вывода, когда доказательств недостаточно.
-7. В итоговом отчёте различай три уровня: непосредственно наблюдаемое написание, вероятную идентификацию сущности и неподтверждённую гипотезу. Не выдавай вероятную идентификацию за факт.
-'''.strip()
+1. Не считай фонетическую запись ASR правильным написанием имени. Распознавание речи может искажать названия программ, брендов, продуктов,
+аббревиатуры и имена собственные.
+2. Используй читаемую надпись на экране для уточнения написания, если она явно относится к сущности, о которой говорит диктор в том же или
+соседнем связанном эпизоде. Учитывай смысл фразы и последовательность событий, а не только сходство звучания.
+3. Если связь между произнесённым названием и видимой надписью достаточно убедительна, используй написание с экрана в нормализованных полях
+итогового отчёта: entities, topics, key_points, описаниях сцен и сводках. Не дублируй одну сущность под фонетическим вариантом ASR и написанием с
+экрана.
+4. Не изменяй исходные данные. Поля audio_transcript, ocr_text, visual_description и временные метки должны оставаться исходными. Нормализация
+относится только к производным аналитическим полям.
+5. Не считай любое слово на экране подтверждением услышанного названия. Надпись должна относиться к тому же продукту или объекту по контексту.
+Если связь неоднозначна, противоречива или OCR ненадёжен, сохрани неопределённость и укажи, какие источники дают разные варианты.
+6. Не придумывай официальное написание на основании одного только звучания или общих знаний. Приоритет доказательств: чёткая относящаяся к
+объекту надпись на экране, контекст речи и видео, затем внешние сведения — если они доступны и разрешены. Не делай категоричного вывода, когда
+доказательств недостаточно.
+7. В итоговом отчёте различай три уровня: непосредственно наблюдаемое написание, вероятную идентификацию сущности и неподтверждённую гипотезу. Не
+выдавай вероятную идентификацию за факт.'''.strip()
 
 TEXT_LLM_DEFAULT_MODEL = "mlx-community/Qwen3.5-9B-MLX-4bit"
-TEXT_LLM_DEFAULT_MAX_TOKENS = 4096
+TEXT_LLM_DEFAULT_MAX_TOKENS = 8192
 
 
-VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: Dict[str, Any] = {}
+def _vce_domain_profile_instructions() -> str:
+    """Load domain-specific guidance only when a named profile is explicitly selected."""
+    profile = str(setting("domain_profile", "generic") or "generic").strip().lower()
+    if profile == "generic":
+        return ""
+    if profile == "nsrspec":
+        from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS
+        return str(PROMPT_INSTRUCTIONS).strip()
+    print(f"[VCE domain profile] Unsupported profile {profile!r}; using generic instructions.")
+    return ""
+
+
+VCE_TEXT_LLM_GENERATION_DIAGNOSTICS: contextvars.ContextVar = contextvars.ContextVar(
+    "vce_text_llm_generation_diagnostics", default=None
+)
 
 
 def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperature: float, stream: bool):
@@ -2620,7 +1970,7 @@ def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperatu
     No native JSON grammar and no reasoning_* kwargs are sent. Thinking control
     is not handled here; generated output is validated by the application.
     """
-    diagnostics = VCE_TEXT_LLM_GENERATION_DIAGNOSTICS
+    diagnostics = _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
     diagnostics.clear()
     diagnostics.update({
         "requested_max_tokens": int(max_tokens),
@@ -2682,6 +2032,7 @@ def _vce_llama_json_completion(instance, prompt: str, max_tokens: int, temperatu
                 if chunk.get("usage") is not None:
                     usage = chunk.get("usage")
             except Exception:
+                # Usage metadata is optional; preserve the generated chunk if it is malformed.
                 pass
             yield chunk
         diagnostics.update({
@@ -2701,14 +2052,6 @@ def _text_llm_clip(value: Any, limit: int) -> str:
     return text[:max(0, limit - 14)].rstrip() + " …[обрезано]"
 
 
-def _text_llm_normalize_list(value: Any, item_limit: int = 24) -> List[str]:
-    if not isinstance(value, list):
-        return []
-    out = []
-    for item in value[:item_limit]:
-        if isinstance(item, str) and item.strip():
-            out.append(item.strip()[:500])
-    return out
 
 
 def _text_llm_extract_json_object(raw: str) -> Dict[str, Any]:
@@ -2744,14 +2087,68 @@ def _text_llm_extract_json_object(raw: str) -> Dict[str, Any]:
     raise ValueError("Не найден полный JSON-объект с непустым executive_summary.")
 
 
+def _text_llm_find_json_candidate_offset(raw: str) -> int:
+    """Find a schema-shaped root object, ignoring prose braces and nested examples."""
+    text = str(raw or "")
+    root_keys = (
+        '"executive_summary"', '"topics"', '"key_points"',
+        '"entities"', '"scene_enrichment"', '"uncertainties"',
+    )
+    depth = 0
+    in_string = False
+    escaped = False
+    in_think = False
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if not in_string and text[index:index + 6].lower() == "<think":
+            tag_end = text.find(">", index + 6)
+            if tag_end < 0:
+                break
+            in_think = True
+            index = tag_end + 1
+            continue
+        if not in_string and text[index:index + 7].lower() == "</think":
+            tag_end = text.find(">", index + 7)
+            if tag_end < 0:
+                break
+            in_think = False
+            index = tag_end + 1
+            continue
+        if in_think:
+            index += 1
+            continue
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ord(character) == 92:
+                escaped = True
+            elif character == '"':
+                in_string = False
+            index += 1
+            continue
+        if character == '"':
+            in_string = True
+        elif character == "{":
+            if depth == 0:
+                first_key = text[index + 1:].lstrip()
+                if any(first_key.startswith(key) for key in root_keys):
+                    return index
+            depth += 1
+        elif character == "}" and depth > 0:
+            depth -= 1
+        index += 1
+    return -1
+
+
 def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
     payload = _text_llm_extract_json_object(raw)
     summary = payload.get("executive_summary")
     if not isinstance(summary, str) or not summary.strip():
         raise ValueError("В JSON текстовой LLM отсутствует executive_summary.")
 
-    payload["executive_summary"] = summary.strip()[:8000]
-    payload["topics"] = _text_llm_normalize_list(payload.get("topics"), 30)
+    payload["executive_summary"] = summary.strip()[:16000]
+    payload["topics"] = _text_llm_normalize_list(payload.get("topics"), max(1, int(setting("text_llm_max_topics", 15))))
     payload["uncertainties"] = _text_llm_normalize_list(payload.get("uncertainties"), 30)
 
     clean_points = []
@@ -2771,7 +2168,7 @@ def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
             "text": text_value.strip()[:700],
             "evidence": _text_llm_normalize_list(item.get("evidence"), 6),
         })
-        if len(clean_points) >= 24:
+        if len(clean_points) >= max(1, int(setting("text_llm_max_key_points", 18))):
             break
     payload["key_points"] = clean_points
 
@@ -2785,6 +2182,7 @@ def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
                 try:
                     ids.append(int(scene_id))
                 except (TypeError, ValueError):
+                    # Ignore malformed optional entity links while preserving other valid IDs.
                     pass
         clean_entities.append({
             "name": item["name"].strip()[:200],
@@ -2813,351 +2211,18 @@ def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
     return payload
 
 
-# VCE_CONFIRMED_STANDARD_CANONICALIZATION_V2
-# VCE_NAME_CONSISTENCY_V3_CROSS_FIELD_REPAIR
-
-def _vce_canonicalize_confirmed_standard_names(payload, segments):
-    """Normalize only derived text, and only when related OCR confirms the exact ID."""
-    import re as _vce_re
-    if not isinstance(payload, dict):
-        payload = {}
-
-    _vce_segments = segments if isinstance(segments, list) else []
-    _vce_ocr_text = " ".join(
-        str(_vce_seg.get("ocr_text", "") or "")
-        for _vce_seg in _vce_segments
-        if isinstance(_vce_seg, dict)
-    )
-    _vce_canonical = "СП 1.13130.2020"
-    _vce_confirmed = bool(_vce_re.search(
-        r"(?i)(?<![\w])СП\s*1\.13130\.2020(?!\d)", _vce_ocr_text
-    ))
-    _vce_aliases = (
-        _vce_re.compile(r"(?i)(?<![\w])СП\s*1\s*\.\s*13\s*\.\s*132\s*\.\s*0?20(?!\d)"),
-        _vce_re.compile(r"(?i)(?<![\w])СП\s*1\s*\.\s*13\s*\.\s*130\s*\.\s*2020(?!\d)"),
-    )
-    _vce_raw_keys = {
-        "audio_transcript", "ocr_text", "visual_description", "original_summary",
-        "timestamp", "timestamps", "start", "end", "time", "timecode", "timecodes",
-    }
-    _vce_replacements = 0
-
-    def _vce_replace_tree(value):
-        nonlocal _vce_replacements
-        if isinstance(value, str):
-            if not _vce_confirmed:
-                return value
-            _vce_result = value
-            for _vce_pattern in _vce_aliases:
-                _vce_result, _vce_count = _vce_pattern.subn(_vce_canonical, _vce_result)
-                _vce_replacements += _vce_count
-            return _vce_result
-        if isinstance(value, list):
-            return [_vce_replace_tree(_vce_item) for _vce_item in value]
-        if isinstance(value, dict):
-            return {
-                _vce_key: (_vce_item if str(_vce_key).lower() in _vce_raw_keys else _vce_replace_tree(_vce_item))
-                for _vce_key, _vce_item in value.items()
-            }
-        return value
-
-    # `payload` is generated analytical JSON. Preserve raw evidence keys anywhere they occur.
-    _vce_normalized = _vce_replace_tree(payload) if _vce_confirmed else payload
-    if isinstance(_vce_normalized, dict):
-        payload.clear()
-        payload.update(_vce_normalized)
-
-    # Per-scene text_llm outputs are also derived fields and may be used to build scene_enrichment.
-    # Do not rewrite audio_transcript, ocr_text, visual_description, or times in the segment itself.
-    _vce_action_edits = 0
-    for _vce_seg in _vce_segments:
-        if not isinstance(_vce_seg, dict) or not isinstance(_vce_seg.get("text_llm"), dict):
-            continue
-        _vce_ocr = str(_vce_seg.get("ocr_text", "") or "")
-        if _vce_confirmed:
-            _vce_seg["text_llm"] = _vce_replace_tree(_vce_seg["text_llm"])
-        _vce_llm = _vce_seg["text_llm"]
-        _vce_has_create_control = bool(_vce_re.search(r"(?i)создать\s+калькулятор", _vce_ocr))
-        _vce_has_generate_control = bool(_vce_re.search(r"(?i)(?:генерация\s+калькуляторов|сгенерировать)", _vce_ocr))
-        _vce_has_completion = bool(_vce_re.search(r"(?i)(?:успешно\s+(?:создан|сгенерирован|завершен)|генерация\s+завершена|калькулятор\s+создан|калькуляторы\s+сгенерированы)", _vce_ocr))
-        if _vce_has_completion:
-            continue
-        for _vce_field in ("improved_description", "topic"):
-            _vce_text = _vce_llm.get(_vce_field)
-            if not isinstance(_vce_text, str):
-                continue
-            if _vce_has_generate_control and _vce_re.search(r"(?i)(?:запуск\s+генерации|запущен\w*\s+процесс\s+генерации|сгенерирован\w*\s+калькулятор)", _vce_text):
-                _vce_llm[_vce_field] = "На экране показана функция «Генерация калькуляторов»; запуск и успешное завершение генерации не подтверждены кадрами."
-                _vce_action_edits += 1
-            elif _vce_has_create_control and _vce_re.search(r"(?i)создан\w*\s+калькулятор", _vce_text):
-                _vce_llm[_vce_field] = "На экране показана форма создания калькулятора; завершение создания не подтверждено кадрами."
-                _vce_action_edits += 1
-        _vce_points = _vce_llm.get("key_points")
-        if isinstance(_vce_points, list):
-            for _vce_i, _vce_point in enumerate(_vce_points):
-                if not isinstance(_vce_point, str):
-                    continue
-                if _vce_has_generate_control and _vce_re.search(r"(?i)(?:запуск\s+генерации|запущен\w*\s+процесс\s+генерации|сгенерирован\w*\s+калькулятор)", _vce_point):
-                    _vce_points[_vce_i] = "На экране показана функция «Генерация калькуляторов»; запуск и успешное завершение генерации не подтверждены кадрами."
-                    _vce_action_edits += 1
-                elif _vce_has_create_control and _vce_re.search(r"(?i)создан\w*\s+калькулятор", _vce_point):
-                    _vce_points[_vce_i] = "На экране показана форма создания калькулятора; завершение создания не подтверждено кадрами."
-                    _vce_action_edits += 1
-
-    # The LLM may place scene_enrichment directly in payload. Apply the same evidence rule there,
-    # using OCR matched by scene_id; all changes are limited to derived descriptions/key points.
-    _vce_ocr_by_scene = {}
-    for _vce_seg in _vce_segments:
-        if isinstance(_vce_seg, dict) and _vce_seg.get("scene_id") is not None:
-            _vce_ocr_by_scene[_vce_seg.get("scene_id")] = str(_vce_seg.get("ocr_text", "") or "")
-    def _vce_guard_scene_enrichment(_vce_list):
-        nonlocal _vce_action_edits
-        if not isinstance(_vce_list, list):
-            return
-        for _vce_scene in _vce_list:
-            if not isinstance(_vce_scene, dict):
-                continue
-            _vce_ocr = _vce_ocr_by_scene.get(_vce_scene.get("scene_id"), "")
-            _vce_create = bool(_vce_re.search(r"(?i)создать\s+калькулятор", _vce_ocr))
-            _vce_generate = bool(_vce_re.search(r"(?i)(?:генерация\s+калькуляторов|сгенерировать)", _vce_ocr))
-            _vce_done = bool(_vce_re.search(r"(?i)(?:успешно\s+(?:создан|сгенерирован|завершен)|генерация\s+завершена|калькулятор\s+создан|калькуляторы\s+сгенерированы)", _vce_ocr))
-            if _vce_done:
-                continue
-            for _vce_field in ("improved_description", "topic"):
-                _vce_text = _vce_scene.get(_vce_field)
-                if not isinstance(_vce_text, str):
-                    continue
-                if _vce_generate and _vce_re.search(r"(?i)(?:запуск\s+генерации|запущен\w*\s+процесс\s+генерации|сгенерирован\w*\s+калькулятор)", _vce_text):
-                    _vce_scene[_vce_field] = "На экране показана функция «Генерация калькуляторов»; запуск и успешное завершение генерации не подтверждены кадрами."
-                    _vce_action_edits += 1
-                elif _vce_create and _vce_re.search(r"(?i)создан\w*\s+калькулятор", _vce_text):
-                    _vce_scene[_vce_field] = "На экране показана форма создания калькулятора; завершение создания не подтверждено кадрами."
-                    _vce_action_edits += 1
-            _vce_points = _vce_scene.get("key_points")
-            if isinstance(_vce_points, list):
-                for _vce_i, _vce_point in enumerate(_vce_points):
-                    if not isinstance(_vce_point, str):
-                        continue
-                    if _vce_generate and _vce_re.search(r"(?i)(?:запуск\s+генерации|запущен\w*\s+процесс\s+генерации|сгенерирован\w*\s+калькулятор)", _vce_point):
-                        _vce_points[_vce_i] = "На экране показана функция «Генерация калькуляторов»; запуск и успешное завершение генерации не подтверждены кадрами."
-                        _vce_action_edits += 1
-                    elif _vce_create and _vce_re.search(r"(?i)создан\w*\s+калькулятор", _vce_point):
-                        _vce_points[_vce_i] = "На экране показана форма создания калькулятора; завершение создания не подтверждено кадрами."
-                        _vce_action_edits += 1
-    if isinstance(payload, dict):
-        _vce_guard_scene_enrichment(payload.get("scene_enrichment"))
-    if _vce_replacements:
-        print(f"🧭 [ASR/OCR] Исправлено {_vce_replacements} вариантов на {_vce_canonical} по подтверждённому OCR.")
-    if _vce_action_edits:
-        print(f"🧭 [Evidence guard] Смягчено {_vce_action_edits} утверждений о действиях без подтверждения результата.")
-    return payload
 
 
-# VCE_REPORT_INTEGRITY_V4_HELPER
-
-def _vce_v4_evidence_summary(text, segments):
-    """Downgrade model-verified language when the nonconformity is only spoken, not shown."""
-    import re as _vce4_re
-    if not isinstance(text, str) or not isinstance(segments, list):
-        return text
-    _vce4_audio = " ".join(
-        str(_vce4_seg.get("audio_transcript", "") or "")
-        for _vce4_seg in segments if isinstance(_vce4_seg, dict)
-    )
-    _vce4_ocr = " ".join(
-        str(_vce4_seg.get("ocr_text", "") or "")
-        for _vce4_seg in segments if isinstance(_vce4_seg, dict)
-    )
-    _vce4_speech_noncompliance = bool(_vce4_re.search(
-        r"(?i)(?:не\s+соответствует\s+(?:нормативу|требованиям)|несоответств\w*)", _vce4_audio
-    ))
-    _vce4_collision_ui = bool(_vce4_re.search(r"(?i)проверка\s+коллизий", _vce4_ocr))
-    _vce4_ocr_shows_result = bool(_vce4_re.search(
-        r"(?i)(?:не\s+соответствует\s+(?:нормативу|требованиям)|несоответств\w*\s+(?:выявлено|обнаружено)|"
-        r"результат\s+проверки\s*[:=]\s*(?:ошибка|не\s+соответствует)|"
-        r"итог\s+проверки\s*[:=]\s*(?:ошибка|не\s+соответствует))", _vce4_ocr
-    ))
-    if not (_vce4_speech_noncompliance and _vce4_collision_ui and not _vce4_ocr_shows_result):
-        return text
-
-    _vce4_replacement = (
-        "По словам диктора, проверка выявила несоответствие нормативу; "
-        "фактическое значение уклона и итог проверки визуально не подтверждены."
-    )
-    _vce4_result = text
-    _vce4_sentences = _vce4_re.split(r"(?<=[.!?])\s+", _vce4_result)
-    _vce4_new_sentences = []
-    _vce4_changed = False
-    for _vce4_sentence in _vce4_sentences:
-        _vce4_has_noncompliance = bool(_vce4_re.search(
-            r"(?i)(?:уклон\s+пандус\w*|пандус\w*[^.!?]{0,70}уклон)[^.!?]{0,140}не\s+соответствует\s+нормативу", _vce4_sentence
-        ))
-        _vce4_is_visual_assertion = bool(_vce4_re.search(
-            r"(?i)(?:в\s+(?:3d[- ]?)?модел\w*|модель\s+показала|визуально\s+выявлено|"
-            r"проверка\s+выявила|выявлено,?\s+что|обнаружено,?\s+что|установлено,?\s+что)", _vce4_sentence
-        ))
-        _vce4_already_attributed = bool(_vce4_re.search(
-            r"(?i)(?:по\s+словам\s+диктора|в\s+речи\s+сообщается|аудиодорожк\w*)", _vce4_sentence
-        ))
-        if _vce4_has_noncompliance and _vce4_is_visual_assertion and not _vce4_already_attributed:
-            _vce4_new_sentences.append(_vce4_replacement)
-            _vce4_changed = True
-        else:
-            _vce4_new_sentences.append(_vce4_sentence)
-    if _vce4_changed:
-        return " ".join(_vce4_new_sentences)
-
-    # Fallback for a brief global summary whose overconfident model-result sentence does not name the model.
-    _vce4_overclaim = _vce4_re.search(
-        r"(?i)(?:выявлено|обнаружено|установлено)[^.!?]{0,120}уклон\s+пандус\w*[^.!?]{0,80}не\s+соответствует\s+нормативу", _vce4_result
-    )
-    if _vce4_overclaim and not _vce4_re.search(r"(?i)визуально\s+не\s+подтвержден", _vce4_result):
-        _vce4_start = _vce4_result.rfind(".", 0, _vce4_overclaim.start()) + 1
-        _vce4_end = _vce4_result.find(".", _vce4_overclaim.end())
-        if _vce4_end < 0:
-            _vce4_end = len(_vce4_result)
-        _vce4_result = _vce4_result[:_vce4_start] + " " + _vce4_replacement + _vce4_result[_vce4_end + (1 if _vce4_end < len(_vce4_result) else 0):]
-    return _vce4_result
 
 
-def _vce_v4_name_pattern(name):
-    """Build a case-insensitive OCR literal matcher while allowing line-wrap whitespace."""
-    import re as _vce4_re
-    if not isinstance(name, str) or not name.strip():
-        return None
-    _vce4_tokens = name.strip().split()
-    if not _vce4_tokens:
-        return None
-    return _vce4_re.compile(r"(?i)(?<![\w])" + r"\s+".join(_vce4_re.escape(_vce4_t) for _vce4_t in _vce4_tokens) + r"(?![\w])")
 
 
-def _vce_v4_update_entity_scene_ids(payload, segments):
-    """Add scene IDs only when an entity's literal name is visible in that scene's OCR."""
-    import re as _vce4_re
-    if not isinstance(payload, dict) or not isinstance(payload.get("entities"), list) or not isinstance(segments, list):
-        return 0
-    _vce4_valid_ids = set()
-    for _vce4_seg in segments:
-        if isinstance(_vce4_seg, dict):
-            _vce4_id = _vce4_seg.get("scene_id")
-            if isinstance(_vce4_id, int) and not isinstance(_vce4_id, bool):
-                _vce4_valid_ids.add(_vce4_id)
-    _vce4_changes = 0
-    for _vce4_entity in payload.get("entities", []):
-        if not isinstance(_vce4_entity, dict):
-            continue
-        _vce4_name = _vce4_entity.get("name")
-        _vce4_pattern = _vce_v4_name_pattern(_vce4_name)
-        if _vce4_pattern is None:
-            continue
-        _vce4_old = _vce4_entity.get("scene_ids")
-        _vce4_current = []
-        if isinstance(_vce4_old, list):
-            for _vce4_id in _vce4_old:
-                if isinstance(_vce4_id, int) and not isinstance(_vce4_id, bool) and _vce4_id in _vce4_valid_ids:
-                    if _vce4_id not in _vce4_current:
-                        _vce4_current.append(_vce4_id)
-        _vce4_added = []
-        # Avoid broad, noisy associations for very short acronyms such as "КСИ".
-        if len(str(_vce4_name).strip()) >= 4:
-            for _vce4_seg in segments:
-                if not isinstance(_vce4_seg, dict):
-                    continue
-                _vce4_id = _vce4_seg.get("scene_id")
-                _vce4_ocr = str(_vce4_seg.get("ocr_text", "") or "")
-                if isinstance(_vce4_id, int) and not isinstance(_vce4_id, bool) and _vce4_id in _vce4_valid_ids and _vce4_pattern.search(_vce4_ocr):
-                    if _vce4_id not in _vce4_current:
-                        _vce4_current.append(_vce4_id)
-                        _vce4_added.append(_vce4_id)
-        _vce4_current.sort()
-        if _vce4_old != _vce4_current:
-            _vce4_entity["scene_ids"] = _vce4_current
-            _vce4_changes += 1
-    return _vce4_changes
 
 
-def _vce_v4_validate_analysis(payload, segments, global_summary=""):
-    """Validate the derived analysis JSON contract; warn rather than abort a video run."""
-    import re as _vce4_re
-    _vce4_issues = []
-    if not isinstance(payload, dict):
-        print("⚠️ [JSON integrity V4] enhanced_analysis — ожидался JSON-объект.")
-        return payload
-    if not isinstance(segments, list):
-        _vce4_issues.append("segments не является массивом")
-        segments = []
-    _vce4_valid_ids = {
-        _vce4_seg.get("scene_id") for _vce4_seg in segments
-        if isinstance(_vce4_seg, dict) and isinstance(_vce4_seg.get("scene_id"), int) and not isinstance(_vce4_seg.get("scene_id"), bool)
-    }
-    _vce4_contract = {
-        "executive_summary": str,
-        "topics": list,
-        "key_points": list,
-        "entities": list,
-        "scene_enrichment": list,
-    }
-    for _vce4_key, _vce4_type in _vce4_contract.items():
-        if _vce4_key not in payload:
-            _vce4_issues.append(f"отсутствует поле { _vce4_key }")
-        elif not isinstance(payload[_vce4_key], _vce4_type):
-            _vce4_issues.append(f"{_vce4_key} имеет тип {type(payload[_vce4_key]).__name__}, ожидался {_vce4_type.__name__}")
-    for _vce4_key in ("topics",):
-        if isinstance(payload.get(_vce4_key), list) and any(not isinstance(_vce4_item, str) for _vce4_item in payload[_vce4_key]):
-            _vce4_issues.append(f"{_vce4_key} содержит элементы не-строки")
-    for _vce4_key in ("key_points", "scene_enrichment"):
-        _vce4_value = payload.get(_vce4_key)
-        if isinstance(_vce4_value, list):
-            for _vce4_idx, _vce4_item in enumerate(_vce4_value):
-                if not isinstance(_vce4_item, dict):
-                    _vce4_issues.append(f"{_vce4_key}[{_vce4_idx}] не является объектом")
-                    continue
-                _vce4_id = _vce4_item.get("scene_id")
-                if _vce4_id is not None and _vce4_id not in _vce4_valid_ids:
-                    _vce4_issues.append(f"{_vce4_key}[{_vce4_idx}] ссылается на неизвестную сцену {_vce4_id!r}")
-    _vce4_ocr = " ".join(str(_vce4_seg.get("ocr_text", "") or "") for _vce4_seg in segments if isinstance(_vce4_seg, dict))
-    _vce4_has_canonical_sp = bool(_vce4_re.search(r"(?i)(?<![\w])СП\s*1\.13130\.2020(?!\d)", _vce4_ocr))
-    if _vce4_has_canonical_sp:
-        _vce4_alias = _vce4_re.compile(r"(?i)(?<![\w])СП\s*1\s*\.\s*13\s*\.\s*132\s*\.\s*0?20(?!\d)")
-        if _vce4_alias.search(str(global_summary or "")):
-            _vce4_issues.append("неисправленный вариант номера СП остался в global_summary")
-    _vce4_known_keys = {"audio_transcript", "ocr_text", "visual_description", "original_summary", "start", "end", "time", "timestamp", "timestamps", "timecode", "timecodes"}
-    def _vce4_scan_alias(value, path="enhanced_analysis"):
-        if isinstance(value, dict):
-            for _vce4_key, _vce4_child in value.items():
-                if str(_vce4_key).lower() in _vce4_known_keys:
-                    continue
-                _vce4_scan_alias(_vce4_child, f"{path}.{_vce4_key}")
-        elif isinstance(value, list):
-            for _vce4_i, _vce4_child in enumerate(value):
-                _vce4_scan_alias(_vce4_child, f"{path}[{_vce4_i}]")
-        elif isinstance(value, str) and _vce4_has_canonical_sp and _vce4_re.search(r"(?i)(?<![\w])СП\s*1\s*\.\s*13\s*\.\s*132\s*\.\s*0?20(?!\d)", value):
-            _vce4_issues.append(f"неисправленный вариант номера СП в {path}")
-    _vce4_scan_alias(payload)
-    _vce4_entity_changes = _vce_v4_update_entity_scene_ids(payload, segments)
-    if _vce4_entity_changes:
-        print(f"🧭 [JSON integrity V4] Обновлены связи сущностей со сценами: {_vce4_entity_changes} сущностей.")
-    _vce4_scenes = len(_vce4_valid_ids)
-    if _vce4_issues:
-        print("⚠️ [JSON integrity V4] Проверка аналитического JSON нашла замечания:")
-        for _vce4_issue in _vce4_issues:
-            print("   - " + _vce4_issue)
-    else:
-        print(f"✅ [JSON integrity V4] Структура аналитики проверена; доступно {_vce4_scenes} scene_id, ссылки сущностей сверены с OCR.")
-    return payload
 
 
-def _vce_v4_finalize_analysis_payload(payload, segments, global_summary=""):
-    """Apply evidence-grounded consistency repairs, then validate the derived analysis payload."""
-    if not isinstance(payload, dict):
-        return payload
-    if isinstance(payload.get("executive_summary"), str):
-        _vce4_new = _vce_v4_evidence_summary(payload["executive_summary"], segments)
-        if _vce4_new != payload["executive_summary"]:
-            payload["executive_summary"] = _vce4_new
-            print("🧭 [Summary integrity V4] Executive summary reconciled with audio/OCR evidence.")
-    _vce_v4_update_entity_scene_ids(payload, segments)
-    return _vce_v4_validate_analysis(payload, segments, global_summary)
+
+
 
 
 def run_text_llm_postprocess(
@@ -3166,13 +2231,13 @@ def run_text_llm_postprocess(
     video_duration: float,
     existing_summary: str,
     segments: List[Dict[str, Any]],
-    max_tokens: int = 4096,
+    max_tokens: int = TEXT_LLM_DEFAULT_MAX_TOKENS,
     progress_callback: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """Run text-only enrichment on exactly the selected MLX or llama.cpp backend."""
     import gc
     inference_backend = _vce_normalize_inference_backend()
-    VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.clear()
+    _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS).clear()
     if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
         _vce_require_llama_metal()
         from llama_cpp import Llama
@@ -3185,7 +2250,7 @@ def run_text_llm_postprocess(
                 n_ctx=int(setting("llama_cpp_text_context", 32768)),
                 verbose=True,
             )
-            VCE_BACKEND_DIAGNOSTICS["text_llm"] = {
+            _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["text_llm"] = {
                 "backend": "llama.cpp",
                 "accelerator": "Metal",
                 "model": model_file,
@@ -3193,20 +2258,14 @@ def run_text_llm_postprocess(
                 "gpu_offload_supported": True,
                 "metal_offload_requested": True,
             }
-            print("[VCE runtime] " + json.dumps(VCE_BACKEND_DIAGNOSTICS["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
+            print("[VCE runtime] " + json.dumps(_vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS)["text_llm"], ensure_ascii=False, sort_keys=True), flush=True)
             return instance, object()
 
         def load_config(_path):
             return None
 
-        def apply_chat_template(_processor, _config, prompt, **_kwargs):
-            return prompt
-
-        def _llama_completion(instance, prompt, max_tokens, temperature, stream):
-            return _vce_llama_json_completion(instance, prompt, max_tokens, temperature, stream)
-
         def stream_generate(instance, _processor, prompt, max_tokens, temperature=0.1, **_kwargs):
-            for chunk in _llama_completion(instance, prompt, max_tokens, temperature, True):
+            for chunk in _vce_llama_json_completion(instance, prompt, max_tokens, temperature, True):
                 choices = chunk.get("choices") or []
                 delta = (choices[0].get("delta") or {}) if choices else {}
                 piece = delta.get("content")
@@ -3214,7 +2273,7 @@ def run_text_llm_postprocess(
                     yield str(piece)
 
         def generate(instance, _processor, prompt, max_tokens, temperature=0.1, **_kwargs):
-            response = _llama_completion(instance, prompt, max_tokens, temperature, False)
+            response = _vce_llama_json_completion(instance, prompt, max_tokens, temperature, False)
             choices = response.get("choices") or []
             return str((choices[0].get("message") or {}).get("content") or "") if choices else ""
     else:
@@ -3262,39 +2321,85 @@ def run_text_llm_postprocess(
             }
 
         limits = (600, 650, 650)
+        context_max_chars = max(0, int(setting("text_llm_context_max_chars", 47000) or 0))
+        context_max_scenes = max(0, int(setting("text_llm_context_max_scenes", 80) or 0))
         context = make_context(limits)
         context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         for smaller in ((360, 400, 400), (220, 250, 250), (140, 160, 160)):
-            if len(context_json) <= 47000:
+            if context_max_chars == 0 or len(context_json) <= context_max_chars:
                 break
             context = make_context(smaller)
             context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
         coverage_note = "Все сцены включены в контекст."
-        if len(context_json) > 47000 and len(context.get("scenes", [])) > 80:
+        if context_max_scenes > 0 and len(context.get("scenes", [])) > context_max_scenes:
             all_scenes = context["scenes"]
-            indices = sorted({round(i * (len(all_scenes) - 1) / 79) for i in range(80)})
+            sample_count = min(context_max_scenes, len(all_scenes))
+            indices = ([0] if sample_count == 1 else sorted({
+                round(i * (len(all_scenes) - 1) / (sample_count - 1))
+                for i in range(sample_count)
+            }))
             context["scenes"] = [all_scenes[i] for i in indices]
             context_json = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-            coverage_note = f"Для смысловой разметки переданы 80 репрезентативных сцен из {len(all_scenes)}; исходные сцены в основном JSON не изменены."
+            coverage_note = (
+                f"Для смысловой разметки переданы {len(context['scenes'])} сцен из {len(all_scenes)}; "
+                f"лимит сцен={context_max_scenes}, сериализованный контекст={len(context_json)} символов."
+            )
+        elif context_max_chars > 0 and len(context_json) > context_max_chars:
+            coverage_note = (
+                f"Контекст после сокращения полей содержит {len(context_json)} символов при лимите "
+                f"{context_max_chars}; сцены не исключались, поскольку лимит сцен отключён "
+                "или количество сцен не превышает его."
+            )
 
 
 
 
-
+        summary_min_words = max(0, int(setting("text_llm_summary_min_words", 50)))
+        summary_max_words = max(summary_min_words, int(setting("text_llm_summary_max_words", 90)))
+        max_key_points = max(1, int(setting("text_llm_max_key_points", 18)))
+        max_topics = max(1, int(setting("text_llm_max_topics", 15)))
+        domain_instructions = _vce_domain_profile_instructions()
         instruction = (
             "Ты — редактор и аналитик видеоконспектов. Верни только один валидный JSON-объект без Markdown и без текста вне JSON. "
             "Все формулировки пиши на русском языке; сохраняй точное написание брендов, имён, стандартов, файлов, команд и технических терминов. "
             "Используй только переданные данные; не добавляй внешние сведения и не делай выводов, которые не подтверждаются исходными источниками. "
             "Не изменяй исходные аудиорасшифровки, OCR, визуальные описания и таймкоды. Они являются доказательным слоем. "
-            "OCR — основной источник точного написания видимых названий, нормативных обозначений, атрибутов, дат и чисел, если текст читаем и однозначен. Не позволяй фонетическому варианту ASR переопределить чёткую экранную подпись; сопоставляй источники по смыслу и близости сцен. OCR тоже может ошибаться: при нечитабельной или противоречивой надписи сохраняй неопределённость. "
-            "Если речь содержит фонетическое «Белчат/Белчата», а связанный по контексту OCR чётко показывает BuildChat, нормализуй производные аналитические поля к BuildChat и не добавляй ложную неопределённость. Исходные transcript/OCR не переписывай. "
-            "Executive_summary: 50–90 слов, самостоятельный синтез цели, последовательности этапов, конкретных параметров и фактического результата. Не повторяй базовую сводку и не добавляй общие фразы о профессиональной атмосфере. Разделяй то, что сказано в аудио, и то, что показано на экране. "
-            "Если в финальном аудио произносится несоответствие, а на экране только THE END/КОНЕЦ, сообщи, что это сказано в аудио, и не приписывай вывод изображению. Не считай окно «Проверка коллизий» доказательством результата проверки уклона, если связь не подтверждена. "
-            "Key_points: максимум 18 коротких аналитических тезисов, обычно до 30 слов. Не копируй длинные OCR-строки или обрывки транскрипта. Не дублируй смысл между соседними сценами: выделяй конкретное изменение, этап, атрибут, функцию или результат, только если он подтверждён сценой. Не добавляй речевые обрывки вроде «а затем выгрузить» как самостоятельный тезис. "
-            "Evidence — строгая привязка: speech указывай только если тезис подтверждается аудио; ocr — только если подтверждается читаемым текстом; visual — если подтверждается описанием изображения; tags — если следует из visual_tags. Не добавляй источник только потому, что он существует. THE END подтверждает заставку, но не несоответствие. "
-            "Topics — не более 15 разных тем. Entities — только подтверждённые именованные сущности с реальными scene_ids. Типы: person, organization, product, software, tool, standard, regulation, document, concept, classification_system, other. ГОСТ/СП/СНиП/ISO — standard; КСИ — classification_system; nanoCAD и CADLib — software. Не включай обычные подписи вроде «ИИ помощник» как именованные сущности. "
-            "Scene_enrichment: для каждой сцены короткая тема, улучшенное описание в 1–2 предложениях (ориентир до 45 слов) и 0–3 тезиса. Не вставляй в improved_description метки «Визуально:», «Речь:», «Текст на экране:», дампы OCR, временные заголовки [Кадр ...] или объединённые блоки исходных данных. Перескажи значимый экранный факт своими словами; сохраняй точные числа/названия, если они важны. Сцены похожего интерфейса должны различаться тем, что изменилось или какая функция показана. "
-            "Uncertainties: включай только реальные расхождения или явную проблему распознавания. Не называй неопределённостью ситуацию, когда аудио и экран описывают разные, но совместимые вещи. Если OCR явно содержит полное значение, не помечай его как обрезанное. Если сомнений нет, верни []. Не делай выводов об архитектуре по localhost/порту/названию базы. "
+                            "OCR — основной источник точного написания видимых названий, нормативных обозначений, "
+                            "атрибутов, дат и чисел, если текст читаем и однозначен. Не позволяй фонетическому "
+                            "варианту ASR переопределить чёткую экранную подпись; сопоставляй источники по смыслу "
+                            "и близости сцен. OCR тоже может ошибаться: при нечитабельной или противоречивой "
+                            "надписи сохраняй неопределённость. "
+            "Сопоставляй варианты названий только при наличии связанного по времени и смыслу подтверждения "
+            "из речи, OCR или визуального контекста; исходные transcript/OCR не переписывай. "
+                            f"Executive_summary: {summary_min_words}–{summary_max_words} слов, самостоятельный синтез цели, "
+                            "последовательности этапов, конкретных параметров и фактического результата. "
+                            "Не повторяй базовую сводку и не добавляй общие фразы. Разделяй то, что сказано "
+                            "в аудио, и то, что показано на экране. "
+            "Разделяй утверждения по источникам: не приписывай аудио визуальному ряду, OCR — речи, "
+            "а наличие интерфейсного окна не считай доказательством результата операции без подтверждения. "
+                            f"Key_points: максимум {max_key_points} коротких аналитических тезисов, обычно до 30 слов. "
+                            "Не копируй длинные OCR-строки или обрывки транскрипта. Не дублируй смысл между "
+                            "соседними сценами: выделяй конкретное изменение, этап, атрибут, функцию или результат, "
+                            "только если он подтверждён сценой. "
+                            "Evidence — строгая привязка: speech указывай только если тезис подтверждается аудио; "
+                            "ocr — только если подтверждается читаемым текстом; visual — если подтверждается "
+                            "описанием изображения; tags — если следует из visual_tags. Не добавляй источник "
+                            "только потому, что он существует. "
+                            f"Topics — не более {max_topics} разных тем. Entities — только подтверждённые именованные "
+                            "сущности с реальными scene_ids. Типы: person, organization, product, software, tool, "
+                            "standard, regulation, document, concept, classification_system, other. Не включай "
+                            "обычные подписи интерфейса как именованные сущности. "
+                            "Scene_enrichment: для каждой сцены короткая тема, улучшенное описание в 1–2 предложениях "
+                            "(ориентир до 45 слов) и 0–3 тезиса. Не вставляй в improved_description метки "
+                            "«Визуально:», «Речь:», «Текст на экране:», дампы OCR, временные заголовки [Кадр ...] "
+                            "или объединённые блоки исходных данных. Перескажи значимый экранный факт своими "
+                            "словами; сохраняй точные числа/названия, если они важны. Сцены похожего интерфейса "
+                            "должны различаться тем, что изменилось или какая функция показана. "
+                            "Uncertainties: включай только реальные расхождения или явную проблему распознавания. "
+                            "Не называй неопределённостью ситуацию, когда аудио и экран описывают разные, но "
+                            "совместимые вещи. Если OCR явно содержит полное значение, не помечай его как "
+                            "обрезанное. Если сомнений нет, верни []. Не делай выводов об архитектуре по "
+                            "localhost/порту/названию базы. "
             "Не включай chain-of-thought, черновые рассуждения или служебные поля. Строго соблюдай структуру: "
             '{"executive_summary":"...","topics":["..."],"key_points":[{"scene_id":1,"time":"00:00:00","text":"...","evidence":["speech"]}],'
             '"entities":[{"name":"...","type":"standard","scene_ids":[1]}],"scene_enrichment":[{"scene_id":1,"topic":"...",'
@@ -3302,19 +2407,24 @@ def run_text_llm_postprocess(
             "Не используй scene_id, которых нет в контексте. Не утверждай, что проверка пройдена, если в источниках показано несоответствие. "
             + "\n\nПромпт согласования названий и собственных имён между ASR и OCR:\n"
             + str(setting("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)).strip()
-            + "\n\n"
-            + coverage_note
+             + (f"\n\n{domain_instructions}" if domain_instructions else "")
+             + "\n\n"
+             + coverage_note
             + "\n\nДанные анализа (JSON):\n"
             + context_json
         )
-        try:
+        if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+            # llama.cpp wraps this prompt as a user message in its chat completion call.
+            formatted_prompt = instruction
+        else:
             # For this constrained extraction task, avoid spending time on long reasoning output.
-            formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=True)
-        except TypeError:
-            formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
+            try:
+                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=True)
+            except TypeError:
+                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
         if progress_callback:
             progress_callback("generating", 0, 0.0)
-        generation_limit = max(1024, min(int(max_tokens), 4096))
+        generation_limit = max(1024, int(max_tokens))
         raw = ""
         if stream_generate is not None:
             chunks = []
@@ -3392,10 +2502,11 @@ def run_text_llm_postprocess(
                 )
             if not isinstance(raw, str):
                 raw = getattr(raw, "text", None) or str(raw)
-        first_brace_offset = raw.find("{")
-        VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.update({
+        first_brace_offset = _text_llm_find_json_candidate_offset(raw)
+        _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS).update({
             "raw_length": len(raw),
             "first_brace_offset": first_brace_offset,
+            "first_literal_brace_offset": raw.find("{"),
             "raw_tail_excerpt": _text_llm_clip(raw[-1500:], 1500),
             "raw_head_excerpt": _text_llm_clip(raw, 2000),
         })
@@ -3414,7 +2525,7 @@ def run_text_llm_postprocess(
                 failure.primary_parse_error = str(parse_error)[:500]
                 failure.repair_parse_error = "repair skipped: no opening brace in primary generation"
                 failure.repair_skipped = True
-                failure.generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                failure.generation_diagnostics = dict(_vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS))
                 failure.generation_diagnostics["repair_skipped"] = True
                 raise failure from parse_error
 
@@ -3422,7 +2533,7 @@ def run_text_llm_postprocess(
             repaired_payload = None
             try:
                 from json_repair import repair_json
-                repaired_payload = repair_json(raw, return_objects=True)
+                repaired_payload = repair_json(raw[first_brace_offset:], return_objects=True)
                 if not isinstance(repaired_payload, dict):
                     repaired_payload = None
             except Exception:
@@ -3441,14 +2552,19 @@ def run_text_llm_postprocess(
                     "Сохрани ключи executive_summary, topics, key_points, entities, scene_enrichment, uncertainties.\n\n"
                     "Невалидный JSON для исправления:\n" + raw[first_brace_offset:][:18000]
                 )
+                if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
+                    repair_prompt = repair_instruction
+                else:
+                    try:
+                        repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0, enable_thinking=False)
+                    except TypeError:
+                        repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0)
                 try:
-                    repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0, enable_thinking=False)
+                    repaired_raw = generate(
+                        model, processor, prompt=repair_prompt, max_tokens=generation_limit, temperature=0.0, verbose=False, enable_thinking=False
+                    )
                 except TypeError:
-                    repair_prompt = apply_chat_template(processor, config, repair_instruction, num_images=0)
-                try:
-                    repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=4096, temperature=0.0, verbose=False, enable_thinking=False)
-                except TypeError:
-                    repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=4096, temperature=0.0, verbose=False)
+                    repaired_raw = generate(model, processor, prompt=repair_prompt, max_tokens=generation_limit, temperature=0.0, verbose=False)
                 if not isinstance(repaired_raw, str):
                     repaired_raw = getattr(repaired_raw, "text", None) or str(repaired_raw)
                 try:
@@ -3465,7 +2581,7 @@ def run_text_llm_postprocess(
                     failure.primary_parse_error = str(parse_error)[:500]
                     failure.repair_parse_error = str(second_error)[:500]
                     failure.repair_skipped = False
-                    failure.generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                    failure.generation_diagnostics = dict(_vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS))
                     failure.generation_diagnostics["repair_skipped"] = False
                     print(
                         "[VCE Text LLM raw diagnostic] " + json.dumps({
@@ -3481,9 +2597,7 @@ def run_text_llm_postprocess(
                         flush=True,
                     )
                     raise failure from second_error
-        parsed = reconcile_text_llm_result(parsed, segments, existing_summary)
-        parsed = _vce_canonicalize_confirmed_standard_names(parsed, segments)
-        parsed = _vce_v4_finalize_analysis_payload(parsed, segments, existing_summary)
+        parsed = postprocess_text_llm_payload(parsed, segments, existing_summary)
         if coverage_note != "Все сцены включены в контекст.":
             parsed["uncertainties"] = (parsed.get("uncertainties", []) + [coverage_note])[:30]
         return parsed
@@ -3497,6 +2611,7 @@ def run_text_llm_postprocess(
                 import mlx.core as mx
                 mx.clear_cache()
             except Exception:
+                # Cache clearing is optional on non-MLX hosts and must not mask cleanup.
                 pass
 
 
@@ -3542,27 +2657,27 @@ def generate_text_report(
     global_summary: str = "",
 ) -> str:
     lines = [
-        "### CONTEXTE VIDEO (VideoContext v3.19)",
-        f"Source : {filename}",
-        f"Durée : {duration:.2f}s | Traitement : {process_time:.2f}s",
-        f"Config : Res={params['resolution']}px | Seuil={params['threshold']} "
+        "### VIDEO CONTEXT",
+        f"Source: {filename}",
+        f"Duration: {duration:.2f}s | Processing: {process_time:.2f}s",
+        f"Settings: resolution={params['resolution']}px | threshold={params['threshold']} "
         f"| Min={params['min_duration']}s | Max={params['max_duration']}s "
-        f"| Keyframes/scene={params['keyframes_per_scene']} | RAM_MODE={params['ram_mode']}",
+        f"| Keyframes/scene={params['keyframes_per_scene']} | ram_mode={params['ram_mode']}",
         "",
     ]
 
     if global_summary:
-        lines.append("--- RÉSUMÉ GLOBAL ---")
+        lines.append("--- GLOBAL SUMMARY ---")
         lines.append(global_summary)
         lines.append("")
         lines.append("-" * 40)
         lines.append("")
 
     for seg in segments:
-        lines.append(f"⏱️ [{seg['start']:.2f} - {seg['end']:.2f}] SCÈNE {seg['scene_id']}")
+        lines.append(f"⏱️ [{seg['start']:.2f} - {seg['end']:.2f}] SCENE {seg['scene_id']}")
 
         if seg.get("audio_transcript"):
-            lines.append(f"   🎙️ TEXTE : \"{seg['audio_transcript']}\"")
+            lines.append(f"   🎙️ TRANSCRIPT: \"{seg['audio_transcript']}\"")
 
         af = seg.get("audio_features") or {}
         if af:
@@ -3596,9 +2711,6 @@ def generate_text_report(
 # --- API FASTAPI ---
 
 vlm_engine: Optional[VLMProvider] = None
-
-
-# VCE_STARTUP_STALE_TEMP_CLEANUP_V1
 def _vce_cleanup_stale_temp_artifacts(
     project_root=None,
     temp_root=None,
@@ -3723,14 +2835,14 @@ async def lifespan(app: FastAPI):
     _vce_cleanup_stale_temp_artifacts()
     vlm_engine = get_vlm_engine()
 
-    if RAM_MODE == "ram+":
+    if str(setting("ram_mode", "ram-")).lower() == "ram+":
         startup_runtime_profile = _vce_normalize_runtime_profile()
-        print(f"🚀 RAM+ mode: préchargement des modèles; profile={startup_runtime_profile}...")
+        print(f"🚀 RAM+ mode: preloading models; profile={startup_runtime_profile}...")
         if startup_runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL:
             try:
                 vlm_engine.load_model(_vce_selected_vlm_model())
             except Exception as e:
-                print(f"⚠️ Impossible de précharger le VLM par défaut: {e}")
+                print(f"⚠️ Could not preload the default VLM: {e}")
         else:
             print("[VCE execution] baseline_mps_sequential: пропускаем preload VLM, чтобы не держать MLX/Metal модель в памяти до завершения Whisper/MPS.")
         try:
@@ -3747,9 +2859,9 @@ async def lifespan(app: FastAPI):
                 acceleration_enabled=startup_whisper_acceleration,
                 runtime_profile=startup_runtime_profile,
             )
-            print(f"✅ Whisper '{DEFAULT_WHISPER_MODEL}' préchargé ({time.time()-t0:.2f}s)")
+            print(f"✅ Whisper '{DEFAULT_WHISPER_MODEL}' preloaded ({time.time() - t0:.2f}s)")
         except Exception as e:
-            print(f"⚠️ Impossible de précharger Whisper '{DEFAULT_WHISPER_MODEL}': {e}")
+            print(f"⚠️ Could not preload Whisper '{DEFAULT_WHISPER_MODEL}': {e}")
 
     yield
 
@@ -3764,9 +2876,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="VideoContext Engine",
-    description="Microservice v3.19 (RAM modes + JSON robuste + nettoyage brut)",
+    description="Локальный анализ видео на Apple Silicon: сцены, речь, OCR и текстовый отчёт.",
     version="3.19",
     lifespan=lifespan,
+    # Swagger/ReDoc are developer tools; /openapi.json remains available to the bench.
+    docs_url="/docs" if _vce_dev_docs_enabled() else None,
+    redoc_url="/redoc" if _vce_dev_docs_enabled() else None,
 )
 
 def custom_openapi():
@@ -3860,13 +2975,18 @@ async def select_local_videos(request: Request):
     return {"files": files, "rejected": rejected, "cancelled": not bool(files)}
 
 
+@app.get("/", include_in_schema=False)
+async def vce_root():
+    return RedirectResponse("/ui")
+
+
 @app.get("/ui", response_class=HTMLResponse, include_in_schema=False)
 async def video_context_web_ui():
     """Friendly local UI for selecting and processing multiple videos sequentially."""
     ui_path = Path(__file__).with_name("videocontext_web_ui.html")
     if not ui_path.is_file():
         return HTMLResponse(
-            "UI file not found. Re-run patch_vce_ui_batch_progress.py from the project folder.",
+            "UI file not found. Restore videocontext_web_ui.html from the application package.",
             status_code=500,
         )
     return HTMLResponse(ui_path.read_text(encoding="utf-8"))
@@ -3884,17 +3004,6 @@ async def download_registered_output(output_id: str):
     return FileResponse(str(output_path), filename=download_name)
 
 
-@app.get("/api/v1/output/{filename}", include_in_schema=False)
-async def download_context_output(filename: str):
-    """Serve only generated *_context.txt / *_context.json files from the working directory."""
-    if Path(filename).name != filename or not filename.endswith(("_context.txt", "_context.json")):
-        raise HTTPException(400, "Invalid output filename")
-    output_path = Path.cwd() / filename
-    if not output_path.is_file():
-        raise HTTPException(404, "Output file not found in the engine working directory")
-    return FileResponse(str(output_path), filename=filename)
-
-
 @app.get("/api/v1/ui-settings", include_in_schema=False)
 async def get_ui_settings():
     """Return the persisted settings shown by the local Web UI."""
@@ -3905,9 +3014,10 @@ async def get_ui_settings():
             raise ValueError("settings root must be an object")
     except Exception as exc:
         raise HTTPException(500, f"Не удалось прочитать настройки: {exc}")
-    # VCE_FFMPEG_OCR_WORKERS_SETTING_V1
     defaults = {
         "analysis_mode": "full", "enable_ffmpeg_ocr": False, "ffmpeg_ocr_interval": 5,
+        "domain_profile": "generic",
+        "ram_mode": "ram-",
         "ffmpeg_ocr_workers": 2,
         "enable_stage_timing": False,
         "enable_adaptive_keyframes": False,
@@ -3916,6 +3026,14 @@ async def get_ui_settings():
         "inference_backend": VCE_INFERENCE_BACKEND_MLX,
         "llama_cpp_vlm_model": DEFAULT_VLM_MODEL_GGUF,
         "llama_cpp_vlm_mmproj": DEFAULT_MMPROJ_GGUF,
+        "llama_cpp_vlm_context": 8192,
+        "media_conversion_timeout": 3600,
+        "ffprobe_timeout": 45,
+        "ffmpeg_ocr_timeout": 1800,
+        "tesseract_timeout": 90,
+        "binary_probe_timeout": 15,
+        "audio_probe_timeout": 20,
+        "media_recovery_timeout": 240,
         "llama_cpp_text_llm_model": DEFAULT_TEXT_LLM_MODEL_GGUF,
         "llama_cpp_text_context": 32768,
         "enable_mlx_whisper": False,  # legacy API compatibility; runtime_profile is authoritative
@@ -3932,10 +3050,14 @@ async def get_ui_settings():
     defaults.setdefault("text_llm_enabled", True)
     defaults.setdefault("text_llm_model", TEXT_LLM_DEFAULT_MODEL)
     defaults.setdefault("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)
+    defaults.setdefault("text_llm_context_max_chars", 47000)
+    defaults.setdefault("text_llm_context_max_scenes", 80)
+    defaults.setdefault("text_llm_summary_min_words", 50)
+    defaults.setdefault("text_llm_summary_max_words", 90)
+    defaults.setdefault("text_llm_max_key_points", 18)
+    defaults.setdefault("text_llm_max_topics", 15)
     defaults.setdefault("text_llm_name_reconciliation_prompt", TEXT_LLM_NAME_RECONCILIATION_PROMPT_DEFAULT)
     result = {key: persisted.get(key, defaults[key]) for key in defaults}
-    if "runtime_profile" not in persisted and bool(persisted.get("enable_mlx_whisper", False)):
-        result["runtime_profile"] = VCE_RUNTIME_PROFILE_MLX_PARALLEL
     result["ffmpeg_ocr_available"], result["ffmpeg_ocr_reason"] = _vce_ffmpeg_ocr_capability()
     result["qwen35_text_stage_note"] = "Режим анализа не отключает Qwen3.5 текстовую постобработку."
     return result
@@ -3953,12 +3075,26 @@ async def save_ui_settings(payload: Dict[str, Any]):
         raise HTTPException(500, f"Не удалось прочитать настройки: {exc}")
 
     int_ranges = {
+        "llama_cpp_vlm_context": (4096, 65536),
+        "media_conversion_timeout": (60, 7200),
+        "ffprobe_timeout": (5, 300),
+        "ffmpeg_ocr_timeout": (60, 7200),
+        "tesseract_timeout": (5, 600),
+        "binary_probe_timeout": (5, 120),
+        "audio_probe_timeout": (5, 300),
+        "media_recovery_timeout": (30, 7200),
         "llama_cpp_text_context": (4096, 65536),
         "ffmpeg_ocr_workers": (1, 8),
         "ffmpeg_ocr_interval": (1, 60),
         "vlm_resolution": (128, 2048), "keyframes_per_scene": (1, 5),
         "vlm_max_tokens_scene": (16, 1024), "vlm_max_tokens_summary": (16, 2048),
-        "text_llm_max_tokens": (1024, 4096),
+        "text_llm_max_tokens": (1024, 8192),
+        "text_llm_context_max_chars": (0, 1000000),
+        "text_llm_context_max_scenes": (0, 10000),
+        "text_llm_summary_min_words": (0, 1000),
+        "text_llm_summary_max_words": (1, 2000),
+        "text_llm_max_key_points": (1, 500),
+        "text_llm_max_topics": (1, 200),
     }
     float_ranges = {
         "scene_threshold": (0.01, 1.0), "min_scene_duration": (0.5, 60.0),
@@ -3978,9 +3114,15 @@ async def save_ui_settings(payload: Dict[str, Any]):
     for key, value in payload.items():
         if key == "analysis_mode":
             if value not in {"full", "whisper_ocr", "ocr_only"}: raise HTTPException(422, "Недопустимый сценарий анализа")
+        elif key == "domain_profile":
+            if value not in {"generic", "nsrspec"}:
+                raise HTTPException(422, "Недопустимый доменный профиль")
         elif key == "runtime_profile":
             if value not in VCE_RUNTIME_PROFILES:
                 raise HTTPException(422, "Недопустимый профиль выполнения")
+        elif key == "ram_mode":
+            if value not in {"ram-", "ram+"}:
+                raise HTTPException(422, "Недопустимый профиль памяти")
         elif key == "inference_backend":
             if value not in {VCE_INFERENCE_BACKEND_MLX, VCE_INFERENCE_BACKEND_LLAMA_CPP}:
                 raise HTTPException(422, "Недопустимый inference backend")
@@ -4029,6 +3171,9 @@ async def save_ui_settings(payload: Dict[str, Any]):
         # Keep the old boolean key in sync for older local clients; the profile is canonical.
         merged["enable_mlx_whisper"] = payload["runtime_profile"] == VCE_RUNTIME_PROFILE_MLX_PARALLEL
 
+    if int(merged.get("text_llm_summary_min_words", 50)) > int(merged.get("text_llm_summary_max_words", 90)):
+        raise HTTPException(422, "text_llm_summary_min_words не может превышать text_llm_summary_max_words")
+
     temp_path = config_path.with_name(config_path.name + ".tmp")
     try:
         temp_path.write_text(json.dumps(merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -4038,8 +3183,11 @@ async def save_ui_settings(payload: Dict[str, Any]):
             USER_SETTINGS.clear()
             USER_SETTINGS.update(merged)
     except Exception as exc:
-        try: temp_path.unlink(missing_ok=True)
-        except Exception: pass
+        try:
+            temp_path.unlink(missing_ok=True)
+        except OSError:
+            # Preserve the settings-write error; a stale temporary file is harmless.
+            pass
         raise HTTPException(500, f"Не удалось сохранить настройки: {exc}")
     return {"ok": True, "message": "Настройки сохранены", "settings": {key: merged[key] for key in payload}}
 
@@ -4092,9 +3240,9 @@ async def get_video_job_progress(job_id: str):
         if item.get("phase") == "text_llm_generating":
             try:
                 generated = max(0, int(item.get("generated_tokens", 0) or 0))
-                token_limit = max(1024, int(item.get("token_limit", 4096) or 4096))
+                token_limit = max(1024, int(item.get("token_limit", TEXT_LLM_DEFAULT_MAX_TOKENS) or TEXT_LLM_DEFAULT_MAX_TOKENS))
             except (TypeError, ValueError):
-                generated, token_limit = 0, 4096
+                generated, token_limit = 0, TEXT_LLM_DEFAULT_MAX_TOKENS
             token_fraction = min(0.94, generated / max(1200.0, token_limit * 0.72))
             # A slow decoder still advances gently; emitted tokens dominate when available.
             fraction = min(0.94, max(token_fraction, fraction * 0.62))
@@ -4113,11 +3261,107 @@ async def get_video_job_progress(job_id: str):
 async def vce_favicon():
     """Serve the app's bundled favicon over HTTP (more reliable than data: URLs in Safari)."""
     from fastapi.responses import Response
-    image_bytes = base64.b64decode("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")
+
+    image_bytes = base64.b64decode(
+        "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"
+    )
     return Response(content=image_bytes, media_type="image/png", headers={"Cache-Control": "no-cache, max-age=0"})
-
-
-# VCE_ANALYSIS_PROFILES_FFMPEG_OCR_V2_CPU_TESSERACT
 
 def _vce_detect_ffmpeg_ocr_backend() -> tuple[str, str, str]:
     """Return (backend, language, status message); backend is native, tesseract-cli or unavailable."""
@@ -4127,7 +3371,8 @@ def _vce_detect_ffmpeg_ocr_backend() -> tuple[str, str, str]:
     try:
         proc = subprocess.run(
             [ffmpeg, "-hide_banner", "-filters"],
-            capture_output=True, text=True, timeout=15, check=False,
+            capture_output=True, text=True,
+            timeout=_vce_bounded_timeout_seconds("binary_probe_timeout", 15, 5, 120), check=False,
         )
         filters_text = (proc.stdout or "") + "\n" + (proc.stderr or "")
     except Exception as exc:
@@ -4145,7 +3390,7 @@ def _vce_detect_ffmpeg_ocr_backend() -> tuple[str, str, str]:
         try:
             lang_proc = subprocess.run(
                 [tesseract, "--list-langs"], capture_output=True, text=True,
-                timeout=15, check=False,
+                timeout=_vce_bounded_timeout_seconds("binary_probe_timeout", 15, 5, 120), check=False,
             )
             lang_text = (lang_proc.stdout or "") + "\n" + (lang_proc.stderr or "")
             languages = {
@@ -4161,7 +3406,14 @@ def _vce_detect_ffmpeg_ocr_backend() -> tuple[str, str, str]:
         if has_rus:
             return "tesseract-cli", "rus", "Доступен FFmpeg + Tesseract CLI (CPU), язык rus. Для английского текста можно установить tesseract-lang."
         if has_eng:
-            return "tesseract-cli", "eng", "Доступен FFmpeg + Tesseract CLI (CPU), но языковые данные rus отсутствуют: русские надписи могут распознаваться хуже. Установи tesseract-lang."
+            return (
+                "tesseract-cli",
+                "eng",
+                (
+                    "Доступен FFmpeg + Tesseract CLI (CPU), но языковые данные rus отсутствуют: "
+                    "русские надписи могут распознаваться хуже. Установи tesseract-lang."
+                ),
+            )
         # A CLI without language data isn't a usable OCR backend.
         lang_note = "Tesseract найден, но не обнаружены языки rus/eng."
     else:
@@ -4227,7 +3479,8 @@ def _vce_run_ffmpeg_ocr(video_path: str, interval_seconds: int, workers: int = 2
                 [_vce_which_binary("ffmpeg"), "-nostdin", "-hide_banner", "-loglevel", "error",
                  "-threads", "2", "-i", str(video_path), "-vf", vf,
                  "-an", "-sn", "-dn", "-f", "null", "-"],
-                capture_output=True, text=True, timeout=1800, check=False,
+                capture_output=True, text=True,
+                timeout=_vce_bounded_timeout_seconds("ffmpeg_ocr_timeout", 1800, 60, 7200), check=False,
             )
             if proc.returncode != 0:
                 details = ((proc.stderr or "").strip().splitlines()[-4:])
@@ -4242,6 +3495,7 @@ def _vce_run_ffmpeg_ocr(video_path: str, interval_seconds: int, workers: int = 2
                 try:
                     Path(metadata_path).unlink(missing_ok=True)
                 except Exception:
+                    # Removing an OCR metadata tempfile is best-effort and must not mask OCR output.
                     pass
 
     ffmpeg = _vce_which_binary("ffmpeg")
@@ -4259,7 +3513,8 @@ def _vce_run_ffmpeg_ocr(video_path: str, interval_seconds: int, workers: int = 2
                  "-threads", str(decode_threads), "-i", str(video_path),
                  "-vf", vf, "-an", "-sn", "-dn", "-q:v", "3", "-fps_mode", "vfr",
                  "-start_number", "0", frame_pattern],
-                capture_output=True, text=True, timeout=1800, check=False,
+                capture_output=True, text=True,
+                timeout=_vce_bounded_timeout_seconds("ffmpeg_ocr_timeout", 1800, 60, 7200), check=False,
             )
             if extract.returncode != 0:
                 details = ((extract.stderr or "").strip().splitlines()[-4:])
@@ -4278,7 +3533,9 @@ def _vce_run_ffmpeg_ocr(video_path: str, interval_seconds: int, workers: int = 2
                 try:
                     result = subprocess.run(
                         [tesseract, str(image_path), "stdout", "-l", language, "--psm", "6"],
-                        capture_output=True, text=True, timeout=90, check=False, env=env,
+                        capture_output=True, text=True,
+                        timeout=_vce_bounded_timeout_seconds("tesseract_timeout", 90, 5, 600),
+                        check=False, env=env,
                     )
                     text = re.sub(r"\s+", " ", (result.stdout or "")).strip()
                     error = "" if result.returncode == 0 else ((result.stderr or "").strip().splitlines()[-1:] or [f"код {result.returncode}"])[0]
@@ -4348,9 +3605,6 @@ def _vce_merge_ocr_sources(apple_text: str, ffmpeg_text: str) -> str:
     ffmpeg_part = "[FFmpeg/Tesseract OCR]\n" + "\n".join(extra)
     return (apple + "\n\n" + ffmpeg_part).strip() if apple else ffmpeg_part
 
-
-# VCE_AUDIO_RESILIENCE_ACCELERATION_V6
-
 def _vce_which_binary(name: str) -> str | None:
     """Find tools even when the GUI launcher receives a minimal macOS PATH."""
     found = shutil.which(name)
@@ -4383,7 +3637,8 @@ def _vce_probe_audio_stream(media_path: str) -> tuple[bool | None, str]:
                 [ffprobe, "-v", "error", "-select_streams", "a:0",
                  "-show_entries", "stream=index,codec_name,codec_type",
                  "-of", "json", str(media_path)],
-                capture_output=True, text=True, timeout=20, check=False,
+                capture_output=True, text=True,
+                timeout=_vce_bounded_timeout_seconds("audio_probe_timeout", 20, 5, 300), check=False,
             )
             if proc.returncode == 0:
                 payload = json.loads(proc.stdout or "{}")
@@ -4402,7 +3657,8 @@ def _vce_probe_audio_stream(media_path: str) -> tuple[bool | None, str]:
         try:
             proc = subprocess.run(
                 [ffmpeg, "-hide_banner", "-i", str(media_path)],
-                capture_output=True, text=True, timeout=20, check=False,
+                capture_output=True, text=True,
+                timeout=_vce_bounded_timeout_seconds("audio_probe_timeout", 20, 5, 300), check=False,
             )
             diagnostic = ((proc.stderr or "") + "\n" + (proc.stdout or ""))
             if re.search(r"(?im)^\s*Stream #\d+:\d+.*?\bAudio:", diagnostic):
@@ -4464,8 +3720,6 @@ def _vce_run_ffmpeg_ocr_timed(video_path: str, interval_seconds: int, workers: i
     except Exception as exc:
         records, message = [], f"FFmpeg/Tesseract OCR пропущен без остановки анализа: {exc}"
     return records, message, round(time.perf_counter() - started, 3)
-
-# VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1
 _VCE_MLX_WHISPER_REPOS = {
     "large": "mlx-community/whisper-large-v3-mlx",
     "large-v3": "mlx-community/whisper-large-v3-mlx",
@@ -4488,6 +3742,7 @@ def _vce_validate_mlx_whisper_model(model_name):
     normalized = str(model_name or "").strip().lower()
     repo = _VCE_MLX_WHISPER_REPOS.get(normalized)
     if not repo:
+        # This escape hatch is used only for model names outside the built-in preset allowlist.
         override = os.environ.get("VCE_MLX_WHISPER_REPO", "").strip()
         if not override:
             raise HTTPException(
@@ -4543,7 +3798,7 @@ def _vce_detect_scenes_fast(video_path, threshold, min_duration, max_duration):
     """Experimental scene scan: seek to one frame per second and histogram a small frame."""
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        raise ValueError("Erreur lecture vidéo")
+        raise ValueError("Could not read the video.")
     fps = float(cap.get(cv2.CAP_PROP_FPS) or 25.0)
     frame_count = float(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0.0)
     duration = frame_count / fps if fps > 0 and frame_count > 0 else 0.0
@@ -4593,11 +3848,7 @@ def _vce_detect_scenes_fast(video_path, threshold, min_duration, max_duration):
     if not scenes and duration > 0:
         scenes.append({"start": 0.0, "end": duration})
     return scenes
-
-
-
-# VCE_LOCAL_SERVER_SHUTDOWN_ENDPOINT_V1
-@app.post("/api/v1/server/shutdown")
+@app.post("/api/v1/server/shutdown", include_in_schema=False)
 async def _vce_shutdown_server(request: Request):
     # This control is intended only for the local desktop UI, not remote callers.
     client_host = request.client.host if request.client else ""
@@ -4627,9 +3878,6 @@ async def _vce_shutdown_server(request: Request):
         "status": "stopping",
         "message": "Команда остановки принята. Для следующего запуска откройте VideoContext Engine.app заново.",
     }
-
-
-# VCE_METAL_MEMORY_AND_MP4_RECOVERY_V1
 class _VCEVlmMemoryFallback(Exception):
     """Internal marker for an exhausted VLM retry policy (normally not raised)."""
 
@@ -4644,6 +3892,7 @@ def _vce_exception_chain_text(exc):
         try:
             messages.append(str(current))
         except Exception:
+            # Some third-party exception objects have a broken __str__; follow their cause chain.
             pass
         current = getattr(current, "__cause__", None) or getattr(current, "__context__", None)
     return " | ".join(messages)
@@ -4688,6 +3937,7 @@ def _vce_clear_metal_memory_caches():
     try:
         gc.collect()
     except Exception:
+        # Memory cleanup is best-effort after model allocation failures.
         pass
     try:
         import mlx.core as mx
@@ -4696,6 +3946,7 @@ def _vce_clear_metal_memory_caches():
         # MLX documents clear_cache() as the public cache-management API.
         mx.clear_cache()
     except Exception:
+        # MLX may be unavailable or already shutting down; continue other cleanup paths.
         pass
     try:
         import torch
@@ -4704,10 +3955,12 @@ def _vce_clear_metal_memory_caches():
             if torch.backends.mps.is_available():
                 mps.empty_cache()
     except Exception:
+        # MPS cache release can fail after a device reset; do not hide the primary inference error.
         pass
     try:
         gc.collect()
     except Exception:
+        # A final garbage collection is opportunistic and cannot affect the analysis result.
         pass
 
 
@@ -4754,6 +4007,7 @@ def _vce_describe_scene_with_memory_fallback(vlm_engine, images, prompt, max_tok
             try:
                 vlm_engine.unload_model()
             except Exception:
+                # The backend may already have released its model after the Metal failure.
                 pass
             _vce_clear_metal_memory_caches()
             message = (
@@ -4806,6 +4060,7 @@ def _vce_describe_scene_with_memory_fallback(vlm_engine, images, prompt, max_tok
     try:
         vlm_engine.unload_model()
     except Exception:
+        # Preserve the original allocation exception if unloading also fails.
         pass
     _vce_clear_metal_memory_caches()
     message = (
@@ -4861,7 +4116,6 @@ def _vce_validate_video_with_remux(video_path, force_remux=False, prior_error=No
         raise HTTPException(status_code=400, detail=(
             "Ошибка контейнера/кодека, но FFmpeg недоступен. Исходник не изменён. " + detail[:700]
         ))
-    # VCE_FRAGMENTED_MP4_REMUX_FIRST
     transcode_strategy = ("transcode-h264-aac", [
         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
         "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "160k",
@@ -4898,7 +4152,8 @@ def _vce_validate_video_with_remux(video_path, force_remux=False, prior_error=No
                 "-i", str(video_path), "-map", "0:v:0", "-map", "0:a?",
                 *codec_args, candidate,
             ]
-            proc = subprocess.run(command, capture_output=True, text=True, timeout=240, check=False)
+            recovery_timeout = _vce_bounded_timeout_seconds("media_recovery_timeout", 240, 30, 7200)
+            proc = subprocess.run(command, capture_output=True, text=True, timeout=recovery_timeout, check=False)
             if proc.returncode == 0 and os.path.isfile(candidate) and os.path.getsize(candidate) > 1024:
                 try:
                     duration = validate_video_file(candidate)
@@ -4912,30 +4167,21 @@ def _vce_validate_video_with_remux(video_path, force_remux=False, prior_error=No
                 err = (proc.stderr or proc.stdout or f"FFmpeg exit code {proc.returncode}").strip()[-1200:]
             failures.append(f"{label}: {err}")
         except subprocess.TimeoutExpired:
-            failures.append(f"{label}: превышен лимит 240 секунд")
+            failures.append(f"{label}: exceeded timeout of {recovery_timeout} seconds")
         except Exception as recovery_exc:
             failures.append(f"{label}: {type(recovery_exc).__name__}: {recovery_exc}")
         finally:
             if not valid and os.path.exists(candidate):
                 try: os.remove(candidate)
-                except OSError: pass
+                except OSError:
+                    # Keep the primary remux/transcode failure; this temporary file is cleaned at startup.
+                    pass
     raise HTTPException(status_code=400, detail=(
         "FFmpeg не смог восстановить читаемый видеопоток через transcode/remux. Исходник не изменён. "
         "Ошибка источника: " + detail[:450] + ". Попытки: " + " | ".join(failures)[-1500:] +
         ". Если MP4 fragmented и обязательные фрагменты отсутствуют, перекачайте или экспортируйте файл заново."
     ))
 
-
-
-# VCE_PARALLEL_CPU_ASR_GPU_VLM_V1
-def _vce_transcribe_audio_safe_timed(*args, **kwargs):
-    """Run the existing safe ASR wrapper and return its actual worker wall time."""
-    started = time.perf_counter()
-    result = _vce_transcribe_audio_safe(*args, **kwargs)
-    elapsed = time.perf_counter() - started
-    if isinstance(result, tuple) and len(result) == 2:
-        return result[0], result[1], elapsed
-    raise TypeError("_vce_transcribe_audio_safe must return (audio_result, audio_error)")
 
 
 def _vce_build_audio_only_video(video_path, prior_error=""):
@@ -4960,7 +4206,8 @@ def _vce_build_audio_only_video(video_path, prior_error=""):
             "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000",
             "-c:a", "aac", "-b:a", "96k", audio_path,
         ]
-        proc = subprocess.run(extract, capture_output=True, text=True, timeout=240, check=False)
+        recovery_timeout = _vce_bounded_timeout_seconds("media_recovery_timeout", 240, 30, 7200)
+        proc = subprocess.run(extract, capture_output=True, text=True, timeout=recovery_timeout, check=False)
         if proc.returncode or not os.path.isfile(audio_path) or os.path.getsize(audio_path) <= 1024:
             raise RuntimeError("Не удалось извлечь аудиодорожку: " + (proc.stderr or proc.stdout or str(proc.returncode))[-800:])
         synthesize = [
@@ -4971,7 +4218,7 @@ def _vce_build_audio_only_video(video_path, prior_error=""):
             "-pix_fmt", "yuv420p", "-r", "1", "-c:a", "copy",
             "-shortest", "-movflags", "+faststart", synthetic_path,
         ]
-        proc = subprocess.run(synthesize, capture_output=True, text=True, timeout=240, check=False)
+        proc = subprocess.run(synthesize, capture_output=True, text=True, timeout=recovery_timeout, check=False)
         if proc.returncode or not os.path.isfile(synthetic_path) or os.path.getsize(synthetic_path) <= 1024:
             raise RuntimeError("Не удалось создать служебное audio-only видео: " + (proc.stderr or proc.stdout or str(proc.returncode))[-800:])
         validate_video_file(synthetic_path)
@@ -4994,13 +4241,17 @@ def _vce_build_audio_only_video(video_path, prior_error=""):
         print("⚠️ [Audio-only fallback] " + note)
         return synthetic_path, note
     finally:
-        try: os.remove(audio_path)
-        except OSError: pass
+        try:
+            os.remove(audio_path)
+        except OSError:
+            # The temporary extracted audio is removed again by the next cleanup pass.
+            pass
         if not success:
-            try: os.remove(synthetic_path)
-            except OSError: pass
-
-# VCE_MP4_PREFLIGHT_RECOVERY_RETRY_V2
+            try:
+                os.remove(synthetic_path)
+            except OSError:
+                # Keep the original audio-extraction error if temp-file cleanup also fails.
+                pass
 def _vce_ensure_opencv_compatible_with_recovery(video_path):
     """Return (usable_path, audio_only_fallback, note), degrading gracefully if possible."""
     import os
@@ -5014,13 +4265,19 @@ def _vce_ensure_opencv_compatible_with_recovery(video_path):
     except Exception as exc:
         if not _vce_is_recoverable_container_error(exc):
             if prepared and str(Path(prepared).resolve()) != str(Path(video_path).resolve()):
-                try: os.remove(prepared)
-                except OSError: pass
+                try:
+                    os.remove(prepared)
+                except OSError:
+                    # Keep the original validation failure if the recovery copy is locked.
+                    pass
             raise
         initial_error = str(getattr(exc, "detail", None) or exc)
     if prepared and str(Path(prepared).resolve()) != str(Path(video_path).resolve()):
-        try: os.remove(prepared)
-        except OSError: pass
+        try:
+            os.remove(prepared)
+        except OSError:
+            # The source video remains untouched; continue with independent recovery.
+            pass
 
     recovery_error = ""
     recovered = None
@@ -5032,14 +4289,20 @@ def _vce_ensure_opencv_compatible_with_recovery(video_path):
             compatible = ensure_opencv_compatible_video(recovered)
             validate_video_file(compatible)
             if str(Path(compatible).resolve()) != str(Path(recovered).resolve()):
-                try: os.remove(recovered)
-                except OSError: pass
+                try:
+                    os.remove(recovered)
+                except OSError:
+                    # The verified compatible copy is already ready for analysis.
+                    pass
             return compatible, False, note
     except Exception as exc:
         recovery_error = str(getattr(exc, "detail", None) or exc)
         if recovered and os.path.exists(recovered):
-            try: os.remove(recovered)
-            except OSError: pass
+            try:
+                os.remove(recovered)
+            except OSError:
+                # Preserve recovery diagnostics; stale temp files are removed at startup.
+                pass
 
     synthetic = None
     compatible = None
@@ -5050,14 +4313,20 @@ def _vce_ensure_opencv_compatible_with_recovery(video_path):
         compatible = ensure_opencv_compatible_video(synthetic)
         validate_video_file(compatible)
         if str(Path(compatible).resolve()) != str(Path(synthetic).resolve()):
-            try: os.remove(synthetic)
-            except OSError: pass
+            try:
+                os.remove(synthetic)
+            except OSError:
+                # The compatible copy is usable; cleanup failure must not discard it.
+                pass
         return compatible, True, audio_note
     except Exception as exc:
         for candidate in (compatible, synthetic):
             if candidate and os.path.exists(candidate) and str(Path(candidate).resolve()) != str(Path(video_path).resolve()):
-                try: os.remove(candidate)
-                except OSError: pass
+                try:
+                    os.remove(candidate)
+                except OSError:
+                    # Preserve the audio-only fallback error; startup cleanup handles leftovers.
+                    pass
         audio_error = str(getattr(exc, "detail", None) or exc)
         raise HTTPException(status_code=400, detail=(
             "Не удалось прочитать видеопоток. VCE попробовал remux/перекодирование, затем audio-only fallback, "
@@ -5070,40 +4339,47 @@ def _vce_ensure_opencv_compatible_with_recovery(video_path):
 @app.post("/api/v1/analyze")
 async def analyze_video(
     video_file: Union[UploadFile, str, None] = File(
-        None, description="Fichier vidéo local (Optionnel)"
+        None, description="Optional local video file"
     ),
     local_video_token: str = Form("", description="Внутренний токен видео, выбранного в системном диалоге macOS"),
     video_url: str = Form(
-        "", description="URL YouTube ou direct (laisser vide si upload)"
+        "", description="YouTube or direct URL (leave empty when uploading a file)"
     ),
 
     visual_user_prompt: str = Form(
-        str(setting("visual_user_prompt", "Décris factuellement ce qui se passe à partir des images.")),
+        str(setting("visual_user_prompt", "Describe only what is visibly supported by the video frames.")),
         max_length=1000,
         description=(
-            "Instructions supplémentaires pour la description visuelle et le nombre de mot max "
-            "(style, ce qu'il faut mettre en avant). Laisse vide pour utiliser "
-            "le comportement par défaut."
+            "Optional visual-analysis instructions, such as style or details to emphasize. "
+            "Leave empty to use the default behavior."
         ),
     ),
 
     summary_user_prompt: str = Form(
-        str(setting("summary_user_prompt", "Résume la vidéo clairement.")),
+        str(setting("summary_user_prompt", "Write a clear summary of the video.")),
         max_length=2000,
         description=(
-            "Instructions supplémentaires pour le résumé global (ton, niveau de détail...). et le nombre de mot max"
-            "Laisse vide pour utiliser le comportement par défaut."
+            "Optional global-summary instructions, such as tone or level of detail. "
+            "Leave empty to use the default behavior."
         ),
     ),
 
     vlm_model: str = Form(
         str(setting("vlm_model", ACTIVE_DEFAULT_VLM)),
-        description="Modèle VLM",
+        description="VLM model",
     ),
     whisper_model: str = Form(
         str(setting("whisper_model", DEFAULT_WHISPER_MODEL)),
-        description="Modèle Whisper",
+        description="Whisper model",
     ),
+
+    llama_cpp_vlm_context: int = Form(
+        int(setting("llama_cpp_vlm_context", 8192)),
+        ge=4096,
+        le=65536,
+        description="Контекст llama.cpp для VLM в токенах",
+    ),
+    ram_mode: str = Form(str(setting("ram_mode", "ram-")), description="ram- освобождает модели после этапа; ram+ сохраняет кэш"),
 
     whisper_acceleration: bool = Form(
         bool(setting("whisper_acceleration", True)),
@@ -5111,40 +4387,40 @@ async def analyze_video(
     ),
 
     response_format: Literal["json", "text"] = Form(
-        str(setting("response_format", "json")), description="Format de sortie"
+        str(setting("response_format", "json")), description="Response format"
     ),
 
     vlm_resolution: int = Form(
-        int(setting("vlm_resolution", 1280)), ge=128, le=2048, description="Résolution pour le VLM"
+        int(setting("vlm_resolution", 1280)), ge=128, le=2048, description="VLM image resolution"
     ),
     scene_threshold: float = Form(
-        float(setting("scene_threshold", 0.15)), ge=0.01, le=1.0, description="Seuil de changement de scène"
+        float(setting("scene_threshold", 0.15)), ge=0.01, le=1.0, description="Scene-change threshold"
     ),
     min_scene_duration: float = Form(
-        float(setting("min_scene_duration", 1.5)), ge=0.5, le=60.0, description="Durée minimale de scène (s)"
+        float(setting("min_scene_duration", 1.5)), ge=0.5, le=60.0, description="Minimum scene duration (seconds)"
     ),
     max_scene_duration: float = Form(
-        float(setting("max_scene_duration", 10)), ge=5.0, le=300.0, description="Durée maximale de scène (s)"
+        float(setting("max_scene_duration", 20)), ge=5.0, le=300.0, description="Maximum scene duration (seconds)"
     ),
 
     keyframes_per_scene: int = Form(
         int(setting("keyframes_per_scene", 2)),
         ge=1,
         le=5,
-        description="Nombre de keyframes par scène (1 à 5). 1 = plus rapide.",
+        description="Keyframes per scene (1–5); 1 is faster.",
     ),
 
     vlm_max_tokens_scene: int = Form(
         int(setting("vlm_max_tokens_scene", 1024)),
         ge=16,
         le=1024,
-        description="Nombre max de tokens générés par le VLM pour chaque scène (par défaut 220).",
+        description="Maximum VLM tokens generated per scene (default: 1024).",
     ),
     vlm_max_tokens_summary: int = Form(
         int(setting("vlm_max_tokens_summary", 2048)),
         ge=16,
         le=2048,
-        description="Nombre max de tokens générés par le VLM pour le résumé global (par défaut 260).",
+        description="Maximum VLM tokens generated for the global summary (default: 2048).",
     ),
 
     skip_audio: bool = Form(bool(setting("skip_audio", False))),
@@ -5158,48 +4434,56 @@ async def analyze_video(
     ),
 
     enable_audio_features: bool = Form(
-        bool(setting("enable_audio_features", True)), description="Calculer les audio_features par scène ? (True par défaut)"
+        bool(setting("enable_audio_features", True)), description="Calculate audio features for each scene (default: enabled)"
     ),
     enable_apple_ocr: bool = Form(
-        bool(setting("enable_apple_ocr", True)), description="Extraire le texte des keyframes avec Apple Vision OCR et le fournir au VLM"
+        bool(setting("enable_apple_ocr", True)), description="Extract keyframe text with Apple Vision OCR and provide it to the VLM"
     ),
     generate_summary: bool = Form(
-        bool(setting("generate_summary", True)), description="Générer un résumé global de la vidéo ? (True par défaut)"
+        bool(setting("generate_summary", True)), description="Generate a global video summary (default: enabled)"
     ),
     text_llm_enabled: bool = Form(bool(setting("text_llm_enabled", True))),
     text_llm_model: str = Form(str(setting("text_llm_model", TEXT_LLM_DEFAULT_MODEL))),
-    text_llm_max_tokens: int = Form(int(setting("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)), ge=1024, le=4096),
+    text_llm_max_tokens: int = Form(int(setting("text_llm_max_tokens", TEXT_LLM_DEFAULT_MAX_TOKENS)), ge=1024, le=8192),
+    domain_profile: str = Form(str(setting("domain_profile", "generic")), description="generic | nsrspec"),
     analysis_mode: str = Form(str(setting("analysis_mode", "full")), description="full | whisper_ocr | ocr_only"),
     enable_ffmpeg_ocr: bool = Form(bool(setting("enable_ffmpeg_ocr", False)), description="Дополнительный OCR через FFmpeg/Tesseract"),
     ffmpeg_ocr_interval: int = Form(int(setting("ffmpeg_ocr_interval", 5)), ge=1, le=60, description="Интервал выборки FFmpeg OCR, секунд"),
     ffmpeg_ocr_workers: int = Form(int(setting("ffmpeg_ocr_workers", 2)), ge=1, le=8, description="Число параллельных CPU-процессов Tesseract"),
     enable_stage_timing: bool = Form(bool(setting("enable_stage_timing", False)), description="Добавлять подробные тайминги этапов в JSON-ответ"),
-    enable_adaptive_keyframes: bool = Form(bool(setting("enable_adaptive_keyframes", False)), description="Адаптивно уменьшать число кадров на коротких сценах"),
+    enable_adaptive_keyframes: bool = Form(
+        bool(setting("enable_adaptive_keyframes", False)), description="Адаптивно уменьшать число кадров на коротких сценах"
+    ),
     enable_ocr_cache: bool = Form(bool(setting("enable_ocr_cache", False)), description="Кэшировать OCR для повторяющихся кадров"),
     runtime_profile: str = Form(str(setting("runtime_profile", "")), description="baseline_mps_sequential | mlx_parallel"),
-    enable_mlx_whisper: bool = Form(bool(setting("enable_mlx_whisper", False)), description="Устаревший API-флаг; для новых клиентов используйте runtime_profile"),
-    enable_fast_scene_detection: bool = Form(bool(setting("enable_fast_scene_detection", False)), description="Экспериментальная ускоренная детекция сцен с выборкой 1 кадр/сек"),
+    enable_mlx_whisper: Optional[bool] = Form(None, description="Устаревший API-флаг; если передан, должен совпадать с runtime_profile"),
+    enable_fast_scene_detection: bool = Form(
+        bool(setting("enable_fast_scene_detection", False)), description="Ускоренная детекция сцен с выборкой 1 кадр/сек; может пропустить короткие переходы"
+    ),
 ):
     requested_runtime_profile = str(runtime_profile or "").strip().lower()
     if requested_runtime_profile:
         runtime_profile = requested_runtime_profile
     else:
         runtime_profile = _vce_normalize_runtime_profile()
-        if enable_mlx_whisper:
-            runtime_profile = VCE_RUNTIME_PROFILE_MLX_PARALLEL
     try:
         runtime_profile = _vce_normalize_runtime_profile(runtime_profile)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
-    # Keep the legacy flag derived from the canonical profile; it no longer selects a separate backend.
-    enable_mlx_whisper = runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL
-    VCE_MLX_RUNTIME_DIAGNOSTICS.pop("whisper", None)
+    # Accept the legacy flag only when it agrees with the canonical runtime profile.
+    _vce_validate_legacy_mlx_whisper_flag(enable_mlx_whisper, runtime_profile)
+    domain_profile = str(domain_profile or "generic").strip().lower()
+    if domain_profile not in {"generic", "nsrspec"}:
+        raise HTTPException(422, "Недопустимый доменный профиль")
     if runtime_profile == VCE_RUNTIME_PROFILE_BASELINE:
         print("[VCE execution] baseline_mps_sequential: PyTorch Whisper/MPS (CPU fallback) -> MLX/Metal VLM -> MLX/Metal Text LLM", flush=True)
     else:
         print("[VCE execution] mlx_parallel: MLX Whisper/CPU overlaps MLX/Metal VLM; Text LLM remains MLX/Metal", flush=True)
 
     analysis_mode = (analysis_mode or "full").strip().lower()
+    ram_mode = str(ram_mode or "ram-").strip().lower()
+    if ram_mode not in {"ram-", "ram+"}:
+        raise HTTPException(422, "Недопустимый профиль памяти")
     if analysis_mode not in {"full", "whisper_ocr", "ocr_only"}:
         raise HTTPException(422, "Недопустимый сценарий анализа")
     if analysis_mode in {"whisper_ocr", "ocr_only"}:
@@ -5215,7 +4499,7 @@ async def analyze_video(
 
     if not video_file and not video_url.strip() and not local_video_token.strip():
         raise HTTPException(
-            400, "Veuillez fournir soit un fichier vidéo, soit une URL."
+            400, "Provide a video file, a selected local video, or a URL."
         )
 
     job_id = (job_id or "").strip() or f"api_{time.time_ns()}"
@@ -5261,7 +4545,13 @@ async def analyze_video(
     cap = None
     owns_temp_path = False
     output_directory = Path.cwd()
-    source_name = "Inconnu"
+    source_name = "Unknown"
+    _vce_diagnostic_tokens = (
+        (VCE_BACKEND_DIAGNOSTICS, VCE_BACKEND_DIAGNOSTICS.set({})),
+        (VCE_MLX_RUNTIME_DIAGNOSTICS, VCE_MLX_RUNTIME_DIAGNOSTICS.set({})),
+        (VCE_TEXT_LLM_GENERATION_DIAGNOSTICS, VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.set({})),
+    )
+    _vce_domain_profile_token = VCE_REQUEST_DOMAIN_PROFILE.set(domain_profile)
 
     try:
         if cancel_event.is_set():
@@ -5279,7 +4569,6 @@ async def analyze_video(
             temp_path = str(original_path)
             output_directory = original_path.parent
         elif video_url.strip():
-            # VCE_URL_REPORTS_TO_DOWNLOADS_V1
             output_directory = Path.home() / "Downloads"
             output_directory.mkdir(parents=True, exist_ok=True)
             owns_temp_path = True
@@ -5298,6 +4587,7 @@ async def analyze_video(
                       + ", Apple OCR=" + str(enable_apple_ocr) + ", FFmpeg OCR=" + str(enable_ffmpeg_ocr))
                 def _vce_url_download_progress(download_status):
                     if cancel_event.is_set():
+                        # Internal sentinel consumed below; not a public environment setting.
                         raise yt_dlp.utils.DownloadError("VCE_CANCELLED_BY_USER")
                     if not isinstance(download_status, dict):
                         return
@@ -5356,12 +4646,12 @@ async def analyze_video(
                 try:
                     os.remove(original_input_path)
                 except OSError:
+                    # Recovery can continue from the new copy even if the old temp file is locked.
                     pass
             temp_path = prepared_path
             owns_temp_path = True
         else:
             temp_path = prepared_path
-        # VCE_AUDIO_ONLY_FALLBACK_POLICY_V1
         if _vce_audio_only_fallback:
             _vce_media_recovery_note = _vce_media_recovery_note or "Продолжение в audio-only режиме."
             skip_visual = True
@@ -5380,6 +4670,7 @@ async def analyze_video(
                 try:
                     os.remove(_vce_original_temp_path)
                 except OSError:
+                    # Recovery can continue from the new copy even if the old temp file is locked.
                     pass
             temp_path = _vce_recovered_video_path
             owns_temp_path = True
@@ -5390,7 +4681,7 @@ async def analyze_video(
         global_summary_text = ""
 
         set_job_progress(job_id, "detect_scenes", None, "Определяем границы сцен", indeterminate=True, stage_index=1, stage_count=6)
-        print("1️⃣ Détection des scènes...")
+        print("1️⃣ Detecting scenes...")
         scene_detection_started = time.perf_counter()
         apple_ocr_seconds = 0.0
         if enable_fast_scene_detection:
@@ -5474,7 +4765,7 @@ async def analyze_video(
                             f"[VCE Whisper] backend={whisper_backend} device={whisper_device} "
                             f"profile={runtime_profile}; starting ASR."
                         )
-                        if RAM_MODE == "ram+":
+                        if ram_mode == "ram+":
                             if cache_key in WHISPER_CACHE:
                                 w_model = WHISPER_CACHE[cache_key]
                                 whisper_load_time = 0.0
@@ -5519,7 +4810,7 @@ async def analyze_video(
                             f"[VCE Whisper] backend={whisper_backend} device={whisper_device} "
                             f"inference={whisper_infer_time:.2f}s"
                         )
-                        if RAM_MODE == "ram-":
+                        if ram_mode == "ram-":
                             if hasattr(w_model, "release"):
                                 # MLX Whisper owns a private model cache; release it before dropping the adapter.
                                 await asyncio.to_thread(w_model.release)
@@ -5559,7 +4850,7 @@ async def analyze_video(
                             vlm_engine.unload_model()
                         vlm_engine = MLXEngine()
                     if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
-                        await _vce_backend_run(vlm_engine.load_model, target_vlm)
+                        await _vce_backend_run(vlm_engine.load_model, target_vlm, llama_cpp_vlm_context)
                     else:
                         await _vce_mlx_run(vlm_engine.load_model, target_vlm)
                     t1 = time.time()
@@ -5601,7 +4892,9 @@ async def analyze_video(
                         scenes_raw,
                         base_res=vlm_resolution,
                         max_frames=keyframes_per_scene,
-                        max_frames_by_scene=[_vce_adaptive_keyframe_limit(s, keyframes_per_scene) if enable_adaptive_keyframes else keyframes_per_scene for s in scenes_raw],
+                        max_frames_by_scene=[
+                            _vce_adaptive_keyframe_limit(s, keyframes_per_scene) if enable_adaptive_keyframes else keyframes_per_scene for s in scenes_raw
+                        ],
                         queue_size=1,
                     )
 
@@ -5611,7 +4904,17 @@ async def analyze_video(
                     if cancel_event.is_set():
                         raise HTTPException(status_code=409, detail="Распознавание остановлено пользователем")
                     _ui_scene_total = max(1, len(scenes_raw))
-                    set_job_progress(job_id, "scene_analysis", None, f"OCR + Qwen3-VL: анализ сцены {idx + 1}/{len(scenes_raw)}", indeterminate=True, stage_index=4, stage_count=6, scene_index=idx + 1, scene_total=len(scenes_raw))
+                    set_job_progress(
+                        job_id,
+                        "scene_analysis",
+                        None,
+                        f"OCR + Qwen3-VL: анализ сцены {idx + 1}/{len(scenes_raw)}",
+                        indeterminate=True,
+                        stage_index=4,
+                        stage_count=6,
+                        scene_index=idx + 1,
+                        scene_total=len(scenes_raw),
+                    )
                     scene_id = idx + 1
                     start_s = scene["start"]
                     end_s = scene["end"]
@@ -5696,7 +4999,9 @@ async def analyze_video(
                                 _vce_ocr_wall_start = time.perf_counter()
                                 ocr_parts = []
                                 for kf in keyframes:
-                                    extracted = await asyncio.to_thread((_vce_cached_apple_vision_ocr if enable_ocr_cache else apple_vision_ocr), kf.get("original_image", kf["image"]))
+                                    extracted = await asyncio.to_thread(
+                                        (_vce_cached_apple_vision_ocr if enable_ocr_cache else apple_vision_ocr), kf.get("original_image", kf["image"])
+                                    )
                                     if cancel_event.is_set():
                                         raise HTTPException(status_code=409, detail="Распознавание остановлено пользователем")
                                     if extracted:
@@ -5708,7 +5013,9 @@ async def analyze_video(
                                     full_visual_prompt += (
                                         "\n\nТЕКСТ, РАСПОЗНАННЫЙ APPLE VISION OCR (возможны ошибки):\n"
                                         + scene_ocr_text
-                                        + "\n\nИспользуй OCR как подсказку для точного чтения подписей. Сверяй его с изображениями, не выдумывай отсутствующие надписи и отдельно описывай связи между блоками схемы."
+                                        + "\n\nИспользуй OCR как подсказку для точного чтения подписей. "
+                                        "Сверяй его с изображениями, не выдумывай отсутствующие надписи "
+                                        "и отдельно описывай связи между блоками схемы."
                                     )
 
                             if audio_text.strip():
@@ -5723,7 +5030,7 @@ async def analyze_video(
                                     scene_ocr_text = _vce_merge_ocr_sources(scene_ocr_text, ffmpeg_scene_ocr_text)
                                     if run_vlm:
                                         full_visual_prompt += "\n\nДополнительный OCR из FFmpeg/Tesseract (может содержать ошибки):\n" + ffmpeg_scene_ocr_text
-                            if run_vlm:  # VCE_ANALYSIS_PROFILES_VLM_GUARD
+                            if run_vlm:
                                 t_vlm_start = time.time()
                                 if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
                                     raw = await _vce_backend_run(vlm_engine.describe_scene, images, full_visual_prompt, vlm_max_tokens_scene)
@@ -5772,8 +5079,16 @@ async def analyze_video(
                         }
                     )
                     _ui_scene_pct = 30 + 45 * ((idx + 1) / max(1, len(scenes_raw)))
-                    set_job_progress(job_id, "scene_analysis", _ui_scene_pct, f"Завершена сцена {idx + 1}/{len(scenes_raw)}", stage_index=4, stage_count=6, scene_index=idx + 1, scene_total=len(scenes_raw))
-
+                    set_job_progress(
+                        job_id,
+                        "scene_analysis",
+                        _ui_scene_pct,
+                        f"Завершена сцена {idx + 1}/{len(scenes_raw)}",
+                        stage_index=4,
+                        stage_count=6,
+                        scene_index=idx + 1,
+                        scene_total=len(scenes_raw),
+                    )
 
                 # The VLM scene pass is finished; exclude remaining ASR wait time from its timing.
                 _vce_vlm_scene_finished_at = time.perf_counter()
@@ -5804,15 +5119,9 @@ async def analyze_video(
                                 _vce_scene, whisper_segments
                             )
 
-                    if RAM_MODE == "ram-":
-                        try:
+                    if ram_mode == "ram-":
+                        if "_vce_whisper_model" in locals():
                             del _vce_whisper_model
-                        except UnboundLocalError:
-                            pass
-                        try:
-                            del w_model
-                        except UnboundLocalError:
-                            pass
                         release_accelerator_memory("after concurrent Whisper inference")
                 # Sequential baseline guarantees no Whisper/VLM overlap by scheduling.
                 # Do not infer it from timestamps: report an explicit contractual zero.
@@ -5832,7 +5141,7 @@ async def analyze_video(
                     print("[VCE parallelism] Disabled for baseline_mps_sequential; Whisper completed before VLM.")
                 set_job_progress(job_id, "summary", None, "Формируем сводку по всем сценам", indeterminate=True, stage_index=5, stage_count=6)
                 if generate_summary:
-                    print("🧠 Génération du résumé global...")
+                    print("🧠 Generating global summary...")
                     context_lines = []
                     for s in final_segments:
                         parts = []
@@ -5849,14 +5158,14 @@ async def analyze_video(
                                 f"movement={vt.get('movement_level', '?')}"
                             )
                         elif s.get("visual_description"):
-                            parts.append(f"Visuel: {s['visual_description']}")
+                            parts.append(f"Visual: {s['visual_description']}")
                         if s.get("ocr_text"):
                             ocr_for_summary = s["ocr_text"].replace("\n", " | ")[:500]
-                            parts.append(f"Texte à l’écran (Apple OCR): {ocr_for_summary}")
+                            parts.append(f"On-screen text (Apple OCR): {ocr_for_summary}")
 
                         if parts:
                             context_lines.append(
-                                f"- Scène {s['scene_id']} "
+                                f"- Scene {s['scene_id']} "
                                 f"({s['start']:.1f}-{s['end']:.1f}s): "
                                 + " | ".join(parts)
                             )
@@ -5864,9 +5173,9 @@ async def analyze_video(
                     context_log = "\n".join(context_lines)
 
                     full_summary_prompt = (
-                        "Voici un ensemble de notes sur les scènes d'une vidéo.\n"
-                        "Pour chaque scène, tu as une description audio (ce qui est dit) "
-                        "et des éléments de contexte visuel (gestes, lieu, ambiance, ton).\n\n"
+                        "Here are notes about the scenes in a video.\n"
+                        "For each scene, you have an audio description (what is said) "
+                        "and visual context (gestures, location, atmosphere, and tone).\n\n"
                         f"{context_log}\n\n"
                         f"{BASE_SUMMARY_PROMPT}"
                     )
@@ -5909,15 +5218,13 @@ async def analyze_video(
 
                 set_job_progress(job_id, "release_models", 81, "Освобождаем память и готовим результат", stage_index=5, stage_count=6)
                 cap.release()
-                print("🔓 GPU Lock relâché.")
+                print("🔓 GPU lock released.")
 
-                if RAM_MODE == "ram-":
-                    print("🧹 RAM- mode: déchargement du VLM après traitement.")
+                if ram_mode == "ram-":
+                    print("🧹 RAM- mode: unloading the VLM after processing.")
                     vlm_engine.unload_model()
                     release_accelerator_memory('after VLM unload')
                     gc.collect()
-
-        # VCE_STANDARD_OCR_RECONCILIATION_V5_7: correct only when the canonical number is present in OCR.
         import re as _vce_standard_re
         _vce_standard_ocr_text = " ".join(
             str(_vce_segment.get("ocr_text", "") or "")
@@ -5930,8 +5237,6 @@ async def analyze_video(
                 "СП 1.13130.2020",
                 str(global_summary_text or ""),
             )
-        # VCE_NAME_CONSISTENCY_V2_GLOBAL_SUMMARY
-        # VCE_NAME_CONSISTENCY_V3_CROSS_FIELD_REPAIR
         import re as _vce_global_std_re
         _vce_global_std_ocr = " ".join(
             str(_vce_std_seg.get("ocr_text", "") or "")
@@ -5950,9 +5255,7 @@ async def analyze_video(
             if _vce_global_summary_fixed != str(global_summary_text or ""):
                 global_summary_text = _vce_global_summary_fixed
                 print("🧭 [ASR/OCR] Исправлено название норматива в global_summary по подтверждённому OCR.")
-
-        # VCE_REPORT_INTEGRITY_V4_SUMMARY_HARMONIZER
-        global_summary_text = _vce_v4_evidence_summary(global_summary_text, final_segments)
+        global_summary_text = _add_evidence_grounding_to_summary(global_summary_text, final_segments)
 
 # TEXT_LLM_POSTPROCESS_STAGE
         text_llm_result = None
@@ -5971,7 +5274,15 @@ async def analyze_video(
                 raise HTTPException(status_code=409, detail="Распознавание остановлено пользователем")
             llm_started_at = time.time()
             _vce_text_llm_cache_state = {"checked": True, "cached": bool(_vce_text_llm_model_cached)}
-            _vce_text_llm_phase_times = {"load_started": None, "load_seconds": 0.0, "generation_started": None, "generation_seconds": 0.0, "repair_started": None, "repair_seconds": 0.0}
+            _vce_text_llm_phase_times = {
+                "load_started": None,
+                "load_seconds": 0.0,
+                "generation_started": None,
+                "generation_seconds": 0.0,
+                "repair_started": None,
+                "repair_seconds": 0.0,
+            }
+
             def _ui_text_llm_progress_callback(phase: str, token_count: int = 0, tokens_per_second: float = 0.0) -> None:
                 now = time.time()
                 if phase == "loading":
@@ -5982,20 +5293,49 @@ async def analyze_video(
                         label = "Qwen3.5: модель уже в кэше, загружаем в память"
                     else:
                         label = "Qwen3.5: скачиваем и подготавливаем модель (первый запуск может занять дольше)"
-                    set_job_progress(job_id, "text_llm_loading", None, label, indeterminate=True, stage_index=6, stage_count=6, model_cached=_vce_text_llm_cache_state["cached"])
+                    set_job_progress(
+                        job_id,
+                        "text_llm_loading",
+                        None,
+                        label,
+                        indeterminate=True,
+                        stage_index=6,
+                        stage_count=6,
+                        model_cached=_vce_text_llm_cache_state["cached"],
+                    )
                 elif phase == "loaded":
                     load_started = _vce_text_llm_phase_times.get("load_started")
                     if load_started is not None:
                         _vce_text_llm_phase_times["load_seconds"] = max(0.0, now - load_started)
                     _vce_text_llm_phase_times["generation_started"] = now
-                    set_job_progress(job_id, "text_llm_generating", None, "Qwen3.5 загружена; подготавливаем контекст к генерации", indeterminate=True, stage_index=6, stage_count=6, generated_tokens=0, token_limit=max(1024, int(text_llm_max_tokens or 4096)), model_cached=_vce_text_llm_cache_state["cached"])
+                    set_job_progress(
+                        job_id,
+                        "text_llm_generating",
+                        None,
+                        "Qwen3.5 загружена; подготавливаем контекст к генерации",
+                        indeterminate=True,
+                        stage_index=6,
+                        stage_count=6,
+                        generated_tokens=0,
+                        token_limit=max(1024, int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS)),
+                        model_cached=_vce_text_llm_cache_state["cached"],
+                    )
                 elif phase == "repairing":
                     started = _vce_text_llm_phase_times.get("generation_started")
                     if started:
                         _vce_text_llm_phase_times["generation_seconds"] += max(0.0, now - started)
                         _vce_text_llm_phase_times["generation_started"] = None
                     _vce_text_llm_phase_times["repair_started"] = now
-                    set_job_progress(job_id, "text_llm_repair", None, "Исправляем формат JSON; проверяем структуру", indeterminate=True, stage_index=6, stage_count=6, model_cached=_vce_text_llm_cache_state["cached"])
+                    set_job_progress(
+                        job_id,
+                        "text_llm_repair",
+                        None,
+                        "Исправляем формат JSON; проверяем структуру",
+                        indeterminate=True,
+                        stage_index=6,
+                        stage_count=6,
+                        model_cached=_vce_text_llm_cache_state["cached"],
+                    )
                 else:
                     if _vce_text_llm_phase_times.get("load_started") and not _vce_text_llm_phase_times.get("load_seconds"):
                         _vce_text_llm_phase_times["load_seconds"] = max(0.0, now - _vce_text_llm_phase_times["load_started"])
@@ -6006,11 +5346,25 @@ async def analyze_video(
                     elif not _vce_text_llm_phase_times.get("generation_started"):
                         _vce_text_llm_phase_times["generation_started"] = now
                     rate = f" · {tokens_per_second:.1f} ток/с" if tokens_per_second > 0 else ""
-                    set_job_progress(job_id, "text_llm_generating", None, f"Qwen3.5: структурируем анализ · {token_count} токенов{rate}", indeterminate=True, stage_index=6, stage_count=6, generated_tokens=token_count, token_limit=max(1024, int(text_llm_max_tokens or 4096)), tokens_per_second=round(tokens_per_second, 2), model_cached=_vce_text_llm_cache_state["cached"])
+                    set_job_progress(
+                        job_id,
+                        "text_llm_generating",
+                        None,
+                        f"Qwen3.5: структурируем анализ · {token_count} токенов{rate}",
+                        indeterminate=True,
+                        stage_index=6,
+                        stage_count=6,
+                        generated_tokens=token_count,
+                        token_limit=max(1024, int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS)),
+                        tokens_per_second=round(tokens_per_second, 2),
+                        model_cached=_vce_text_llm_cache_state["cached"],
+                    )
+
             try:
                 print(f"🧠 [Text LLM] Улучшение структуры отчёта: {text_llm_model}")
                 async with gpu_lock:
-                    text_llm_result = await (_vce_backend_run if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP else _vce_mlx_run)(run_text_llm_postprocess,
+                    text_llm_result = await (_vce_backend_run if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP else _vce_mlx_run)(
+                        run_text_llm_postprocess,
                         text_llm_model,
                         source_name,
                         video_duration,
@@ -6019,15 +5373,12 @@ async def analyze_video(
                         text_llm_max_tokens,
                         _ui_text_llm_progress_callback,
                     )
-                text_llm_generation_diagnostics = dict(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
+                text_llm_generation_diagnostics = dict(_vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS))
                 text_llm_infer_time = time.time() - llm_started_at
                 if "cancel_event" in locals() and cancel_event.is_set():
                     raise HTTPException(status_code=409, detail="Распознавание остановлено пользователем")
                 text_llm_result["original_summary"] = original_summary_for_text_llm
-                improved_summary = text_llm_result.get("executive_summary", "").strip()
-                if improved_summary:
-                    # VCE_PRESERVE_BASE_SUMMARY_V5_4: keep baseline meta.global_summary independent.
-                    pass
+                # Keep the improved summary in text_llm_result; meta.global_summary remains the baseline summary.
                 valid_scene_ids = {int(s.get("scene_id", 0) or 0) for s in final_segments}
                 for item in text_llm_result.get("scene_enrichment", []):
                     if not isinstance(item, dict) or item.get("scene_id") not in valid_scene_ids:
@@ -6052,15 +5403,23 @@ async def analyze_video(
                 text_llm_repair_parse_error = str(getattr(exc, "repair_parse_error", "") or "")[:500]
                 text_llm_generation_diagnostics = dict(
                     getattr(exc, "generation_diagnostics", None)
-                    or VCE_TEXT_LLM_GENERATION_DIAGNOSTICS
+                    or _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)
                 )
                 for _diag_key in ("raw_length", "first_brace_offset", "raw_tail_excerpt", "repair_skipped"):
                     if hasattr(exc, _diag_key):
                         text_llm_generation_diagnostics[_diag_key] = getattr(exc, _diag_key)
                 text_llm_result = None
                 text_llm_status = "failed"
-                # Keep the complete exception chain in the server log; the forensic
-                # observer captures this block in server_events.jsonl for failed runs.
+                print("[VCE Text LLM raw diagnostic] " + json.dumps({
+                    "primary_excerpt": text_llm_raw_excerpt,
+                    "primary_tail_excerpt": text_llm_generation_diagnostics.get("raw_tail_excerpt", ""),
+                    "repair_excerpt": text_llm_repair_raw_excerpt,
+                    "primary_parse_error": text_llm_primary_parse_error,
+                    "repair_parse_error": text_llm_repair_parse_error,
+                    "generation_diagnostics": text_llm_generation_diagnostics,
+                }, ensure_ascii=False), flush=True)
+                # Keep the complete exception chain in the server log. The local
+                # observer stores this bounded forensic block in its run directory.
                 import traceback
                 traceback.print_exc()
                 print(
@@ -6074,13 +5433,13 @@ async def analyze_video(
 
         vlm_load_time = getattr(vlm_engine, "last_load_time", 0.0) if vlm_engine else 0.0
 
-        print("===== PROFIL TEMPS (v3.19) =====")
-        print(f"⏱️ Total traitement (process_time): {process_duration:.2f}s")
-        print(f"⏱️ Total requête (incl. I/O):      {total_request_time:.2f}s")
+        print("===== VCE TIMING SUMMARY =====")
+        print(f"⏱️ Total processing time: {process_duration:.2f}s")
+        print(f"⏱️ Total request time (including I/O): {total_request_time:.2f}s")
         print(f"⏱️ Whisper: load={whisper_load_time:.2f}s, infer={whisper_infer_time:.2f}s")
         print(f"⏱️ VLM    : load={vlm_load_time:.2f}s, infer={vlm_infer_time:.2f}s")
         print(f"⏱️ Apple OCR: enabled={enable_apple_ocr}, infer={ocr_infer_time:.2f}s")
-        print(f"RAM_MODE = {RAM_MODE}")
+        print(f"ram_mode = {ram_mode}")
         print("================================")
 
         params = {
@@ -6093,7 +5452,7 @@ async def analyze_video(
             "keyframes_per_scene": keyframes_per_scene,
             "vlm_max_tokens_scene": vlm_max_tokens_scene,
             "vlm_max_tokens_summary": vlm_max_tokens_summary,
-            "ram_mode": RAM_MODE,
+            "ram_mode": ram_mode,
             "runtime_profile": runtime_profile,
             "audio_track_available": audio_track_available,
             "audio_auto_skipped": audio_auto_skipped,
@@ -6134,22 +5493,26 @@ async def analyze_video(
                 "acceleration": whisper_acceleration,
                 "load_time": round(whisper_load_time, 3),
                 "inference_time": round(whisper_infer_time, 3),
-                "runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
+                "runtime": _vce_public_runtime_summary(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("whisper", {})),
             },
             "vlm": {
                 "model": target_vlm,
                 "load_time": round(vlm_load_time, 3),
                 "inference_time": round(vlm_infer_time, 3),
-                "runtime": VCE_BACKEND_DIAGNOSTICS.get("vlm", VCE_MLX_RUNTIME_DIAGNOSTICS.get("vlm", {})),
+                "runtime": _vce_public_runtime_summary(
+                    _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS).get("vlm", _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("vlm", {}))
+                ),
             },
             "parallelism": {
                 "profile": runtime_profile,
                 "enabled": runtime_profile == VCE_RUNTIME_PROFILE_MLX_PARALLEL,
                 "whisper_backend": whisper_backend,
                 "whisper_device": whisper_device,
-                "whisper_runtime": VCE_MLX_RUNTIME_DIAGNOSTICS.get("whisper", {}),
+                "whisper_runtime": _vce_public_runtime_summary(_vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("whisper", {})),
                 "whisper_vlm_overlap_seconds": round(_vce_overlap_seconds, 3) if "_vce_overlap_seconds" in locals() else 0.0,
-                "cpu_keyframe_prefetch_seconds": round(float(locals().get("_vce_frame_prefetch_stats", {}).get("worker_seconds", locals().get("_vce_cpu_prefetch_seconds", 0.0))), 3),
+                "cpu_keyframe_prefetch_seconds": round(
+                    float(locals().get("_vce_frame_prefetch_stats", {}).get("worker_seconds", locals().get("_vce_cpu_prefetch_seconds", 0.0))), 3
+                ),
             },
             "apple_ocr": {
                 "enabled": enable_apple_ocr,
@@ -6165,7 +5528,7 @@ async def analyze_video(
                 "inference_time": round(ffmpeg_ocr_infer_time, 3),
                 "message": ffmpeg_ocr_reason,
             },
-            "ram_mode": RAM_MODE,
+            "ram_mode": ram_mode,
         }
         if enable_stage_timing:
             timings["stage_diagnostics"] = {
@@ -6220,7 +5583,7 @@ async def analyze_video(
                         "generate_summary": generate_summary,
                         "vlm_max_tokens_scene": vlm_max_tokens_scene,
                         "vlm_max_tokens_summary": vlm_max_tokens_summary,
-                        "ram_mode": RAM_MODE,
+                        "ram_mode": ram_mode,
                         "inference_backend": inference_backend,
                     },
                     "timings": timings,
@@ -6234,17 +5597,8 @@ async def analyze_video(
                     "load_download_time": round(locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0), 3),
                     "generation_time": round(max(0.0, text_llm_infer_time - locals().get("_vce_text_llm_phase_times", {}).get("load_seconds", 0.0)), 3),
                     "model_cached_before_run": bool(locals().get("_vce_text_llm_model_cached", True)) if text_llm_enabled else None,
-                    "thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX),
-                    "thinking_budget": (
-                        512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0
-                    ) if text_llm_enabled else None,
-                    "max_output_tokens": int(text_llm_max_tokens or 4096) if text_llm_enabled else None,
+                    "max_output_tokens": int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS) if text_llm_enabled else None,
                     "error": text_llm_error or None,
-                    "raw_excerpt": text_llm_raw_excerpt or None,
-                    "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
-                    "primary_parse_error": text_llm_primary_parse_error or None,
-                    "repair_parse_error": text_llm_repair_parse_error or None,
-                    "generation_diagnostics": text_llm_generation_diagnostics,
                 },
                 "segments": final_segments,
                 "txt_filename": txt_output_name,
@@ -6265,8 +5619,8 @@ async def analyze_video(
             OUTPUT_FILE_REGISTRY[json_download_id] = (Path(json_path), json_output_name)
 
         text_llm_backend_info = (
-            VCE_BACKEND_DIAGNOSTICS.get("text_llm")
-            or VCE_MLX_RUNTIME_DIAGNOSTICS.get("text_llm")
+            _vce_request_diagnostics(VCE_BACKEND_DIAGNOSTICS).get("text_llm")
+            or _vce_request_diagnostics(VCE_MLX_RUNTIME_DIAGNOSTICS).get("text_llm")
             or {}
         )
         text_llm_backend = (
@@ -6286,15 +5640,12 @@ async def analyze_video(
             "model": text_llm_model if text_llm_enabled else None,
             "status": text_llm_status,
             "inference_time": round(text_llm_infer_time, 3),
-            "runtime": text_llm_backend_info,
+            "runtime": _vce_public_runtime_summary(text_llm_backend_info),
             "error": text_llm_error or None,
-            "raw_excerpt": text_llm_raw_excerpt or None,
-            "repair_raw_excerpt": text_llm_repair_raw_excerpt or None,
-            "primary_parse_error": text_llm_primary_parse_error or None,
-            "repair_parse_error": text_llm_repair_parse_error or None,
-            "generation_diagnostics": text_llm_generation_diagnostics,
         }
-        set_job_progress(job_id, "completed", 100, "TXT/JSON сформированы; обработка завершена", stage_index=6, stage_count=6, status="done", indeterminate=False)
+        set_job_progress(
+            job_id, "completed", 100, "TXT/JSON сформированы; обработка завершена", stage_index=6, stage_count=6, status="done", indeterminate=False
+        )
         if response_format == "text":
             download_name = f"{sanitize_filename(source_name)}_context.txt"
             return PlainTextResponse(
@@ -6315,20 +5666,21 @@ async def analyze_video(
         set_job_progress(job_id, "failed", None, f"Ошибка: {str(e)[:180]}", indeterminate=False, status="failed")
         import traceback
         traceback.print_exc()
-        raise HTTPException(500, f"Erreur interne: {str(e)}")
+        raise HTTPException(500, f"Internal server error: {str(e)}")
     finally:
+        VCE_REQUEST_DOMAIN_PROFILE.reset(_vce_domain_profile_token)
         _vce_pending_whisper_task = locals().get('_vce_whisper_task')
         if _vce_pending_whisper_task is not None:
             try:
                 await _vce_pending_whisper_task
-            except BaseException:
-                # Preserve the original endpoint exception; observe task completion before cleanup.
-                pass
+            except (Exception, asyncio.CancelledError) as cleanup_error:
+                # Cleanup should not replace the endpoint's original exception; retain a diagnostic.
+                print(f"[VCE cleanup] Whisper task ended during cleanup: {cleanup_error!r}", flush=True)
         for _vce_prefetch in locals().get('_vce_prefetch_tasks', {}).values():
             try:
                 await _vce_prefetch
-            except BaseException:
-                pass
+            except (Exception, asyncio.CancelledError) as cleanup_error:
+                print(f"[VCE cleanup] Prefetch task ended during cleanup: {cleanup_error!r}", flush=True)
         _vce_pf_stop = locals().get('_vce_frame_prefetch_stop')
         if _vce_pf_stop is not None:
             _vce_pf_stop.set()
@@ -6353,10 +5705,13 @@ async def analyze_video(
             try:
                 cap.release()
             except Exception:
+                # OpenCV may already have released the capture after a read failure.
                 pass
         CANCEL_EVENTS.pop(job_id, None)
         if owns_temp_path and temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
+        for _vce_diagnostic_variable, _vce_diagnostic_token in reversed(_vce_diagnostic_tokens):
+            _vce_diagnostic_variable.reset(_vce_diagnostic_token)
 
 
 if __name__ == "__main__":

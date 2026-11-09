@@ -1,6 +1,9 @@
 # URL-очередь и автоматический выбор качества
 
-Патч patches/patch_vce_url_batch_ingestion.py расширяет уже существующую пакетную очередь VideoContext Engine:
+> **Архивная инструкция:** файл описывает исторический патч. Текущий `VideoContextEngine_v3.19.py` уже содержит эту функциональность; патчеры в `patches/archive/` сохранены для истории и не предназначены для запуска.
+
+
+Текущий движок включает пакетную очередь URL VideoContext Engine:
 - при старте API удаляются только старые VCE временные видео/частичные загрузки (старше 1 часа); кэши ML-моделей и готовые отчёты не затрагиваются;
 
 - локальные видео, выбранные системным диалогом macOS, и интернет-ссылки попадают в одну очередь;
@@ -50,26 +53,12 @@
  
 После завершения запроса (в том числе при штатной ошибке анализа после загрузки) движок удаляет временный видеофайл в `finally`. При remux/recovery промежуточная копия также удаляется, когда заменяется следующей. Если процесс принудительно завершить или отменить скачивание до того, как yt-dlp вернёт путь готового файла, может остаться частичный файл `.part`; автоматической уборки таких обрывков при старте пока нет.
 
-## Установка в уже настроенную копию
+## Использование
 
-Сначала остановите сервер (Ctrl+C в окне Terminal либо штатно завершите приложение), затем выполните:
-
-    PROJECT="$HOME/VideoContext-Engine"
-    curl -fL --retry 3 \
-      "https://raw.githubusercontent.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/feat/vk-url-batch-ingestion-20261102/patches/patch_vce_url_batch_ingestion.py" \
-      -o "$PROJECT/patch_vce_url_batch_ingestion.py"
-
-    "$PROJECT/.venv/bin/python" "$PROJECT/patch_vce_url_batch_ingestion.py" --self-test
-    "$PROJECT/.venv/bin/python" "$PROJECT/patch_vce_url_batch_ingestion.py" --project "$PROJECT" --dry-run
-    "$PROJECT/.venv/bin/python" "$PROJECT/patch_vce_url_batch_ingestion.py" --project "$PROJECT"
-
-Патчер до записи проверяет структуру текущего движка, UI и наличие per-request отправки сохранённых настроек. Если локальная версия отличается, он остановится без изменения файлов. Перед записью создаёт timestamped .bak для движка и UI.
+Очередь уже встроена в текущий движок. Откройте `/ui`, добавьте адреса по одному на строку и запустите очередь. Архивный patcher повторно не применять.
 
 После успешной установки перезапустите VideoContext Engine, откройте http://127.0.0.1:7555/ui и выполните жёсткое обновление Cmd+Shift+R. Вставьте URL по одному на строку, нажмите «Добавить ссылки в очередь», затем запустите очередь.
 
-## Проверки
+## Тесты
 
-    "$PROJECT/.venv/bin/python" "$PROJECT/patch_vce_url_batch_ingestion.py" --self-test
-    "$PROJECT/.venv/bin/python" -m unittest tests/test_vce_url_batch_ingestion.py -v
-
-Эти тесты проверяют логику ограничения качества, преобразование backend и UI на фикстурах. Реальное скачивание и анализ нужно дополнительно проверить на Mac с активными настройками VLM/OCR и конкретными URL.
+Регрессионные тесты текущей реализации находятся в `tests/test_vce_url_batch_ingestion.py`. Архивный patcher хранится только как историческая запись.

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-PATCH_PATH = Path(__file__).resolve().parents[1] / "patches" / "patch_vce_report_integrity_v4.py"
+PATCH_PATH = Path(__file__).resolve().parents[1] / "patches" / "archive" / "patch_vce_report_integrity_v4.py"
 spec = importlib.util.spec_from_file_location("vce_report_integrity_v4", PATCH_PATH)
 patch = importlib.util.module_from_spec(spec)
 assert spec and spec.loader

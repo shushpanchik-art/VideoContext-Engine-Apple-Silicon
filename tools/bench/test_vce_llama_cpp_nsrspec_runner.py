@@ -1,4 +1,5 @@
 import ast
+import contextvars
 from pathlib import Path
 import hashlib
 import importlib.util
@@ -11,8 +12,8 @@ import unittest
 from typing import Any, Dict
 
 
-ROOT = Path(__file__).resolve().parents[1]
-OBSERVER_PATH = ROOT / "scripts/vce_observed_llama_cpp_run.py"
+ROOT = Path(__file__).resolve().parents[2]
+OBSERVER_PATH = ROOT / "tools/bench/vce_observed_llama_cpp_run.py"
 _SPEC = importlib.util.spec_from_file_location("vce_observed_llama_cpp_run", OBSERVER_PATH)
 _OBSERVER = importlib.util.module_from_spec(_SPEC)
 assert _SPEC and _SPEC.loader
@@ -20,7 +21,10 @@ _SPEC.loader.exec_module(_OBSERVER)
 
 
 def git_blob_sha(path: Path) -> str:
-    data = path.read_bytes()
+    return git_blob_sha_data(path.read_bytes())
+
+
+def git_blob_sha_data(data: bytes) -> str:
     header = b"blob " + str(len(data)).encode("ascii") + b"\0"
     return hashlib.sha1(header + data).hexdigest()
 
@@ -28,13 +32,17 @@ def git_blob_sha(path: Path) -> str:
 class TestLlamaCppNsrspecRunner(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.launcher_path = ROOT / "scripts/vce_run_nsrspec_ab.command"
+        cls.launcher_path = ROOT / "tools/bench/vce_run_nsrspec_ab.command"
         cls.launcher = cls.launcher_path.read_text(encoding="utf-8")
-        cls.legacy_launcher = (ROOT / "scripts/vce_run_nsrspec_llama_cpp.command").read_text(encoding="utf-8")
+        cls.legacy_launcher = (ROOT / "tools/bench/vce_run_nsrspec_llama_cpp.command").read_text(encoding="utf-8")
         cls.observer = OBSERVER_PATH.read_text(encoding="utf-8")
-        cls.watchdog = (ROOT / "scripts/vce_runtime_watchdog.py").read_text(encoding="utf-8")
+        cls.watchdog = (ROOT / "tools/bench/vce_runtime_watchdog.py").read_text(encoding="utf-8")
         cls.runtime = (ROOT / "VideoContextEngine_v3.19.py").read_text(encoding="utf-8")
-        cls.installer = (ROOT / "scripts/install_vce_mtmd_loader_fix.py").read_text(encoding="utf-8")
+        # Report post-processing now lives in the importable core module.
+        cls.core = (ROOT / "vce_core" / "text_reconcile.py").read_text(encoding="utf-8")
+        cls.installer = (ROOT / "tools/bench/install_vce_mtmd_loader_fix.py").read_text(encoding="utf-8")
+        cls.patch_installer = (ROOT / "tools/bench/vce_patch_test_run_nsrspec_json.command").read_text(encoding="utf-8")
+        cls.legacy_patch_installer = (ROOT / "tools/bench/vce_patch_test_run_nsrspec_ab.command").read_text(encoding="utf-8")
 
     def test_ab_launcher_runs_both_explicit_backends_in_order(self):
         mlx = 'run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"'
@@ -43,36 +51,33 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn(llama, self.launcher)
         self.assertLess(self.launcher.index(mlx), self.launcher.index(llama))
         self.assertIn("--inference-backend", self.watchdog)
-        self.assertIn("required=True", self.observer)
+        self.assertIn('if not args.video or not args.inference_backend:', self.observer)
         self.assertIn("choices=SUPPORTED_INFERENCE_BACKENDS", self.observer)
         self.assertIn('open -a "$APP"', self.launcher)
         self.assertNotIn('open "$API', self.launcher)
-        self.assertIn('VIDEO="/Users/artemijvisnevskij/Downloads/NSR Specification/🔥 Новые модули NSR Specification автоматизация проектирования с ИИ 🔥.mp4"', self.launcher)
+        self.assertIn('ROOT="${VCE_ROOT:-$(cd "$SCRIPT_DIR/../.." && pwd)}"', self.launcher)
+        self.assertIn('VIDEO="${VCE_VIDEO:-$HOME/Downloads/NSR Specification/', self.launcher)
+        self.assertIn('--video) [[ $# -ge 2 ]] || fail "--video требует путь"; VIDEO="$2"; shift 2 ;;', self.launcher)
         self.assertNotIn("video_path = input(", self.launcher)
         self.assertIn('"video_path": video_path', self.launcher)
 
     def test_pinned_tool_hashes_match_repository_blobs(self):
-        expected = {
-            "watchdog": "50e91ffabcf2cb6174b068a12eea0b6b909cba5e",
-            "installer": "934739bd0b5f70dc26665adc115a181d365330e0",
-        }
-        actual = {
-            "watchdog": git_blob_sha(ROOT / "scripts/vce_runtime_watchdog.py"),
-            "installer": git_blob_sha(ROOT / "scripts/install_vce_mtmd_loader_fix.py"),
-        }
+        expected = {"installer": "934739bd0b5f70dc26665adc115a181d365330e0"}
+        actual = {"installer": git_blob_sha(ROOT / "tools/bench/install_vce_mtmd_loader_fix.py")}
         self.assertEqual(actual, expected)
         for sha in expected.values():
             self.assertIn(sha, self.launcher)
-        self.assertIn('RUNNER_BLOB_SHA="${RUNNER_BLOB_SHA:-${VCE_RUNNER_BLOB_SHA:-6d61f261044bfdc78c39cc00f5a8c873208f95aa}}"', self.launcher)
+        self.assertNotIn("RUNNER_BLOB_SHA", self.launcher)
+        self.assertNotIn('hash-object "$ROOT/tools/bench/vce_observed_llama_cpp_run.py"', self.launcher)
         self.assertNotIn("13bb85082a5ba9da5a7a555cb847fa52774c8e8b", self.launcher)
 
     def test_mtmd_installer_is_pinned_and_runs_before_app_start(self):
-        pin_line = next(line for line in self.launcher.splitlines() if line.startswith("TOOLS_COMMIT="))
-        self.assertRegex(pin_line, r'^TOOLS_COMMIT="[0-9a-f]{40}"$')
-        self.assertIn('curl -fsSL "$BASE_URL/install_vce_mtmd_loader_fix.py"', self.launcher)
-        self.assertIn('"$PY" "$TOOLS_DIR/install_vce_mtmd_loader_fix.py"', self.launcher)
+        self.assertIn('MTMD_INSTALLER="$ROOT/tools/bench/install_vce_mtmd_loader_fix.py"', self.launcher)
+        self.assertIn('MTMD_INSTALLER_BLOB_SHA="934739bd0b5f70dc26665adc115a181d365330e0"', self.launcher)
+        self.assertNotIn("TOOLS_COMMIT=", self.launcher)
+        self.assertIn('"$PY" "$MTMD_INSTALLER" --report', self.launcher)
         self.assertLess(
-            self.launcher.index('install_vce_mtmd_loader_fix.py" --report'),
+            self.launcher.index('"$PY" "$MTMD_INSTALLER" --report'),
             self.launcher.index('open -a "$APP"'),
         )
         self.assertIn("import llama_cpp.mtmd_cpp as mtmd_cpp", self.launcher)
@@ -81,21 +86,23 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertIn("if resolved is not None:", self.launcher)
 
     def test_tool_integrity_is_checked_before_live_server_guard(self):
-        check = self.launcher.index('git -C "$ROOT" hash-object "$ROOT/scripts/vce_observed_llama_cpp_run.py"')
+        check = self.launcher.index('git -C "$ROOT" hash-object "$MTMD_INSTALLER"')
         server_guard = self.launcher.index('API_PIDS=')
-        installer = self.launcher.index('install_vce_mtmd_loader_fix.py" --report')
+        installer = self.launcher.index('"$PY" "$MTMD_INSTALLER" --report')
         app_start = self.launcher.index('open -a "$APP"')
         self.assertLess(check, server_guard)
         self.assertLess(server_guard, installer)
         self.assertLess(installer, app_start)
+        self.assertIn('WATCHDOG="$ROOT/tools/bench/vce_runtime_watchdog.py"', self.launcher)
+        self.assertNotIn('hash-object "$TOOLS_DIR/vce_runtime_watchdog.py"', self.launcher)
         self.assertIn("lsof -nP -tiTCP:7555", self.launcher)
         self.assertIn("pgrep -f", self.launcher)
         self.assertIn("дождись закрытия API на порту 7555", self.launcher)
         self.assertIn("printf 'API listener PID(s): %s", self.launcher)
 
     def test_observer_backend_argument_builds_separate_mlx_and_gguf_settings(self):
-        mlx = _OBSERVER.build_backend_settings("mlx_metal")
-        llama = _OBSERVER.build_backend_settings("llama_cpp_metal")
+        mlx = _OBSERVER.build_backend_settings("mlx_metal", "nsrspec")
+        llama = _OBSERVER.build_backend_settings("llama_cpp_metal", "nsrspec")
         self.assertEqual(mlx["inference_backend"], "mlx_metal")
         self.assertEqual(llama["inference_backend"], "llama_cpp_metal")
         # 2026-10-25 documented baseline: Qwen3-VL + Qwen3.5 use MLX/Metal;
@@ -103,7 +110,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         for settings in (mlx, llama):
             self.assertEqual(settings["runtime_profile"], "baseline_mps_sequential")
             self.assertFalse(settings["enable_mlx_whisper"])
-            self.assertIs(settings["enable_ocr_cache"], False)
+            self.assertNotIn("enable_ocr_cache", settings)
             self.assertEqual(settings["whisper_model"], "large")
             self.assertEqual(settings["vlm_model"], "mlx-community/Qwen3-VL-8B-Instruct-4bit")
             self.assertEqual(settings["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
@@ -111,16 +118,216 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(llama["text_llm_model"], "mlx-community/Qwen3.5-9B-MLX-4bit")
         self.assertEqual(llama["llama_cpp_vlm_model"], "Qwen3VL-8B-Instruct-Q4_K_M.gguf")
         self.assertEqual(llama["llama_cpp_text_llm_model"], "qwen3.5-9b-Q4_K_M.gguf")
+        current = _OBSERVER.build_backend_settings("mlx_metal", "current")
+        self.assertEqual(current, {"inference_backend": "mlx_metal"})
+        self.assertFalse(set(_OBSERVER.NSRSPEC_REQUEST_OVERRIDES) & set(_OBSERVER.COMMON_BACKEND_SETTINGS))
         self.assertNotIn("llama_cpp_vlm_model", mlx)
         self.assertNotIn("llama_cpp_text_llm_model", mlx)
         with self.assertRaises(ValueError):
             _OBSERVER.build_backend_settings("unknown")
 
-    def test_observer_disables_ocr_cache_and_fails_closed_before_video_upload(self):
-        self.assertIn('"enable_ocr_cache": False', self.observer)
-        self.assertIn('if active_settings.get("enable_ocr_cache") is not False:', self.observer)
-        self.assertIn("A/B requires enable_ocr_cache=false for both passes", self.observer)
-        self.assertIn('"enable_ocr_cache"', self.launcher)
+    def test_observer_uses_active_ocr_cache_value_in_effective_multipart_fields(self):
+        properties = {
+            "enable_ocr_cache": {"type": "boolean"},
+            "response_format": {"type": "string"},
+            "generate_json": {"type": "boolean"},
+        }
+        fields_off, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": False, "response_format": "json", "generate_json": True}, properties, "current"
+        )
+        fields_on, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": True, "response_format": "json", "generate_json": True}, properties, "current"
+        )
+        self.assertIs(fields_off["enable_ocr_cache"], False)
+        self.assertIs(fields_on["enable_ocr_cache"], True)
+        self.assertNotIn("enable_ocr_cache", _OBSERVER.NSRSPEC_REQUEST_OVERRIDES)
+        self.assertIs(fields_on["generate_json"], True)
+        nsrspec_fields, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": False, "response_format": "json", "generate_json": True}, properties, "nsrspec"
+        )
+        self.assertIs(nsrspec_fields["generate_json"], False)
+        nsrspec_fields_on, _ = _OBSERVER.resolve_form_fields(
+            {"enable_ocr_cache": True, "response_format": "json", "generate_json": True}, properties, "nsrspec"
+        )
+        self.assertIs(nsrspec_fields_on["enable_ocr_cache"], True)
+        self.assertNotIn('if args.profile == "nsrspec" and active_settings.get("enable_ocr_cache") is not False:', self.observer)
+        self.assertNotIn("A/B requires enable_ocr_cache=false", self.observer)
+        self.assertIn('if profile == "nsrspec":', self.observer)
+        self.assertIn('fields, origins = resolve_form_fields(active_settings, properties, args.profile)', self.observer)
+        self.assertIn('parser.add_argument("--profile", choices=("current", "nsrspec"), default="current"', self.observer)
+
+    def test_context_and_result_limits_are_settings_backed(self):
+        for key in ("text_llm_context_max_chars", "text_llm_context_max_scenes",
+                    "text_llm_summary_min_words", "text_llm_summary_max_words",
+                    "text_llm_max_key_points", "text_llm_max_topics"):
+            self.assertIn(key, self.runtime)
+        self.assertIn('defaults.setdefault("text_llm_summary_max_words", 90)', self.runtime)
+        self.assertIn('if context_max_scenes > 0 and len(context.get("scenes", [])) > context_max_scenes:', self.runtime)
+        self.assertIn('payload["executive_summary"] = summary.strip()[:16000]', self.runtime)
+        self.assertNotIn('summary.strip()[:8000]', self.runtime)
+
+    def test_domain_profile_unknown_value_falls_back_to_generic_once(self):
+        node = next(
+            item for item in ast.parse(self.runtime).body
+            if isinstance(item, ast.FunctionDef) and item.name == "_vce_domain_profile_instructions"
+        )
+        namespace = {"setting": lambda *_args: "generic"}
+        exec(compile(ast.Module(body=[node], type_ignores=[]), "VideoContextEngine_v3.19.py", "exec"), namespace)
+        get_instructions = namespace["_vce_domain_profile_instructions"]
+        self.assertEqual(get_instructions(), "")
+        namespace["setting"] = lambda *_args: "not-a-profile"
+        import contextlib
+        import io
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(get_instructions(), "")
+        self.assertIn("using generic instructions", output.getvalue())
+        tree = ast.parse(self.runtime)
+        calls = [
+            call for call in ast.walk(tree)
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+            and call.func.id == "_vce_domain_profile_instructions"
+        ]
+        self.assertEqual(len(calls), 1)
+        self.assertIn('domain_instructions = _vce_domain_profile_instructions()', self.runtime)
+        self.assertIn('+ "\\n\\n"', self.runtime)
+        self.assertNotIn('otherwise in French', self.runtime)
+        self.assertNotIn('otherwise French', self.runtime)
+
+    def test_llama_cpp_prompt_path_has_no_chat_template_stub(self):
+        self.assertNotIn('def apply_chat_template(_processor, _config, prompt, **_kwargs):', self.runtime)
+        self.assertIn('if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:\n            # llama.cpp wraps this prompt as a user message', self.runtime)
+        self.assertIn('formatted_prompt = instruction', self.runtime)
+
+    def test_observer_uses_explicit_nsrspec_profile(self):
+        self.assertIn('"domain_profile": "nsrspec"', self.observer)
+
+    def test_nsrspec_evidence_rewrites_are_profile_gated(self):
+        self.assertIn('if str(setting("domain_profile", "generic") or "generic").strip().lower() != "nsrspec":', self.core)
+        self.assertIn('_report_is_nsrspec = str(setting("domain_profile", "generic")', self.core)
+
+    def test_generic_technical_cues_do_not_name_nsrspec_products(self):
+        line = next(x for x in self.core.splitlines() if "technical_cues = re.compile" in x)
+        self.assertNotIn("cadlib", line.lower())
+        self.assertNotIn("nanocad", line.lower())
+        self.assertNotIn("пандус", line.lower())
+
+    def test_generic_entity_scene_matching_is_not_profile_gated(self):
+        compact_core = re.sub(r"\s+", " ", self.core)
+        self.assertIn(
+            'if n.replace(" ", "") in src_blob.replace(" ", "") or ( nsrspec_profile and has_buildchat_conflict',
+            compact_core,
+        )
+        self.assertIn('elif nsrspec_profile and (compact_name == "кси" or', compact_core)
+
+    def test_observer_checks_only_required_backend_settings(self):
+        self.assertIn("required_experiment_mismatches", self.observer)
+        self.assertIn("for key, value in backend_settings.items()", self.observer)
+        self.assertNotIn("if differences:", self.observer)
+
+    def test_nsrspec_profile_is_explicit_and_generic_is_default(self):
+        self.assertIn('setting("domain_profile", "generic")', self.runtime)
+        self.assertIn('from domain_profiles.nsrspec import PROMPT_INSTRUCTIONS', self.runtime)
+        self.assertIn('"domain_profile": "nsrspec"', self.observer)
+
+    def test_reconciliation_selects_domain_profile_before_nested_helpers(self):
+        node = next(
+            item for item in ast.parse(self.core).body
+            if isinstance(item, ast.FunctionDef) and item.name == "reconcile_text_llm_result"
+        )
+        profile_assignments = [
+            item for item in node.body
+            if isinstance(item, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "nsrspec_profile" for target in item.targets)
+        ]
+        self.assertEqual(len(profile_assignments), 1)
+        profile_line = profile_assignments[0].lineno
+        nested_helper_lines = [
+            item.lineno for item in node.body
+            if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        self.assertTrue(nested_helper_lines)
+        self.assertLess(profile_line, min(nested_helper_lines))
+
+    def test_ab_settings_snapshot_restores_domain_profile(self):
+        self.assertIn('"vlm_model", "text_llm_model", "domain_profile",', self.launcher)
+        self.assertIn('Path(snapshot).write_text(json.dumps(settings', self.launcher)
+        self.assertIn('payload = {key: value for key, value in original.items() if key in current_before', self.launcher)
+        self.assertIn('"domain_profile": "generic"', self.runtime)
+        self.assertIn('--restore-settings-offline --settings "$SETTINGS" --restore-from "$ORIGINAL_API_SETTINGS"', self.launcher)
+        self.assertIn('if [[ "$API_READY" != "1" ]]; then', self.launcher)
+        self.assertIn('API-восстановление не удалось; перехожу к резервному восстановлению локального JSON.', self.launcher)
+        self.assertNotIn('RESTORE_DONE" != "1" && "$API_READY" == "1"', self.launcher)
+        finish = self.launcher[self.launcher.index("finish() {"):self.launcher.index("trap finish EXIT")]
+        self.assertIn("restore_settings", finish)
+
+    def test_offline_settings_restore_restores_snapshot_and_preserves_unknown_keys(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings_path = root / "videocontext_settings.json"
+            snapshot_path = root / "active_settings_before.json"
+            settings_path.write_text(json.dumps({
+                "domain_profile": "nsrspec",
+                "inference_backend": "llama_cpp_metal",
+                "future_private_setting": "preserve",
+            }), encoding="utf-8")
+            snapshot_path.write_text(json.dumps({
+                "domain_profile": "generic",
+                "inference_backend": "mlx_metal",
+            }), encoding="utf-8")
+
+            report = _OBSERVER.restore_settings_file(settings_path, snapshot_path)
+
+            restored = json.loads(settings_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["status"], "restored_offline")
+            self.assertEqual(restored["domain_profile"], "generic")
+            self.assertEqual(restored["inference_backend"], "mlx_metal")
+            self.assertEqual(restored["future_private_setting"], "preserve")
+
+    def test_patch_installer_manifest_does_not_depend_on_git_history(self):
+        self.assertIn('PATCH_REF="${VCE_PATCH_REF:-main}"', self.patch_installer)
+        self.assertNotIn("PATCH_COMMIT=", self.patch_installer)
+        manifest = self.patch_installer.split('FILES="\n', 1)[1].split('\n"\n', 1)[0]
+        entries = {}
+        for line in manifest.splitlines():
+            path, sha = line.split()
+            entries[path] = sha
+        self.assertEqual(len(entries), 11)
+        self.assertEqual(set(entries), {
+            "VideoContextEngine_v3.19.py",
+            "tools/bench/vce_observed_llama_cpp_run.py",
+            "tools/bench/vce_run_nsrspec_ab.command",
+            "tools/bench/vce_runtime_watchdog.py",
+            "tools/bench/test_vce_llama_cpp_nsrspec_runner.py",
+            "tools/bench/vce_patch_test_run_nsrspec_ab.command",
+            "domain_profiles/__init__.py",
+            "domain_profiles/nsrspec.py",
+            "tools/bench/install_vce_mtmd_loader_fix.py",
+            "vce_core/__init__.py",
+            "vce_core/text_reconcile.py",
+        })
+        for path, expected_sha in entries.items():
+            current_sha = git_blob_sha(ROOT / path)
+            self.assertEqual(current_sha, expected_sha, path)
+        self.assertIn('exec /bin/bash "$ROOT/tools/bench/vce_patch_test_run_nsrspec_json.command" "$@"', self.legacy_patch_installer)
+        self.assertNotIn("PATCH_COMMIT=", self.legacy_patch_installer)
+        self.assertNotIn("/Users/", self.patch_installer)
+        self.assertIn('if ! command -v rclone >/dev/null 2>&1; then', self.patch_installer)
+        self.assertIn("validation archive kept locally", self.patch_installer)
+        self.assertIn('if [[ "$SKIP_AB" == "1" ]]; then', self.patch_installer)
+        self.assertIn('SKIPPED: VCE_SKIP_AB=1; no real model was loaded during installer validation.', self.patch_installer)
+        self.assertIn('if [[ "$SKIP_AB" != "1" ]]; then', self.patch_installer)
+        self.assertIn('chmod 755 "$ROOT/tools/bench/vce_run_nsrspec_ab.command" "$ROOT/tools/bench/vce_patch_test_run_nsrspec_ab.command"', self.patch_installer)
+        self.assertNotIn("scripts/vce_llama_json_smoke_test.py", self.patch_installer)
+        self.assertIn('tools/bench/vce_llama_json_smoke_test.py', self.patch_installer)
+        self.assertIn('(run_dir / "response.json").write_bytes(response_bytes)', self.observer)
+        self.assertIn('"generate_json": False', self.observer)
+
+    def test_patch_installer_uses_full_pytest_suite_and_profiles(self):
+        self.assertIn('"$PY" -m pytest -q tests', self.patch_installer)
+        self.assertIn('"$PY" -m pytest -q "$ROOT/tools/bench/test_vce_llama_cpp_nsrspec_runner.py"', self.patch_installer)
+        self.assertIn('"$ROOT/domain_profiles/nsrspec.py"', self.patch_installer)
+        self.assertIn('export VCE_ROOT="$ROOT" VCE_VIDEO="$VIDEO" VCE_APP="$APP" VCE_API_URL="$API"', self.patch_installer)
 
     def test_runtime_records_mps_device_with_index_as_verified(self):
         self.assertIn("def _vce_device_type_name(value: Any) -> str:", self.runtime)
@@ -156,6 +363,11 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.launcher.index('rclone copyto "$archive" "$remote_file" --progress'),
         )
 
+    def test_dropbox_is_optional_and_local_zip_is_a_successful_fallback(self):
+        self.assertIn('if [[ "$DROPBOX_AVAILABLE" != "1" ]]; then', self.launcher)
+        self.assertIn("forensic ZIP сохранён локально", self.launcher)
+        self.assertNotIn('command -v rclone >/dev/null 2>&1 || fail', self.launcher)
+
     def test_single_bundle_contains_both_runs_and_verified_private_dropbox_upload(self):
         self.assertIn("20261104_224554_1f098d/VCE_forensic_runs_NSRSPEC_AB", self.launcher)
         self.assertIn('/usr/bin/ditto -c -k --sequesterRsrc --keepParent "$OUT_ROOT" "$archive"', self.launcher)
@@ -165,6 +377,8 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertNotIn('rclone copyto "$VIDEO"', self.launcher)
         self.assertIn("RUN1_MLX_METAL_EXIT", self.launcher)
         self.assertIn("RUN2_LLAMA_CPP_METAL_EXIT", self.launcher)
+        self.assertIn("--observer-profile nsrspec", self.launcher)
+        self.assertIn("--profile", self.watchdog)
         self.assertIn("settings_restore_report.json", self.launcher)
 
 
@@ -228,13 +442,21 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
 
     def test_llama_cpp_pass_is_gated_by_successful_mlx_baseline(self):
         baseline = self.launcher.index('run_backend "mlx_metal" "$OUT_ROOT/run1_mlx_metal"')
-        gate = self.launcher.index('if [[ "$RUN1_EXIT" -ne 0 ]]; then')
+        gate = self.launcher.index('if [[ "$RUN1_EXIT" -ne 0 && "$DIAGNOSTIC_LLAMA_CPP" != "1" ]]; then')
         llama = self.launcher.index('run_backend "llama_cpp_metal" "$OUT_ROOT/run2_llama_cpp_metal"')
         self.assertLess(baseline, gate)
         self.assertLess(gate, llama)
         self.assertIn("RUN2_EXIT=125", self.launcher[gate:llama])
-        self.assertIn("MLX baseline не завершился успешно", self.launcher[gate:llama])
-        self.assertIn('"baseline_gate_for_llama_cpp": True', self.launcher)
+        self.assertIn("MLX baseline завершился ошибкой; llama.cpp пропущен", self.launcher[gate:llama])
+        self.assertIn('if [[ "$RUN1_EXIT" -ne 0 ]]; then\n      RUN2_DIAGNOSTIC=1', self.launcher[gate:llama])
+        diagnostic_assignment = self.launcher.index("RUN2_DIAGNOSTIC=1", gate)
+        self.assertLess(diagnostic_assignment, llama)
+        self.assertIn('"diagnostic_only": diagnostic_only', self.launcher)
+        self.assertIn('"baseline_gate_for_llama_cpp": not diagnostic_only', self.launcher)
+        self.assertIn('and not diagnostic_only and ocr_cache_values_match', self.launcher)
+        self.assertIn('"ocr_cache_enabled_during_runs": ocr_cache_run1 if ocr_cache_values_match else None', self.launcher)
+        self.assertIn("--diagnostic-llama-cpp", self.launcher)
+        self.assertIn('"role": "diagnostic-only" if diagnostic_only else "comparison backend"', self.launcher)
         self.assertIn('"skipped_reason": run2_skipped_reason', self.launcher)
 
     def test_pinned_fork_and_hf_revision_are_explicit(self):
@@ -273,7 +495,7 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.skipTest("bash is not installed")
         for path in (
             self.launcher_path,
-            ROOT / "scripts/vce_run_nsrspec_llama_cpp.command",
+            ROOT / "tools/bench/vce_run_nsrspec_llama_cpp.command",
         ):
             result = subprocess.run([bash, "-n", str(path)], capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, f"{path}: {result.stderr}")
@@ -334,14 +556,25 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             if isinstance(node, ast.FunctionDef)
             and node.name == "_vce_llama_json_completion"
         )
-        namespace = {"VCE_TEXT_LLM_GENERATION_DIAGNOSTICS": {}}
+        diagnostics_var = contextvars.ContextVar("test_text_llm_diagnostics", default=None)
+        diagnostics_var.set({})
+        def current_diagnostics(variable):
+            value = variable.get()
+            if value is None:
+                value = {}
+                variable.set(value)
+            return value
+        namespace = {
+            "VCE_TEXT_LLM_GENERATION_DIAGNOSTICS": diagnostics_var,
+            "_vce_request_diagnostics": current_diagnostics,
+        }
         exec(
             compile(ast.Module(body=[helper_node], type_ignores=[]),
                     "VideoContextEngine_v3.19.py", "exec"),
             namespace,
         )
         complete = namespace["_vce_llama_json_completion"]
-        diagnostics = namespace["VCE_TEXT_LLM_GENERATION_DIAGNOSTICS"]
+        diagnostics = namespace["VCE_TEXT_LLM_GENERATION_DIAGNOSTICS"].get()
 
         class FakeLlama:
             def __init__(self):
@@ -384,6 +617,39 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         self.assertEqual(diagnostics["requested_max_tokens"], 256)
         self.assertTrue(diagnostics["streaming"])
         self.assertIn("stream_text_characters", diagnostics)
+
+    def test_json_candidate_finder_ignores_unrelated_braces_in_prose(self):
+        helper_node = next(
+            node for node in ast.parse(self.runtime).body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_text_llm_find_json_candidate_offset"
+        )
+        namespace = {"re": re}
+        exec(
+            compile(ast.Module(body=[helper_node], type_ignores=[]),
+                    "VideoContextEngine_v3.19.py", "exec"),
+            namespace,
+        )
+        find_candidate = namespace["_text_llm_find_json_candidate_offset"]
+        self.assertEqual(find_candidate("Reasoning with {an example} but no JSON follows"), -1)
+        raw = 'Reasoning {not a schema object}; final: {"executive_summary":'
+        self.assertEqual(find_candidate(raw), raw.index('{"executive_summary"'))
+        self.assertEqual(
+            find_candidate('<think>example {"executive_summary":"not final"}'),
+            -1,
+        )
+        self.assertEqual(
+            find_candidate('Nested example: {"outer":{"executive_summary":"not root"}}'),
+            -1,
+        )
+
+    def test_text_llm_generation_cap_is_consistent_at_8192(self):
+        self.assertIn("TEXT_LLM_DEFAULT_MAX_TOKENS = 8192", self.runtime)
+        self.assertIn("generation_limit = max(1024, int(max_tokens))", self.runtime)
+        self.assertNotIn("min(int(max_tokens), 8192)", self.runtime)
+        self.assertIn('"text_llm_max_tokens": (1024, 8192)', self.runtime)
+        self.assertIn("le=8192", self.runtime)
+        self.assertIn("max_tokens=generation_limit", self.runtime)
 
     def test_qwen35_no_brace_generation_skips_repair_and_records_tail_diagnostics(self):
         no_brace_gate = self.runtime.index("if first_brace_offset < 0:")
@@ -432,27 +698,31 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
         with self.assertRaises(ValueError):
             extract('<think>unfinished thoughts {"executive_summary":"not final"}')
 
-    def test_observer_saves_bounded_text_llm_raw_diagnostic_artifact(self):
+    def test_observer_saves_bounded_text_llm_raw_diagnostic_artifact_from_server_log(self):
         with tempfile.TemporaryDirectory() as directory:
             run_dir = Path(directory)
             timings = {
                 "text_llm": {
-                    "raw_excerpt": '{"executive_summary":',
-                    "repair_raw_excerpt": "{'executive_summary':",
-                    "primary_parse_error": "invalid first output",
-                    "repair_parse_error": "invalid repair output",
-                    "generation_diagnostics": {
-                        "raw_length": 4096,
-                        "first_brace_offset": -1,
-                        "raw_tail_excerpt": "tail without a brace",
-                        "finish_reason": "length",
-                        "requested_max_tokens": 4096,
-                        "streaming": True,
-                        "repair_skipped": True,
-                    },
                 }
             }
-            _OBSERVER.save_timing_outputs(run_dir, {"meta": {"timings": timings}})
+            diagnostic = {
+                "primary_excerpt": '{"executive_summary":',
+                "repair_excerpt": "{'executive_summary':",
+                "primary_parse_error": "invalid first output",
+                "repair_parse_error": "invalid repair output",
+                "primary_tail_excerpt": "tail without a brace",
+                "generation_diagnostics": {
+                    "raw_length": 4096,
+                    "first_brace_offset": -1,
+                    "raw_tail_excerpt": "tail without a brace",
+                    "finish_reason": "length",
+                    "requested_max_tokens": 4096,
+                    "streaming": True,
+                    "repair_skipped": True,
+                },
+            }
+            server_line = "[VCE Text LLM raw diagnostic] " + json.dumps(diagnostic)
+            _OBSERVER.save_timing_outputs(run_dir, {"meta": {"timings": timings}}, [server_line])
             artifact = run_dir / "text_llm_raw.txt"
             self.assertTrue(artifact.exists())
             saved = artifact.read_text(encoding="utf-8")
@@ -463,24 +733,68 @@ class TestLlamaCppNsrspecRunner(unittest.TestCase):
             self.assertIn("first_brace_offset: -1", saved)
             self.assertIn("finish_reason: length", saved)
             self.assertIn("tail without a brace", saved)
-            self.assertEqual(timings["text_llm"]["raw_diagnostic_file"], "text_llm_raw.txt")
+            self.assertNotIn("raw_diagnostic_file", timings["text_llm"])
 
-    def test_text_llm_raw_diagnostics_are_bounded_and_exposed_in_api_timing(self):
+    def test_text_llm_raw_diagnostics_are_bounded_and_kept_out_of_public_api_fields(self):
         self.assertIn('failure.raw_excerpt = _text_llm_clip(raw, 2000)', self.runtime)
         self.assertIn('failure.raw_tail_excerpt = _text_llm_clip(raw[-1500:], 1500)', self.runtime)
         self.assertIn('"raw_length": len(raw)', self.runtime)
         self.assertIn('"first_brace_offset": first_brace_offset', self.runtime)
         self.assertIn('failure.repair_raw_excerpt = _text_llm_clip(repaired_raw, 2000)', self.runtime)
-        self.assertIn('"raw_excerpt": text_llm_raw_excerpt or None', self.runtime)
-        self.assertIn('"repair_raw_excerpt": text_llm_repair_raw_excerpt or None', self.runtime)
-        self.assertIn('"generation_diagnostics": text_llm_generation_diagnostics', self.runtime)
+        self.assertIn('[VCE Text LLM raw diagnostic] ', self.runtime)
+        self.assertNotIn('"raw_excerpt": text_llm_raw_excerpt or None', self.runtime)
+        self.assertNotIn('"repair_raw_excerpt": text_llm_repair_raw_excerpt or None', self.runtime)
+        self.assertEqual(self.runtime.count('"generation_diagnostics": text_llm_generation_diagnostics'), 1)
 
-    def test_text_llm_reasoning_metadata_matches_selected_backend(self):
-        self.assertIn(
-            '"thinking_enabled": bool(text_llm_enabled and inference_backend == VCE_INFERENCE_BACKEND_MLX)',
-            self.runtime,
+    def test_request_diagnostics_are_context_local_and_propagated_to_model_executor(self):
+        self.assertIn('"vce_backend_diagnostics", default=None', self.runtime)
+        self.assertIn('"vce_text_llm_generation_diagnostics", default=None', self.runtime)
+        self.assertIn('VCE_BACKEND_DIAGNOSTICS.set({})', self.runtime)
+        self.assertIn('VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.set({})', self.runtime)
+        self.assertIn('contextvars.copy_context().run, call', self.runtime)
+        self.assertNotIn('VCE_TEXT_LLM_GENERATION_DIAGNOSTICS.clear()', self.runtime)
+
+    def test_public_runtime_summary_exposes_only_product_device_facts(self):
+        tree = ast.parse(self.runtime)
+        helper_node = next(
+            node for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_vce_public_runtime_summary"
         )
-        self.assertIn('512 if inference_backend == VCE_INFERENCE_BACKEND_MLX else 0', self.runtime)
+        namespace = {"Any": Any, "Dict": Dict}
+        exec(
+            compile(ast.Module(body=[helper_node], type_ignores=[]),
+                    "VideoContextEngine_v3.19.py", "exec"),
+            namespace,
+        )
+        summary = namespace["_vce_public_runtime_summary"]({
+            "backend": "MLX",
+            "accelerator": "Metal",
+            "device": "Device(gpu, 0)",
+            "device_verified": True,
+            "mlx_version": "0.32.4",
+            "device_source": "explicit_gpu_target",
+            "default_device_observed": "Device(cpu, 0)",
+            "gpu_probe_stream": "private stream detail",
+            "metal_smoke_test": "passed",
+        })
+        self.assertEqual(summary, {
+            "device": "Device(gpu, 0)",
+            "device_verified": True,
+            "mlx_version": "0.32.4",
+        })
+
+    def test_public_text_llm_metadata_omits_run_specific_reasoning_controls(self):
+        self.assertNotIn('"thinking_enabled":', self.runtime)
+        self.assertNotIn('"thinking_budget":', self.runtime)
+        self.assertIn('int(text_llm_max_tokens or TEXT_LLM_DEFAULT_MAX_TOKENS)', self.runtime)
+
+    def test_native_grammar_abort_is_not_mtmd_failure(self):
+        result = _OBSERVER.classify_backend_failure(
+            None, None, ["mtmd context loaded", "Unexpected empty grammar stack after accepting piece"]
+        )
+        self.assertEqual(result["code"], "NATIVE_GRAMMAR_ABORT")
+        self.assertTrue(any("grammar stack" in line for line in result["evidence_lines"]))
 
     def test_http_200_with_failed_text_llm_is_not_a_pass(self):
         verdict = _OBSERVER.classify_backend_failure(

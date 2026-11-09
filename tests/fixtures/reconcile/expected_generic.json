@@ -1,0 +1,162 @@
+{
+  "entities": [
+    {
+      "name": "СП 1.13.130.2020",
+      "scene_ids": [
+        4
+      ],
+      "type": "standard"
+    },
+    {
+      "name": "CADLib",
+      "scene_ids": [
+        3
+      ],
+      "type": "software"
+    },
+    {
+      "name": "BuildChat",
+      "scene_ids": [
+        7
+      ],
+      "type": "software"
+    }
+  ],
+  "executive_summary": "Демонстрация автоматизации проектирования: импорт XML-выгрузки, проверка коллизий в CADLib, отбор объектов по атрибутам и проверка требований СП 1.13.130.2020 с формированием перечня нарушений и экспортом отчёта.",
+  "key_points": [
+    {
+      "evidence": [
+        "speech"
+      ],
+      "scene_id": 1,
+      "text": "Здравствуйте. Сегодня покажу, как автоматизировать проверку требований в проектировании",
+      "time": "00:00:00"
+    },
+    {
+      "evidence": [
+        "speech"
+      ],
+      "scene_id": 2,
+      "text": "XML-выгрузка из системы содержит объекты с атрибутами.",
+      "time": "00:00:08"
+    },
+    {
+      "evidence": [
+        "speech",
+        "ocr",
+        "visual"
+      ],
+      "scene_id": 3,
+      "text": "Проверка коллизий выполняется в CADLib.",
+      "time": "00:00:24"
+    },
+    {
+      "evidence": [
+        "speech",
+        "ocr"
+      ],
+      "scene_id": 4,
+      "text": "Требования проверяются по СП 1.13.130.2020.",
+      "time": "00:00:46"
+    },
+    {
+      "evidence": [
+        "speech",
+        "ocr"
+      ],
+      "scene_id": 5,
+      "text": "Отбор объектов идёт по атрибутивным данным.",
+      "time": "00:01:08"
+    },
+    {
+      "evidence": [
+        "speech"
+      ],
+      "scene_id": 6,
+      "text": "Система автоматически формирует проектную документацию.",
+      "time": "00:01:32"
+    },
+    {
+      "evidence": [
+        "speech"
+      ],
+      "scene_id": 7,
+      "text": "Отчёт передаётся в BuildChat.",
+      "time": "00:01:58"
+    }
+  ],
+  "scene_enrichment": [
+    {
+      "improved_description": "Титульный экран презентации.",
+      "key_points": [
+        "Тема доклада"
+      ],
+      "scene_id": 1,
+      "topic": "Вступление"
+    },
+    {
+      "improved_description": "Загрузка XML-выгрузки с объектами.",
+      "key_points": [
+        "Импорт данных"
+      ],
+      "scene_id": 2,
+      "topic": "Импорт XML"
+    },
+    {
+      "improved_description": "Диалог проверки коллизий в CADLib.",
+      "key_points": [
+        "Коллизии"
+      ],
+      "scene_id": 3,
+      "topic": "Проверка коллизий"
+    },
+    {
+      "improved_description": "Таблица требований СП.",
+      "key_points": [
+        "СП 1.13130.2020"
+      ],
+      "scene_id": 4,
+      "topic": "Нормативные требования"
+    },
+    {
+      "improved_description": "Фильтры по атрибутивным данным.",
+      "key_points": [
+        "Атрибуты"
+      ],
+      "scene_id": 5,
+      "topic": "Отбор по атрибутам"
+    },
+    {
+      "improved_description": "Перечень нарушений.",
+      "key_points": [
+        "Нарушения"
+      ],
+      "scene_id": 6,
+      "topic": "Замечания"
+    },
+    {
+      "improved_description": "Экспорт отчёта в BuildChat.",
+      "key_points": [
+        "Отчёт"
+      ],
+      "scene_id": 7,
+      "topic": "Экспорт"
+    },
+    {
+      "improved_description": "Завершающая заставка THE END.",
+      "key_points": [
+        "Сцена содержит речевое пояснение."
+      ],
+      "scene_id": 8,
+      "topic": "THE END"
+    }
+  ],
+  "topics": [
+    "автоматизация проектирования",
+    "импорт XML",
+    "проверка коллизий",
+    "нормативные требования",
+    "экспорт отчёта"
+  ],
+  "uncertainties": []
+}

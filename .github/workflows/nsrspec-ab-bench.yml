@@ -1,0 +1,49 @@
+name: NSR A/B bench validation
+
+on:
+  pull_request:
+    paths:
+      - "tools/bench/**"
+      - "VideoContextEngine_v3.19.py"
+      - "vce_core/**"
+      - "domain_profiles/**"
+      - "tests/fixtures/reconcile/**"
+      - "tests/test_vce_pipeline_contract.py"
+      - "tests/test_vce_text_core_golden.py"
+      - ".github/workflows/nsrspec-ab-bench.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  static-validation:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run focused regression suite
+        run: python -m unittest discover -s tools/bench -p 'test_vce_*.py' -v
+
+      - name: Compile Python runtime and diagnostic tools
+        run: |
+          python -m py_compile \
+            VideoContextEngine_v3.19.py \
+            tools/bench/vce_observed_llama_cpp_run.py \
+            tools/bench/vce_runtime_watchdog.py \
+            tools/bench/install_vce_mtmd_loader_fix.py \
+            tools/bench/vce_llama_json_smoke_test.py
+
+      - name: Validate shell launcher syntax
+        run: |
+          bash -n tools/bench/vce_run_nsrspec_ab.command
+          bash -n tools/bench/vce_run_nsrspec_llama_cpp.command
+          bash -n tools/bench/vce_patch_test_run_nsrspec_json.command
+          bash -n tools/bench/vce_patch_test_run_nsrspec_ab.command

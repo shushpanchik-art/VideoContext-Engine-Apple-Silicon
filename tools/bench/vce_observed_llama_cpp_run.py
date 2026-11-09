@@ -14,6 +14,7 @@ import json
 import os
 import platform
 import re
+import stat
 import shutil
 import socket
 import subprocess
@@ -42,6 +43,7 @@ FORM_EXCLUDE = {"video_file", "local_video_token", "video_url", "job_id"}
 PERSISTED_PROMPT_FIELDS = {"visual_user_prompt", "summary_user_prompt"}
 COMMON_BACKEND_SETTINGS = {
     "runtime_profile": "baseline_mps_sequential",
+    "ram_mode": "ram-",
     "enable_mlx_whisper": False,
     "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
     "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
@@ -49,13 +51,14 @@ COMMON_BACKEND_SETTINGS = {
     "whisper_acceleration": True,
     "word_timestamps": True,
     "vlm_resolution": 1280,
-    "enable_ocr_cache": False,
     "enable_ffmpeg_ocr": True,
     "ffmpeg_ocr_interval": 5,
     "ffmpeg_ocr_workers": 3,
     "enable_apple_ocr": True,
     "enable_stage_timing": True,
     "text_llm_enabled": True,
+    "domain_profile": "nsrspec",
+    "llama_cpp_vlm_context": 8192,
 }
 LLAMA_CPP_MODEL_SETTINGS = {
     "llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
@@ -66,11 +69,13 @@ LLAMA_CPP_MODEL_SETTINGS = {
 
 SUPPORTED_INFERENCE_BACKENDS = ("mlx_metal", "llama_cpp_metal")
 
-def build_backend_settings(inference_backend: str) -> dict[str, Any]:
-    """Build one explicit A/B pass; MLX selectors remain MLX even for the GGUF pass."""
+def build_backend_settings(inference_backend: str, profile: str = "current") -> dict[str, Any]:
+    """Build backend selectors; only the named nsrspec profile applies a fixed comparison baseline."""
     if inference_backend not in SUPPORTED_INFERENCE_BACKENDS:
         raise ValueError(f"Unsupported inference backend: {inference_backend}")
-    settings = dict(COMMON_BACKEND_SETTINGS)
+    if profile not in {"current", "nsrspec"}:
+        raise ValueError(f"Unsupported observer profile: {profile}")
+    settings = dict(COMMON_BACKEND_SETTINGS) if profile == "nsrspec" else {}
     settings["inference_backend"] = inference_backend
     if inference_backend == "llama_cpp_metal":
         settings.update(LLAMA_CPP_MODEL_SETTINGS)
@@ -127,11 +132,12 @@ def classify_backend_failure(
         code = "TEXT_LLM_FAILED"
     elif http_status == 200:
         code = "PASS"
+    elif "unexpected empty grammar stack" in lowered:
+        code = "NATIVE_GRAMMAR_ABORT"
     elif any(marker in lowered for marker in (
         "failed to load mtmd context",
-        "mtmd_init_from_file",
-        "mtmd context",
-        "_init_mtmd_context",
+        "failed to initialize mtmd context",
+        "mtmd_init_from_file failed",
     )):
         code = "MTMD_CONTEXT_FAILED"
     elif http_status is not None or detail:
@@ -144,34 +150,21 @@ def classify_backend_failure(
         "text_llm_status": text_llm_status or None,
         "error_text": str(text_llm_error or detail or next((line for line in (server_event_lines or []) if line), "")) or None,
         "evidence_lines": [line for line in (server_event_lines or []) if any(
-            token in line.lower() for token in ("mtmd", "mmproj", "context", "traceback", "exception", "text llm", "invalid json", "jsondecodeerror")
+            token in line.lower() for token in ("mtmd", "mmproj", "context", "traceback", "exception", "text llm", "invalid json", "jsondecodeerror", "grammar stack")
         )][-40:],
     }
 
 
-SAFETY_OVERRIDES = {
+NSRSPEC_REQUEST_OVERRIDES = {
+    # Request-scoped controls only. Backend/configuration settings come from active UI settings
+    # unless the explicit --profile nsrspec comparison preset is selected.
     "analysis_mode": "full",
-    "runtime_profile": "baseline_mps_sequential",
-    "enable_mlx_whisper": False,
-    "whisper_model": "large",
-    "whisper_acceleration": True,
-    "word_timestamps": True,
-    "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
-    "vlm_resolution": 1280,
-    "text_llm_enabled": True,
-    "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
-    "enable_ocr_cache": True,
-    "enable_ffmpeg_ocr": True,
-    "ffmpeg_ocr_interval": 5,
-    "ffmpeg_ocr_workers": 3,
-    "enable_apple_ocr": True,
     "skip_audio": False,
     "skip_visual": False,
     "generate_summary": True,
     "generate_txt": False,
     "generate_json": False,
     "response_format": "json",
-    "enable_stage_timing": True,
 }
 
 
@@ -181,6 +174,28 @@ def now_iso() -> str:
 
 def write_json(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, default=str) + "\n", encoding="utf-8")
+
+
+def restore_settings_file(settings_path: Path, snapshot_path: Path) -> dict[str, Any]:
+    """Restore API-visible settings from a snapshot without requiring the server."""
+    live = json.loads(settings_path.read_text(encoding="utf-8"))
+    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+    if not isinstance(live, dict) or not isinstance(snapshot, dict):
+        raise ValueError("settings and snapshot roots must be JSON objects")
+    live.update(snapshot)
+    mode = stat.S_IMODE(settings_path.stat().st_mode)
+    temporary = settings_path.with_name(settings_path.name + f".restore-{os.getpid()}")
+    try:
+        with temporary.open("w", encoding="utf-8") as stream:
+            json.dump(live, stream, ensure_ascii=False, indent=2)
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, settings_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return {"status": "restored_offline", "restored_keys": sorted(snapshot)}
 
 
 def append_jsonl(path: Path, value: Any) -> None:
@@ -291,7 +306,7 @@ def get_form_schema(openapi: dict[str, Any]) -> tuple[dict[str, Any], str]:
     return properties, progress_path
 
 
-def resolve_form_fields(settings: dict[str, Any], properties: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+def resolve_form_fields(settings: dict[str, Any], properties: dict[str, Any], profile: str = "current") -> tuple[dict[str, Any], dict[str, Any]]:
     fields: dict[str, Any] = {}
     origins: dict[str, str] = {}
     for name, definition in properties.items():
@@ -306,10 +321,13 @@ def resolve_form_fields(settings: dict[str, Any], properties: dict[str, Any]) ->
     for name in PERSISTED_PROMPT_FIELDS:
         if name in properties:
             origins[name] = "omitted from multipart; use running VCE's persisted prompt"
-    for name, value in SAFETY_OVERRIDES.items():
-        if name in properties:
-            fields[name] = value
-            origins[name] = "observed-run override"
+    if profile not in {"current", "nsrspec"}:
+        raise ValueError(f"Unsupported observer profile: {profile}")
+    if profile == "nsrspec":
+        for name, value in NSRSPEC_REQUEST_OVERRIDES.items():
+            if name in properties:
+                fields[name] = value
+                origins[name] = "nsrspec profile request override"
     # Use the same bounded VCE job/progress mechanism as the web UI.
     if "job_id" in properties:
         fields["job_id"] = ""
@@ -471,50 +489,62 @@ def progress_url(api_url: str, template: str, job_id: str) -> str:
     return api_url.rstrip("/") + template
 
 
-def save_timing_outputs(run_dir: Path, data: Any) -> dict[str, Any]:
+def _text_llm_diagnostics_from_server_log(lines: list[str] | None) -> dict[str, Any]:
+    marker = "[VCE Text LLM raw diagnostic] "
+    for line in reversed(lines or []):
+        marker_at = line.find(marker)
+        if marker_at < 0:
+            continue
+        try:
+            result = json.loads(line[marker_at + len(marker):])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(result, dict):
+            return result
+    return {}
+
+
+def save_timing_outputs(
+    run_dir: Path, data: Any, server_event_lines: list[str] | None = None
+) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     meta = data.get("meta", {}) if isinstance(data.get("meta"), dict) else {}
     timings = meta.get("timings") or data.get("timings") or {}
     if not isinstance(timings, dict):
         timings = {}
-    text_llm = timings.get("text_llm")
-    if isinstance(text_llm, dict):
-        primary = str(text_llm.get("raw_excerpt") or "")
-        repair = str(text_llm.get("repair_raw_excerpt") or "")
-        generation = text_llm.get("generation_diagnostics") or {}
+    diagnostic = _text_llm_diagnostics_from_server_log(server_event_lines)
+    if diagnostic:
+        generation = diagnostic.get("generation_diagnostics") or {}
         if not isinstance(generation, dict):
             generation = {}
-        tail = str(generation.get("raw_tail_excerpt") or "")
-        if primary or repair or tail or generation:
-            diagnostic_lines = [
-                "VCE Text LLM raw generation diagnostics",
-                "Head/repair excerpts are bounded to 2000 characters; tail excerpt is bounded to 1500 characters.",
-                "raw_length: " + str(generation.get("raw_length", "not recorded")),
-                "first_brace_offset: " + str(generation.get("first_brace_offset", "not recorded")),
-                "finish_reason: " + str(generation.get("finish_reason", "not recorded")),
-                "requested_max_tokens: " + str(generation.get("requested_max_tokens", "not recorded")),
-                "streaming: " + str(generation.get("streaming", "not recorded")),
-                "repair_skipped: " + str(generation.get("repair_skipped", "not recorded")),
-                "usage: " + json.dumps(generation.get("usage"), ensure_ascii=False),
-                "",
-                "=== Primary generation (head excerpt) ===",
-                primary or "(not captured)",
-                "",
-                "=== Primary generation (tail excerpt) ===",
-                tail or "(not captured)",
-                "",
-                "=== Repair-pass generation (head excerpt) ===",
-                repair or "(not captured)",
-                "",
-                "=== Parse errors ===",
-                "Primary: " + str(text_llm.get("primary_parse_error") or "(not recorded)"),
-                "Repair: " + str(text_llm.get("repair_parse_error") or "(not recorded)"),
-            ]
-            (run_dir / "text_llm_raw.txt").write_text(
-                "\n".join(diagnostic_lines) + "\n", encoding="utf-8"
-            )
-            text_llm["raw_diagnostic_file"] = "text_llm_raw.txt"
+        diagnostic_lines = [
+            "VCE Text LLM raw generation diagnostics",
+            "Head/repair excerpts are bounded to 2000 characters; tail excerpt is bounded to 1500 characters.",
+            "raw_length: " + str(generation.get("raw_length", "not recorded")),
+            "first_brace_offset: " + str(generation.get("first_brace_offset", "not recorded")),
+            "finish_reason: " + str(generation.get("finish_reason", "not recorded")),
+            "requested_max_tokens: " + str(generation.get("requested_max_tokens", "not recorded")),
+            "streaming: " + str(generation.get("streaming", "not recorded")),
+            "repair_skipped: " + str(generation.get("repair_skipped", "not recorded")),
+            "usage: " + json.dumps(generation.get("usage"), ensure_ascii=False),
+            "",
+            "=== Primary generation (head excerpt) ===",
+            str(diagnostic.get("primary_excerpt") or "(not captured)"),
+            "",
+            "=== Primary generation (tail excerpt) ===",
+            str(diagnostic.get("primary_tail_excerpt") or "(not captured)"),
+            "",
+            "=== Repair-pass generation (head excerpt) ===",
+            str(diagnostic.get("repair_excerpt") or "(not captured)"),
+            "",
+            "=== Parse errors ===",
+            "Primary: " + str(diagnostic.get("primary_parse_error") or "(not recorded)"),
+            "Repair: " + str(diagnostic.get("repair_parse_error") or "(not recorded)"),
+        ]
+        (run_dir / "text_llm_raw.txt").write_text(
+            "\n".join(diagnostic_lines) + "\n", encoding="utf-8"
+        )
     write_json(run_dir / "stage_timings.json", timings)
     rows = flatten_timing_metrics(timings)
     with (run_dir / "stage_timings.csv").open("w", newline="", encoding="utf-8") as f:
@@ -554,20 +584,37 @@ def print_timing_summary(data: Any, http_status: int | None, request_wall_second
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--video", required=True, help="Путь к исходному видео.")
+    parser.add_argument("--video", default=None, help="Путь к исходному видео.")
     parser.add_argument("--settings", default=str(DEFAULT_SETTINGS), help="Локальный videocontext_settings.json.")
+    parser.add_argument("--restore-settings-offline", action="store_true", help="Восстановить настройки из снимка без работающего API.")
+    parser.add_argument("--restore-from", default=None, help="JSON-снимок настроек для офлайн-восстановления.")
+    parser.add_argument("--restore-report", default=None, help="Куда записать отчёт офлайн-восстановления.")
     parser.add_argument("--api-url", default=DEFAULT_API)
     parser.add_argument("--out-root", default=str(Path.home() / "Downloads" / "VCE_observed_runs"))
     parser.add_argument("--server-log", default=None, help="Явный путь к логу сервера; по умолчанию ищется известный лог.")
     parser.add_argument("--interval", type=float, default=2.0, help="Интервал опроса прогресса/ресурсов в секундах.")
+    parser.add_argument("--profile", choices=("current", "nsrspec"), default="current", help="current сохраняет действующие настройки; nsrspec применяет воспроизводимый пресет.")
     parser.add_argument(
         "--inference-backend",
         choices=SUPPORTED_INFERENCE_BACKENDS,
-        required=True,
         help="Explicit backend for this A/B pass; both passes keep baseline_mps_sequential Whisper/MPS.",
     )
     args = parser.parse_args()
-    backend_settings = build_backend_settings(args.inference_backend)
+    if args.restore_settings_offline:
+        if not args.restore_from:
+            parser.error("--restore-settings-offline requires --restore-from")
+        try:
+            report = restore_settings_file(Path(args.settings).expanduser(), Path(args.restore_from).expanduser())
+            if args.restore_report:
+                write_json(Path(args.restore_report).expanduser(), report)
+            print(json.dumps(report, ensure_ascii=False))
+            return 0
+        except Exception as exc:
+            print(f"ERROR: offline settings restore failed: {exc}")
+            return 2
+    if not args.video or not args.inference_backend:
+        parser.error("--video and --inference-backend are required unless --restore-settings-offline is used")
+    backend_settings = build_backend_settings(args.inference_backend, args.profile)
     llama_runtime_info = collect_llama_runtime_info(args.inference_backend)
 
     if platform.system() != "Darwin":
@@ -606,7 +653,7 @@ def main() -> int:
         )
         if backend_status != 200 or not isinstance(backend_result, dict) or not backend_result.get("ok"):
             raise RuntimeError(
-                f"Не удалось применить {args.inference_backend} и общие MPS/OCR настройки через /api/v1/ui-settings: "
+                f"Не удалось применить backend settings для профиля {args.profile!r} через /api/v1/ui-settings: "
                 f"HTTP {backend_status}; {backend_result}"
             )
         settings.update(backend_settings)
@@ -616,13 +663,6 @@ def main() -> int:
                 f"Не удалось получить активные настройки VCE: GET /api/v1/ui-settings вернул HTTP {active_status}. "
                 "Останавливаюсь, чтобы не запускать тест с неподтверждёнными настройками."
             )
-        if active_settings.get("enable_ocr_cache") is not False:
-            raise RuntimeError(
-                "A/B requires enable_ocr_cache=false for both passes; "
-                f"active API value is {active_settings.get('enable_ocr_cache')!r}. "
-                "No video was submitted."
-            )
-
         properties, progress_template = get_form_schema(openapi)
 
         # Save both sources locally for audit; neither file is uploaded to GitHub.
@@ -634,10 +674,16 @@ def main() -> int:
             key: {"local_file": settings[key], "active_server": active_settings[key]}
             for key in common_keys if settings[key] != active_settings[key]
         }
+        required_experiment_mismatches = {
+            key: {"expected": value, "active_server": active_settings.get(key)}
+            for key, value in backend_settings.items()
+            if active_settings.get(key) != value
+        }
         write_json(run_dir / "settings_comparison.json", {
             "local_settings_path": str(settings_path),
             "active_settings_endpoint": args.api_url.rstrip("/") + "/api/v1/ui-settings",
             "non_prompt_differences": differences,
+            "required_experiment_mismatches": required_experiment_mismatches,
             "prompt_lengths": {
                 key: {
                     "local_file_chars": len(settings.get(key, "")) if isinstance(settings.get(key), str) else None,
@@ -646,16 +692,16 @@ def main() -> int:
                 } for key in prompt_keys
             },
         })
-        if differences:
-            keys = ", ".join(list(differences)[:30])
+        if required_experiment_mismatches:
+            keys = ", ".join(list(required_experiment_mismatches)[:30])
             raise RuntimeError(
-                "Локальный videocontext_settings.json отличается от активных настроек сервера "
-                f"по полям: {keys}. Видео не отправлялось; проверь settings_comparison.json."
+                "Активные настройки сервера не совпали с обязательными параметрами A/B: "
+                f"{keys}. Видео не отправлялось; проверь settings_comparison.json."
             )
 
         # Use the running VCE settings as authority. Long persisted prompts are deliberately
         # omitted from multipart so the API can use its persisted values without truncation.
-        fields, origins = resolve_form_fields(active_settings, properties)
+        fields, origins = resolve_form_fields(active_settings, properties, args.profile)
         problems = validate_prompt_limits(fields, properties)
         if problems:
             raise RuntimeError("Передаваемые поля превышают ограничения API: " + "; ".join(problems))
@@ -675,7 +721,7 @@ def main() -> int:
         "settings_sha256": sha256_file(settings_path),
         "field_origins": origins,
         "effective_fields": fields,
-        "forced_overrides": SAFETY_OVERRIDES,
+        "forced_overrides": NSRSPEC_REQUEST_OVERRIDES if args.profile == "nsrspec" else {},
         "backend_settings": backend_settings,
         "inference_backend": args.inference_backend,
         "runtime_profile": "baseline_mps_sequential",
@@ -714,13 +760,14 @@ def main() -> int:
         "machine": platform.machine(),
         "openapi_path": "/api/v1/analyze",
         "form_field_names": sorted(k for k in fields_for_upload),
-        "safety_overrides": SAFETY_OVERRIDES,
+        "observer_profile": args.profile,
+        "nsrspec_request_overrides": NSRSPEC_REQUEST_OVERRIDES if args.profile == "nsrspec" else {},
         "inference_backend": args.inference_backend,
         "backend_settings": backend_settings,
-        "runtime_profile": "baseline_mps_sequential",
+        "runtime_profile": active_settings.get("runtime_profile"),
         **llama_runtime_info,
         "result_directory": str(run_dir),
-        "note": "generate_txt/generate_json disabled for this request to avoid overwriting existing files; full API JSON is saved here. Other pipeline stages follow the saved settings except explicit full-analysis overrides.",
+        "note": ("The explicit NSR profile suppresses generated TXT/JSON file side effects; response.json is captured by the observer. " if args.profile == "nsrspec" else "Current mode preserves persisted analysis and output settings; the API response is captured by the observer."),
     }
     write_json(run_dir / "run_metadata.json", metadata)
     write_json(run_dir / "system_info.json", {
@@ -860,7 +907,6 @@ def main() -> int:
         "video_scene_count": response_data.get("meta", {}).get("scene_count") if isinstance(response_data, dict) else None,
         "video_process_time": response_data.get("meta", {}).get("process_time") if isinstance(response_data, dict) else None,
     })
-    timings = save_timing_outputs(run_dir, response_data)
     metadata.update({
         "ended_at": ended_at,
         "client_wall_seconds": round(elapsed_total, 3),
@@ -880,6 +926,8 @@ def main() -> int:
                 events.append(json.loads(line))
             except Exception:
                 continue
+    server_event_lines = [str(item.get("line", "")) for item in events]
+    timings = save_timing_outputs(run_dir, response_data, server_event_lines)
     patterns = ("Traceback", "ERROR", "Exception", "VCE Whisper", "VCE MLX", "VCE runtime",
                 "PROFIL TEMPS", "scene_analysis", "summary", "OCR", "Metal", "RAM_MODE",
                 "KeyError", "too many values", "chargement VLM", "inference",

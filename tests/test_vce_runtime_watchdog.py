@@ -10,7 +10,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("vce_runtime_watchdog", ROOT / "scripts" / "vce_runtime_watchdog.py")
+SPEC = importlib.util.spec_from_file_location("vce_runtime_watchdog", ROOT / "tools" / "bench" / "vce_runtime_watchdog.py")
 assert SPEC and SPEC.loader
 watchdog = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = watchdog
@@ -46,6 +46,28 @@ class ProcessParserTests(unittest.TestCase):
 
 
 class RuntimeEvidenceTests(unittest.TestCase):
+    def test_llama_cpp_native_grammar_abort_has_specific_verdict(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            observed = root / "observed"
+            observed.mkdir()
+            (observed / "request_settings.json").write_text(json.dumps({
+                "effective_fields": {"inference_backend": "llama_cpp_metal"}
+            }), encoding="utf-8")
+            console = root / "console.log"
+            console.write_text(
+                "terminate called after throwing an instance of std::runtime_error: "
+                "Unexpected empty grammar stack after accepting piece: @ (31)\n",
+                encoding="utf-8",
+            )
+            mappings = root / "mappings.jsonl"
+            mappings.write_text("", encoding="utf-8")
+            power = root / "power.jsonl"
+            power.write_text("", encoding="utf-8")
+            result = watchdog.runtime_verdict(observed, console, mappings, power)
+            self.assertEqual(result["overall_verdict"], "LLAMA_CPP_METAL_NATIVE_ABORT_GRAMMAR_OR_TRANSPORT")
+            self.assertTrue(result["native_abort_detected"])
+
     def test_gpu_stream_setup_is_not_mistaken_for_vlm_gpu_device(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -74,16 +96,23 @@ class RuntimeEvidenceTests(unittest.TestCase):
             observed.mkdir()
             (observed / "stage_timings.json").write_text(json.dumps({
                 "vlm": {"runtime": {
-                    "backend": "MLX",
-                    "accelerator": "Metal",
                     "device": "Device(gpu, 0)",
-                    "configured_device": "Device(gpu, 0)",
-                    "device_source": "explicit_gpu_target",
-                    "default_device_observed": "Device(cpu, 0)",
-                    "gpu_stream_smoke_test": "passed",
-                    "metal_smoke_test": "passed",
+                    "device_verified": True,
+                    "mlx_version": "0.32.4",
                 }},
             }), encoding="utf-8")
+            runtime = {
+                "backend": "MLX",
+                "accelerator": "Metal",
+                "stage": "vlm",
+                "mlx_version": "0.32.4",
+                "device": "Device(gpu, 0)",
+                "configured_device": "Device(gpu, 0)",
+                "device_source": "explicit_gpu_target",
+                "default_device_observed": "Device(cpu, 0)",
+                "gpu_stream_smoke_test": "passed",
+                "metal_smoke_test": "passed",
+            }
             trace = {
                 "phase": "before",
                 "function": "__main__._vce_describe_scene_with_memory_fallback",
@@ -100,7 +129,8 @@ class RuntimeEvidenceTests(unittest.TestCase):
                 },
             }
             (observed / "server_events.jsonl").write_text(
-                json.dumps({"line": "[VCE MLX TRACE] " + json.dumps(trace)}) + "\n",
+                json.dumps({"line": "[VCE runtime] " + json.dumps(runtime)}) + "\n"
+                + json.dumps({"line": "[VCE MLX TRACE] " + json.dumps(trace)}) + "\n",
                 encoding="utf-8",
             )
             console = root / "console.log"
@@ -113,6 +143,7 @@ class RuntimeEvidenceTests(unittest.TestCase):
             self.assertEqual(result["vlm_device"], "Device(gpu, 0)")
             self.assertEqual(result["vlm_configured_device"], "Device(gpu, 0)")
             self.assertEqual(result["vlm_default_device_observed"], "Device(cpu, 0)")
+            self.assertEqual(result["vlm_runtime"]["gpu_stream_smoke_test"], "passed")
             self.assertEqual(result["vlm_generation_stream_devices"], ["Device(gpu, 0)"])
             self.assertTrue(result["gpu_generation_stream_seen"])
             self.assertEqual(result["vlm_scene_trace_snapshot_count"], 1)

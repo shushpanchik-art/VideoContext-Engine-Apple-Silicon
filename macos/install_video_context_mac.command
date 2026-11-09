@@ -36,10 +36,12 @@ command -v xcrun >/dev/null 2>&1 || fail "Не найден xcrun/swiftc. Уст
 
 echo "Важно: перед установкой закончи анализ, закрой VideoContext Engine.app и останови старый сервер (Ctrl+C в его Terminal-окне)."
 echo "После обновления новый сервер будет запускаться из приложения без Terminal; журнал: ~/Library/Logs/VideoContext Engine/server.log."
-read -r -p "Если сервер остановлен, введи STOP для продолжения: " STOP_CONFIRM </dev/tty
-if [[ "$STOP_CONFIRM" != "STOP" ]]; then
-  echo "Установка отменена. Никакие файлы не менялись."
-  exit 0
+if [[ "${VCE_CLEAN_INSTALL:-0}" != 1 ]]; then
+  read -r -p "Если сервер остановлен, введи STOP для продолжения: " STOP_CONFIRM </dev/tty
+  if [[ "$STOP_CONFIRM" != "STOP" ]]; then
+    echo "Установка отменена. Никакие файлы не менялись."
+    exit 0
+  fi
 fi
 if /usr/sbin/lsof -nP -iTCP:7555 -sTCP:LISTEN >/dev/null 2>&1; then
   fail "Порт 7555 ещё занят. Дождитесь окончания анализа и остановите сервер, чтобы не оборвать задачу."
@@ -49,13 +51,17 @@ printf '\n[1/4] Исправление Whisper/MPS и добавление кн�
 "$PROJECT_DIR/.venv/bin/python" "$PROJECT_DIR/patches/patch_vce_stop_and_mps.py" || fail "Патч не прошёл проверку. Приложение не устанавливалось."
 
 printf '\n[2/4] Сохранение фирменной иконки и сборка значка меню…\n'
+if [[ ! -f "$APP_ICON" && -n "${VCE_PREVIOUS_APP_ICON:-}" && -f "$VCE_PREVIOUS_APP_ICON" ]]; then
+  /bin/cp -X "$VCE_PREVIOUS_APP_ICON" "$APP_ICON" || fail "Не удалось перенести иконку предыдущей установки."
+fi
+
 # Keep the user's installed custom icon when replacing the app bundle.
 if [[ ! -f "$APP_ICON" && -f "$APP_TARGET/Contents/Resources/VideoContextEngine.icns" ]]; then
   /bin/cp "$APP_TARGET/Contents/Resources/VideoContextEngine.icns" "$APP_ICON" || fail "Не удалось сохранить текущую иконку."
 fi
 
 # If there is no installed ICNS yet, build one from the old project favicon when available.
-if [[ ! -f "$APP_ICON" && -f "$ICON_SOURCE" ]]; then
+if [[ "${VCE_CLEAN_INSTALL:-0}" != 1 && ! -f "$APP_ICON" && -f "$ICON_SOURCE" ]]; then
   ICON_TMP="$(/usr/bin/mktemp -d)"
   ICONSET="$ICON_TMP/VideoContextEngine.iconset"
   /bin/mkdir -p "$ICONSET"
@@ -96,14 +102,26 @@ APP_SUPPORT_DIR="$HOME/Library/Application Support/VideoContext Engine"
 mkdir -p "$APP_SUPPORT_DIR"
 echo "$PROJECT_DIR" > "$APP_SUPPORT_DIR/project_path"
 chmod 600 "$APP_SUPPORT_DIR/project_path"
+sudo /usr/bin/xattr -cr "$APP_TARGET" || fail "Не удалось очистить метаданные приложения перед подписью."
 sudo /usr/bin/codesign --force --deep --sign - "$APP_TARGET" || fail "Не удалось подписать установленное приложение."
+# Clean install uses a private umask for backups. The app seal must be readable by its users.
+sudo /bin/chmod 755 "$APP_TARGET/Contents/_CodeSignature" || fail "Не удалось выставить права каталога подписи."
+sudo /bin/chmod 644 "$APP_TARGET/Contents/_CodeSignature/CodeResources" || fail "Не удалось выставить права подписи."
+/usr/bin/codesign --verify --deep --strict "$APP_TARGET" || fail "Подпись приложения не прошла проверку."
 LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 /usr/bin/env "$LSREGISTER" -f "$APP_TARGET" >/dev/null 2>&1 || true
+
+if [[ "${VCE_CLEAN_INSTALL:-0}" == 1 ]]; then
+  echo "Приложение установлено: $APP_TARGET"
+  exit 0
+fi
 
 printf '\n[4/4] Создание ярлыка на рабочем столе…\n'
 # Remove an older alias or symlink with this name only; do not touch the project.
 if [[ -e "$DESKTOP_ALIAS" || -L "$DESKTOP_ALIAS" ]]; then
-  /bin/rm -rf "$DESKTOP_ALIAS"
+  if [[ ! -d "$DESKTOP_ALIAS" || -L "$DESKTOP_ALIAS" ]]; then
+    /bin/rm -f "$DESKTOP_ALIAS"
+  fi
 fi
 if [[ -L "$DESKTOP_LINK" ]]; then
   /bin/rm -f "$DESKTOP_LINK"
@@ -121,6 +139,6 @@ then
   /bin/ln -s "/Applications/VideoContext Engine.app" "$DESKTOP_LINK"
 fi
 
-printf '\nГОТОВО.\nПриложение: /Applications/VideoContext Engine.app\nЗначок меню: панель меню macOS рядом с системными значками\nЯрлык: рабочий стол → VideoContext Engine\nИнтерфейс: http://127.0.0.1:7555/ui\nSwagger: http://127.0.0.1:7555/docs\n\nЗначок меню откроется автоматически; сервер запускается без отдельного окна Terminal и продолжает работать после закрытия приложения.\nНажмите Enter для закрытия этого установщика.\n'
+printf '\nГОТОВО.\nПриложение: /Applications/VideoContext Engine.app\nЗначок меню: панель меню macOS рядом с системными значками\nЯрлык: рабочий стол → VideoContext Engine\nИнтерфейс: http://127.0.0.1:7555/ui\n\nЗначок меню откроется автоматически; сервер запускается без отдельного окна Terminal и продолжает работать после закрытия приложения.\nНажмите Enter для закрытия этого установщика.\n'
 read -r || true
 /usr/bin/open "$APP_TARGET" || true

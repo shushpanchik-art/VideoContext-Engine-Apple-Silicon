@@ -60,7 +60,6 @@ echo "============================================"
 echo " VideoContext Engine v3.19 — локальный запуск"
 echo " Проект: $PROJECT_DIR"
 echo " Web UI: http://127.0.0.1:7555/ui"
-echo " Swagger: http://127.0.0.1:7555/docs"
 echo " Остановка сервера: Ctrl+C"
 echo "============================================"
 # VCE_MANAGED_ENGINE_PROCESS_LIFECYCLE_V1

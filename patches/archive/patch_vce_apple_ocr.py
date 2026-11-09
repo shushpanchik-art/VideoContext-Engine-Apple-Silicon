@@ -2,7 +2,7 @@
 """Add optional Apple Vision OCR support to VideoContext Engine v3.19.
 
 This patcher is designed to be run in the VideoContext-Engine project folder
-AFTER patch_vce_optimization.py. It adds a Swagger checkbox enable_apple_ocr,
+AFTER patch_vce_optimization.py. It adds the enable_apple_ocr request setting,
 extracts text from the same aspect-correct keyframes with macOS Vision through
 ocrmac, passes the text as grounding context to the VLM, exposes it in JSON/TXT,
 and reports OCR timing. A timestamped backup is created first.
@@ -267,7 +267,7 @@ def main() -> int:
     TARGET.write_text(source, encoding="utf-8")
     print("Apple Vision OCR integration applied successfully.")
     print(f"Backup: {backup.resolve()}")
-    print("- Enable/disable Apple OCR via enable_apple_ocr in /docs.")
+    print("- Enable/disable Apple OCR in the local /ui settings or via the API request field.")
     print("- OCR text is included in each scene's ocr_text field and sent to Qwen as grounding context.")
     print("- OCR inference time and effective resolution/settings are recorded in the JSON response.")
     print("Next trial: rerun the same video and settings as test 1, changing only enable_apple_ocr=true.")

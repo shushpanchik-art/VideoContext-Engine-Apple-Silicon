@@ -25,6 +25,15 @@ class LlamaCppMetalBackendTests(unittest.TestCase):
         self.assertIn("Qwen3VL-8B-Instruct-Q4_K_M.gguf", self.runtime)
         self.assertIn("mmproj-Qwen3VL-8B-Instruct-F16.gguf", self.runtime)
 
+    def test_llama_vlm_context_is_a_validated_request_and_saved_setting(self):
+        self.assertIn('"llama_cpp_vlm_context": 8192', self.runtime)
+        self.assertIn('"llama_cpp_vlm_context": (4096, 65536)', self.runtime)
+        self.assertIn('llama_cpp_vlm_context: int = Form(', self.runtime)
+        self.assertIn('await _vce_backend_run(vlm_engine.load_model, target_vlm, llama_cpp_vlm_context)', self.runtime)
+        self.assertIn('n_ctx=context_size', self.runtime)
+        self.assertEqual(self.config["llama_cpp_vlm_context"], 8192)
+        self.assertIn("cfg-llama-vlm-context", self.ui)
+
     def test_qwen_vl_uses_one_pinned_hf_revision_for_model_and_mmproj(self):
         self.assertIn('DEFAULT_VLM_GGUF_REVISION = "f982a07559d4a2f6c8744d840bf6fccab30eea96"', self.runtime)
         self.assertIn("revision: Optional[str] = None", self.runtime)
@@ -52,6 +61,12 @@ class LlamaCppMetalBackendTests(unittest.TestCase):
         self.assertIn('"inference_backend": inference_backend', self.runtime)
         self.assertIn('id="cfg-inference-backend"', self.ui)
         self.assertIn("inference_backend: document.getElementById('cfg-inference-backend').value", self.ui)
+
+    def test_ram_mode_is_a_saved_request_setting(self):
+        self.assertIn('"ram_mode": "ram-"', self.runtime)
+        self.assertIn('ram_mode: str = Form(str(setting("ram_mode", "ram-"))', self.runtime)
+        self.assertNotIn('RAM_MODE = os.getenv(', self.runtime)
+        self.assertIn("ram_mode: document.getElementById('cfg-ram-mode').value", self.ui)
 
     def test_metal_is_required_without_silent_cpu_fallback(self):
         self.assertIn("llama_supports_gpu_offload", self.runtime)

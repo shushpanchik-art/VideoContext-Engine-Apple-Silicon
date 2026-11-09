@@ -5,7 +5,7 @@ and automatic JSON + TXT output. Intended for the locally patched v3.19 project.
 
 Run from ~/Downloads/VideoContext-Engine after extracting the ZIP there.
 A timestamped backup is made before changing the engine and settings files.
-The UI is served at http://127.0.0.1:7555/ui; Swagger remains at /docs.
+The UI is served at http://127.0.0.1:7555/ui; the machine-readable API schema remains at /openapi.json.
 """
 from __future__ import annotations
 import ast
@@ -403,7 +403,7 @@ main{max-width:980px;margin:0 auto;padding:28px 18px 54px}h1{font-size:clamp(25p
 </head>
 <body>
 <main>
-  <div class="topline"><span class="pill">локальная обработка · Apple Silicon / MLX</span><a class="hint" href="/docs">API и настройки (Swagger) →</a></div>
+  <div class="topline"><span class="pill">локальная обработка · Apple Silicon / MLX</span></div>
   <h1>VideoContext Engine</h1>
   <p>Выберите видео, добавляйте следующие кнопкой ниже и запускайте пакетную обработку. Файлы анализируются последовательно, у каждого — собственный индикатор загрузки и состояния.</p>
   <section class="panel">
@@ -760,7 +760,7 @@ def main() -> int:
     print("The UI selects one or many files, offers Add video, processes sequentially, and shows a separate status bar per file.")
     print("Upload progress is measured; model inference is shown with an honest animated busy bar until the result returns.")
     print("Whisper word timestamps, scene-aligned speech, Qwen audio context, and JSON auto-save are enabled by default.")
-    print("Swagger stays available at /docs. Existing user settings are preserved; generate_json and word_timestamps are added if absent.")
+    print("The machine-readable API schema remains available at /openapi.json. Existing user settings are preserved; generate_json and word_timestamps are added if absent.")
     return 0
 
 

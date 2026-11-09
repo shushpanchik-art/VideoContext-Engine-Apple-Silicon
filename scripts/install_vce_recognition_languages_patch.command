@@ -29,8 +29,12 @@ fi
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vce-recognition-languages.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 BUNDLE_FILE="$TMP_DIR/vce-recognition-languages-patcher.tar.gz"
-echo "Скачиваю патчер из GitHub..."
-curl --fail --location --silent --show-error "$BUNDLE_URL" --output "$BUNDLE_FILE"
+if [[ -n "${VCE_LANGUAGE_BUNDLE:-}" ]]; then
+  BUNDLE_FILE="$VCE_LANGUAGE_BUNDLE"
+else
+  echo "Скачиваю патчер из GitHub..."
+  curl --fail --location --silent --show-error "$BUNDLE_URL" --output "$BUNDLE_FILE"
+fi
 tar -xzf "$BUNDLE_FILE" -C "$TMP_DIR" patch_vce_recognition_languages.py
 PATCH_FILE="$TMP_DIR/patch_vce_recognition_languages.py"
 

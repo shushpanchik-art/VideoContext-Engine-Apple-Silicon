@@ -780,7 +780,7 @@ def main():
     print(" - URL reports are saved to ~/Downloads; local-video reports stay beside the source")
     print(" - server startup removes only VCE temp media/partials older than 1 hour; model caches and reports are untouched")
     print(" - report links open the server's attachment response in a new tab")
-    print(" - URL downloading moves to asyncio.to_thread; /ui and /docs remain responsive")
+    print(" - URL downloading moves to asyncio.to_thread; the UI and API remain responsive")
     print(" - existing Whisper/VLM/OCR/report/stop behavior is retained")
     print("".join(diff[:500]))
 

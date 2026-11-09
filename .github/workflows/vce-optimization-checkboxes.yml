@@ -15,6 +15,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Compile patcher
-        run: python -m py_compile patches/patch_vce_optimization_checkboxes.py
+        run: python -m py_compile patches/archive/patch_vce_optimization_checkboxes.py
       - name: Run patcher unit tests
         run: python -m unittest tests.test_vce_optimization_checkboxes -v
