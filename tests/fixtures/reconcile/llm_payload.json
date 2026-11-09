@@ -1,0 +1,173 @@
+{
+  "executive_summary": "Демонстрация автоматизации проектирования: импорт XML-выгрузки, проверка коллизий в CADLib, отбор объектов по атрибутам и проверка требований СП 1.13.130.2020 с формированием перечня нарушений и экспортом отчёта.",
+  "topics": [
+    "автоматизация проектирования",
+    "импорт XML",
+    "проверка коллизий",
+    "нормативные требования",
+    "экспорт отчёта"
+  ],
+  "key_points": [
+    {
+      "scene_id": 2,
+      "time": "00:00:08",
+      "text": "XML-выгрузка из системы содержит объекты с атрибутами.",
+      "evidence": [
+        "speech",
+        "ocr"
+      ]
+    },
+    {
+      "scene_id": 3,
+      "time": "00:00:24",
+      "text": "Проверка коллизий выполняется в CADLib.",
+      "evidence": [
+        "speech",
+        "ocr"
+      ]
+    },
+    {
+      "scene_id": 3,
+      "time": "00:00:24",
+      "text": "Проверка коллизий выполняется в CADLib.",
+      "evidence": [
+        "speech",
+        "ocr"
+      ]
+    },
+    {
+      "scene_id": 4,
+      "time": "00:00:46",
+      "text": "Требования проверяются по СП 1.13.130.2020.",
+      "evidence": [
+        "speech",
+        "ocr"
+      ]
+    },
+    {
+      "scene_id": 5,
+      "time": "00:01:08",
+      "text": "Отбор объектов идёт по атрибутивным данным.",
+      "evidence": [
+        "speech",
+        "ocr"
+      ]
+    },
+    {
+      "scene_id": 6,
+      "time": "00:01:32",
+      "text": "Система автоматически формирует проектную документацию.",
+      "evidence": [
+        "speech"
+      ]
+    },
+    {
+      "scene_id": 7,
+      "time": "00:01:58",
+      "text": "Отчёт передаётся в BuildChat.",
+      "evidence": [
+        "speech",
+        "ocr"
+      ]
+    },
+    {
+      "scene_id": 99,
+      "time": "00:09:99",
+      "text": "Несуществующая сцена.",
+      "evidence": [
+        "speech"
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "name": "СП 1.13.130.2020",
+      "type": "standard",
+      "scene_ids": [
+        4
+      ]
+    },
+    {
+      "name": "CADLib",
+      "type": "software",
+      "scene_ids": [
+        3
+      ]
+    },
+    {
+      "name": "BuildChat",
+      "type": "software",
+      "scene_ids": [
+        7
+      ]
+    },
+    {
+      "name": "AutoCAD Plant 3D",
+      "type": "software",
+      "scene_ids": [
+        4
+      ]
+    }
+  ],
+  "scene_enrichment": [
+    {
+      "scene_id": 1,
+      "topic": "Вступление",
+      "improved_description": "Титульный экран презентации.",
+      "key_points": [
+        "Тема доклада"
+      ]
+    },
+    {
+      "scene_id": 2,
+      "topic": "Импорт XML",
+      "improved_description": "Загрузка XML-выгрузки с объектами.",
+      "key_points": [
+        "Импорт данных"
+      ]
+    },
+    {
+      "scene_id": 3,
+      "topic": "Проверка коллизий",
+      "improved_description": "Диалог проверки коллизий в CADLib.",
+      "key_points": [
+        "Коллизии"
+      ]
+    },
+    {
+      "scene_id": 4,
+      "topic": "Нормативные требования",
+      "improved_description": "Таблица требований СП.",
+      "key_points": [
+        "СП 1.13130.2020"
+      ]
+    },
+    {
+      "scene_id": 5,
+      "topic": "Отбор по атрибутам",
+      "improved_description": "Фильтры по атрибутивным данным.",
+      "key_points": [
+        "Атрибуты"
+      ]
+    },
+    {
+      "scene_id": 6,
+      "topic": "Замечания",
+      "improved_description": "Перечень нарушений.",
+      "key_points": [
+        "Нарушения"
+      ]
+    },
+    {
+      "scene_id": 7,
+      "topic": "Экспорт",
+      "improved_description": "Экспорт отчёта в BuildChat.",
+      "key_points": [
+        "Отчёт"
+      ]
+    }
+  ],
+  "uncertainties": [
+    "Точный перечень замечаний не показан полностью."
+  ]
+}
