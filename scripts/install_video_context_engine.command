@@ -235,15 +235,26 @@ fi
 echo "[4/7] Конфигурация"
 [[ -f "$PROJECT_DIR/videocontext_settings.json" ]] || cp "$PROJECT_DIR/config/videocontext_settings.apple_silicon.example.json" "$PROJECT_DIR/videocontext_settings.json"
 
-echo "[5/7] Языковой патч: dry-run и установка"
+echo "[5/8] Языковой патч: dry-run и установка"
 VCE_PROJECT_DIR="$PROJECT_DIR" bash "$PROJECT_DIR/scripts/install_vce_recognition_languages_patch.command"
 
-echo "[6/7] Smoke tests"
+echo "[6/8] Автоматическое применение Whisper MPS DTW fix и патча остановки"
+"$PROJECT_DIR/.venv/bin/python" "$PATCHER_PATH"
+"$PROJECT_DIR/.venv/bin/python" - <<'PY'
+import inspect
+import whisper.timing
+source = inspect.getsource(whisper.timing)
+if "x.cpu().double().numpy()" not in source:
+    raise SystemExit("Whisper MPS DTW fix was not applied; refusing to continue.")
+print("Whisper MPS DTW fix verified.")
+PY
+
+echo "[7/8] Smoke tests"
 "$PROJECT_DIR/.venv/bin/python" -m py_compile "$PROJECT_DIR/VideoContextEngine_v3.19.py"
 "$PROJECT_DIR/.venv/bin/python" -m unittest discover -s "$PROJECT_DIR/tests" -p "test_vce_recognition_languages_patch.py" -v
 chmod +x "$PROJECT_DIR/macos/install_video_context_mac.command"
 
-echo "[7/7] Сборка и установка VideoContext Engine.app"
+echo "[8/8] Сборка и установка VideoContext Engine.app"
 echo "Введите STOP в установщике приложения, затем нажмите Enter по завершении."
 VCE_PROJECT_DIR="$PROJECT_DIR" bash "$PROJECT_DIR/macos/install_video_context_mac.command"
 
