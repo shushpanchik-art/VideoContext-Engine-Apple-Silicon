@@ -336,8 +336,8 @@ def patch_ui(ui: str) -> str:
           entry.links.appendChild(a);
         }'''
     new_links = '''        const links = [];
-        if (data.txt_filename) links.push(['Скачать TXT', data.txt_filename, data.txt_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.txt_download_id) : '/api/v1/output/' + encodeURIComponent(data.txt_filename)]);
-        if (data.json_filename) links.push(['Скачать JSON', data.json_filename, data.json_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.json_download_id) : '/api/v1/output/' + encodeURIComponent(data.json_filename)]);
+        if (data.txt_filename && data.txt_download_id) links.push(['Скачать TXT', data.txt_filename, '/api/v1/output-file/' + encodeURIComponent(data.txt_download_id)]);
+        if (data.json_filename && data.json_download_id) links.push(['Скачать JSON', data.json_filename, '/api/v1/output-file/' + encodeURIComponent(data.json_download_id)]);
         for (const [label, filename, href] of links) {
           const a = document.createElement('a');
           a.textContent = label; a.href = href; a.download = filename;

@@ -22,13 +22,9 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
 
     private enum MainPage {
         case ui
-        case docs
 
         var urlString: String {
-            switch self {
-            case .ui: return "http://127.0.0.1:7555/ui"
-            case .docs: return "http://127.0.0.1:7555/docs"
-            }
+            "http://127.0.0.1:7555/ui"
         }
     }
 
@@ -292,10 +288,6 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         start.target = self
         menu.addItem(start)
 
-        let docs = NSMenuItem(title: "Открыть API / Swagger", action: #selector(openSwagger(_:)), keyEquivalent: "")
-        docs.target = self
-        menu.addItem(docs)
-
         menu.addItem(NSMenuItem.separator())
         let quitIcon = NSMenuItem(title: "Закрыть приложение и остановить сервер", action: #selector(quitStatusBar(_:)), keyEquivalent: "")
         quitIcon.target = self
@@ -325,14 +317,6 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func openSwagger(_ sender: Any? = nil) {
-        if serverAvailable() {
-            showMainWindow(page: .docs)
-        } else {
-            startServerAndOpenUI()
-        }
-    }
-
     @objc private func startServerAndOpenUI(_ sender: Any? = nil) {
         if serverAvailable() {
             setStatus("Сервер работает")
@@ -345,10 +329,10 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
 
         // Avoid starting a second engine if an older process owns the API port but /ui is broken.
-        if docsAvailable() {
+        if apiSchemaAvailable() {
             setStatus("API отвечает, /ui недоступен")
             showMainWindow(page: .ui)
-            showAlert("VideoContext Engine уже отвечает на /docs, но /ui недоступен. Проверь журнал ~/Library/Logs/VideoContext Engine/server.log; новый экземпляр не запускается, чтобы избежать конфликта порта.")
+            showAlert("VideoContext Engine уже отвечает на API, но /ui недоступен. Проверь журнал ~/Library/Logs/VideoContext Engine/server.log; новый экземпляр не запускается, чтобы избежать конфликта порта.")
             return
         }
 
@@ -479,10 +463,10 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func docsAvailable() -> Bool {
+    private func apiSchemaAvailable() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
-        process.arguments = ["--silent", "--fail", "--max-time", "1", MainPage.docs.urlString]
+        process.arguments = ["--silent", "--fail", "--max-time", "1", "http://127.0.0.1:7555/openapi.json"]
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         do {
@@ -497,7 +481,7 @@ final class VideoContextStatusBar: NSObject, NSApplicationDelegate {
     private func refreshServerStatus() {
         if serverAvailable() {
             setStatus("Сервер работает")
-        } else if docsAvailable() {
+        } else if apiSchemaAvailable() {
             setStatus("API работает, /ui недоступен")
         } else {
             setStatus("Сервер не запущен")

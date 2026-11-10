@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCH = ROOT / "patches" / "patch_vce_memory_safety.py"
+PATCH = ROOT / "patches" / "archive" / "patch_vce_memory_safety.py"
 
 
 def load_patch():

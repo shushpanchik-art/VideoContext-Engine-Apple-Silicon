@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PATCHER_PATH = ROOT / "patches" / "patch_vce_ffmpeg_ocr_workers_setting_v1.py"
+PATCHER_PATH = ROOT / "patches" / "archive" / "patch_vce_ffmpeg_ocr_workers_setting_v1.py"
 SPEC = importlib.util.spec_from_file_location("vce_ocr_workers_setting_v1", PATCHER_PATH)
 PATCH = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

@@ -27,7 +27,10 @@ class CurrentRuntimeStopPatchTests(unittest.TestCase):
         engine = ENGINE_PATH.read_text(encoding="utf-8")
         self.assertIn("scenes_raw = await asyncio.to_thread(", engine)
         self.assertIn("_vce_describe_scene_with_memory_fallback", engine)
-        self.assertEqual(self.patcher.patch_engine(engine), engine)
+        patched_once = self.patcher.patch_engine(engine)
+        patched_twice = self.patcher.patch_engine(patched_once)
+        self.assertEqual(patched_once, engine)
+        self.assertEqual(patched_twice, patched_once)
 
     def test_current_stop_ui_is_recognized_and_left_unchanged(self):
         ui = UI_PATH.read_text(encoding="utf-8")

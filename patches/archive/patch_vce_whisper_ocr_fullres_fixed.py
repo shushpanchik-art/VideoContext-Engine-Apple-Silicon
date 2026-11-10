@@ -76,6 +76,55 @@ def ensure_literal(source: str, old: str, new: str, label: str) -> str:
     raise ValueError(f"Could not find expected source setting: {label}")
 
 
+def analyze_form_parameter_exists(source: str, parameter_name: str) -> bool:
+    """Check the parsed analyze_video signature for a parameter whose default calls Form()."""
+    tree = ast.parse(source)
+    endpoint = next((node for node in ast.walk(tree)
+                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and node.name == "analyze_video"), None)
+    if endpoint is None:
+        return False
+    positional = endpoint.args.posonlyargs + endpoint.args.args
+    offset = len(positional) - len(endpoint.args.defaults)
+    for index, argument in enumerate(positional):
+        if argument.arg != parameter_name:
+            continue
+        default_index = index - offset
+        if default_index < 0:
+            return False
+        default = endpoint.args.defaults[default_index]
+        return isinstance(default, ast.Call) and isinstance(default.func, ast.Name) and default.func.id == "Form"
+    for argument, default in zip(endpoint.args.kwonlyargs, endpoint.args.kw_defaults):
+        if argument.arg == parameter_name:
+            return isinstance(default, ast.Call) and isinstance(default.func, ast.Name) and default.func.id == "Form"
+    return False
+
+
+def analyze_uses_whisper_acceleration(source: str) -> bool:
+    tree = ast.parse(source)
+    endpoint = next((node for node in ast.walk(tree)
+                     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and node.name == "analyze_video"), None)
+    if endpoint is None:
+        return False
+    calls = [node for node in ast.walk(endpoint) if isinstance(node, ast.Call)]
+    selects_device = any(
+        isinstance(call.func, ast.Name) and call.func.id == "resolve_whisper_device"
+        and call.args and isinstance(call.args[0], ast.Name)
+        and call.args[0].id == "whisper_acceleration"
+        for call in calls
+    )
+    passes_to_loader = any(
+        isinstance(call.func, ast.Name) and call.func.id == "load_whisper_model"
+        and any(keyword.arg == "acceleration_enabled"
+                and isinstance(keyword.value, ast.Name)
+                and keyword.value.id == "whisper_acceleration"
+                for keyword in call.keywords)
+        for call in calls
+    )
+    return selects_device and passes_to_loader
+
+
 def patch_builtin_defaults(source: str) -> str:
     replacements = [
         ('DEFAULT_VLM_MODEL_MLX = "mlx-community/Qwen3-VL-2B-Instruct-4bit"', 'DEFAULT_VLM_MODEL_MLX = "mlx-community/Qwen3-VL-8B-Instruct-4bit"', "MLX VLM model"),
@@ -177,7 +226,7 @@ def patch_full_resolution_ocr(source: str) -> str:
 def patch_api_whisper_toggle(source: str) -> str:
     # The supplied source calls load_whisper_model(...), rather than loading directly
     # via whisper.load_model() in the request handler. Wire the UI toggle to that helper.
-    if "whisper_acceleration: bool" not in source:
+    if not analyze_form_parameter_exists(source, "whisper_acceleration"):
         response_decl = re.search(r"(?m)^([ \t]*)response_format\s*:", source)
         if not response_decl:
             raise ValueError("Could not find response_format in the API Form parameters.")
@@ -313,10 +362,10 @@ def main() -> int:
         config_data.update(BEST_DEFAULTS)
 
         checks = {
-            "Swagger acceleration toggle": "whisper_acceleration: bool" in source,
+            "Whisper acceleration Form parameter": analyze_form_parameter_exists(source, "whisper_acceleration"),
             "MPS/CUDA/CPU device resolver": "def resolve_whisper_device(acceleration_enabled: bool = True)" in source,
             "Whisper device argument": "return whisper.load_model(model_name, device=device)" in source,
-            "request-time device selection": "whisper_device = resolve_whisper_device(whisper_acceleration)" in source,
+            "request-time acceleration selection": analyze_uses_whisper_acceleration(source),
             "cached-model device movement": "w_model = w_model.to(whisper_device)" in source,
             "full-size frame saved for OCR": '"original_image": original_pil_img' in source,
             "full-size image used for OCR": 'apple_vision_ocr(kf.get("original_image", kf["image"]))' in source,
@@ -352,10 +401,10 @@ def main() -> int:
     print("Patch applied successfully.")
     print(f"Engine backup:   {engine_backup.resolve()}")
     print(f"Settings backup: {config_backup.resolve()}")
-    print("Swagger: whisper_acceleration=true selects MPS/CUDA when available; false forces CPU.")
+    print("whisper_acceleration=true selects MPS/CUDA when available; false forces CPU.")
     print("Apple OCR gets original-resolution frames; VLM gets aspect-preserving 1280px frames.")
     print("Defaults: Qwen3-VL-8B 4-bit, Whisper large, 1280px VLM, 2 frames, max scene 10s, OCR enabled, ram-.")
-    print("Restart the server and reload /docs to display the new Swagger field.")
+    print("Restart the server to load changes; the local /ui settings and API request field remain available.")
     return 0
 
 

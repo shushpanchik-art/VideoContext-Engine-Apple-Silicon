@@ -49,7 +49,7 @@ button#stop:disabled { color:#4b4217 !important; }
 </head>
 <body>
 <main>
-  <div class="topline"><span class="pill">локальная обработка · Apple Silicon / MLX</span><a class="hint" href="/docs">API и настройки (Swagger) →</a></div>
+  <div class="topline"><span class="pill">локальная обработка · Apple Silicon / MLX</span></div>
   <h1>VideoContext Engine</h1>
   <p>Выберите видео, добавляйте следующие кнопкой ниже и запускайте пакетную обработку. Файлы анализируются последовательно, у каждого — собственный индикатор загрузки и состояния.</p>
   <details id="settings-disclosure" class="settings-disclosure">
@@ -66,16 +66,42 @@ button#stop:disabled { color:#4b4217 !important; }
         </select>
         <span class="hint">Qwen3.5 текстовая постобработка не отключается сценариями: она собирает итог из доступных транскрипта и OCR.</span>
       </label>
+      <label class="setting">Вычислительный backend VLM + Text LLM
+        <select id="cfg-inference-backend">
+          <option value="mlx_metal">MLX / Metal — baseline (по умолчанию)</option>
+          <option value="llama_cpp_metal">llama.cpp / Metal — GGUF эксперимент</option>
+        </select>
+        <span class="hint">Выбор применяется одновременно к VLM и Text LLM. Whisper остаётся на текущем runtime-профиле; смешение MLX и llama.cpp внутри одного запуска не допускается. Для llama.cpp нужна отдельная Metal-сборка.</span>
+      </label>
+      <label class="setting">Контекст llama.cpp VLM (токены)<input id="cfg-llama-vlm-context" type="number" min="4096" max="65536" step="4096" value="8192"><span class="hint">Увеличивайте, если длинный prompt с кадрами не помещается в контекст; большие значения требуют больше памяти.</span></label>
+      <label class="setting">Режим памяти
+        <select id="cfg-ram-mode"><option value="ram-">ram- · освобождать Whisper после этапа</option><option value="ram+">ram+ · сохранять модели в памяти</option></select>
+        <span class="hint">ram+ может ускорить повторное использование моделей, но занимает больше памяти.</span>
+      </label>
       <label class="setting">VLM-модель
         <select id="cfg-vlm-model"><option value="mlx-community/Qwen3-VL-8B-Instruct-4bit">Qwen3-VL-8B · качество</option><option value="mlx-community/Qwen3-VL-4B-Instruct-4bit">Qwen3-VL-4B · быстрее</option></select>
       </label>
       <label class="setting">Whisper-модель
         <select id="cfg-whisper-model"><option>large</option><option>medium</option><option>small</option><option>base</option><option>tiny</option></select>
       </label>
+      <label class="setting">Профиль выполнения
+        <select id="cfg-runtime-profile">
+          <option value="baseline_mps_sequential">Baseline — PyTorch Whisper/MPS → VLM → Text LLM последовательно</option>
+          <option value="mlx_parallel">MLX parallel — Whisper/CPU параллельно с VLM/Metal</option>
+        </select>
+        <span class="hint">По умолчанию используется baseline. В обоих профилях VLM Qwen3-VL и Text LLM Qwen3.5 остаются на MLX/Metal.</span>
+      </label>
       <label class="setting">Разрешение Qwen (px)<input id="cfg-vlm-resolution" type="number" min="128" max="2048" step="64" value="1280"></label>
       <label class="setting">Порог смены сцены<input id="cfg-scene-threshold" type="number" min="0.01" max="1" step="0.01" value="0.15"></label>
       <label class="setting">Мин. длительность сцены (с)<input id="cfg-min-scene-duration" type="number" min="0.5" max="60" step="0.5" value="1.5"></label>
       <label class="setting">Макс. длительность сцены (с)<input id="cfg-max-scene-duration" type="number" min="5" max="300" step="1" value="20"></label>
+      <label class="setting">Лимит конвертации FFmpeg (сек)<input id="cfg-media-conversion-timeout" type="number" min="60" max="7200" step="60" value="3600"><span class="hint">Если файл слишком большой для выбранного лимита, анализ завершится с сообщением об ошибке. Максимум — 2 часа.</span></label>
+      <label class="setting">Лимит проверки видео ffprobe (сек)<input id="cfg-ffprobe-timeout" type="number" min="5" max="300" step="5" value="45"></label>
+      <label class="setting">Лимит OCR через FFmpeg (сек)<input id="cfg-ffmpeg-ocr-timeout" type="number" min="60" max="7200" step="60" value="1800"></label>
+      <label class="setting">Лимит Tesseract на кадр (сек)<input id="cfg-tesseract-timeout" type="number" min="5" max="600" step="5" value="90"></label>
+      <label class="setting">Лимит проверки инструментов (сек)<input id="cfg-binary-probe-timeout" type="number" min="5" max="120" step="5" value="15"></label>
+      <label class="setting">Лимит проверки аудио (сек)<input id="cfg-audio-probe-timeout" type="number" min="5" max="300" step="5" value="20"></label>
+      <label class="setting">Лимит восстановления видео (сек)<input id="cfg-media-recovery-timeout" type="number" min="30" max="7200" step="30" value="240"></label>
       <label class="setting">Кадров на сцену<input id="cfg-keyframes" type="number" min="1" max="5" step="1" value="1"></label>
       <label class="setting">Токенов на сцену<input id="cfg-scene-tokens" type="number" min="16" max="1024" step="16" value="1024"></label>
       <label class="setting">Токенов на резюме<input id="cfg-summary-tokens" type="number" min="16" max="2048" step="16" value="2048"></label>
@@ -83,14 +109,13 @@ button#stop:disabled { color:#4b4217 !important; }
       <label class="setting">Текстовая LLM-модель
         <input id="cfg-text-llm-model" type="text" value="mlx-community/Qwen3.5-9B-MLX-4bit" readonly>
       </label>
-      <label class="setting">Макс. токенов текстовой LLM<input id="cfg-text-llm-max-tokens" type="number" min="1024" max="4096" step="256" value="4096"></label>
+      <label class="setting">Макс. токенов текстовой LLM<input id="cfg-text-llm-max-tokens" type="number" min="1024" max="8192" step="256" value="8192"></label>
     <div class="setting-checks">
-          <strong id="vce-optimization-title" style="grid-column:1 / -1">Экспериментальные оптимизации (все выключены по умолчанию)</strong>
+          <strong id="vce-optimization-title" style="grid-column:1 / -1">Дополнительные параметры анализа (выключены по умолчанию)</strong>
     <label><input id="cfg-stage-timing" type="checkbox"> Подробные тайминги этапов в JSON</label>
     <label><input id="cfg-adaptive-keyframes" type="checkbox"> Адаптивное число кадров на сцену (настройка количества кадров — верхний предел)</label>
     <label><input id="cfg-ocr-cache" type="checkbox"> Кэш OCR Apple Vision для повторяющихся кадров</label>
-    <label><input id="cfg-mlx-whisper" type="checkbox"> MLX Whisper вместо PyTorch Whisper (нужен пакет mlx-whisper и совместимая MLX-модель)</label>
-    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропускать короткие переходы</label>
+    <label><input id="cfg-fast-scene-detection" type="checkbox"> Быстрая детекция сцен — выборка 1 кадр/сек, возможно пропустить короткие переходы</label>
     <!-- VCE_OPTIMIZATION_PRIORITY_CHECKBOXES_V1 -->
   <div id="vce-server-controls" style="grid-column:1 / -1; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
     <button type="button" id="vce-stop-server">Остановить сервер VCE</button>
@@ -167,15 +192,25 @@ button#stop:disabled { color:#4b4217 !important; }
     enable_stage_timing: document.getElementById('cfg-stage-timing').checked,
     enable_adaptive_keyframes: document.getElementById('cfg-adaptive-keyframes').checked,
     enable_ocr_cache: document.getElementById('cfg-ocr-cache').checked,
-    enable_mlx_whisper: document.getElementById('cfg-mlx-whisper').checked,
+    runtime_profile: document.getElementById('cfg-runtime-profile').value,
+    ram_mode: document.getElementById('cfg-ram-mode').value,
     enable_fast_scene_detection: document.getElementById('cfg-fast-scene-detection').checked,
     analysis_mode: document.getElementById('cfg-analysis-mode').value,
+    inference_backend: document.getElementById('cfg-inference-backend').value,
+    llama_cpp_vlm_context: Number(document.getElementById('cfg-llama-vlm-context').value),
     vlm_model: document.getElementById('cfg-vlm-model').value,
     whisper_model: document.getElementById('cfg-whisper-model').value,
     vlm_resolution: Number(document.getElementById('cfg-vlm-resolution').value),
     scene_threshold: Number(document.getElementById('cfg-scene-threshold').value),
     min_scene_duration: Number(document.getElementById('cfg-min-scene-duration').value),
     max_scene_duration: Number(document.getElementById('cfg-max-scene-duration').value),
+    media_conversion_timeout: Number(document.getElementById('cfg-media-conversion-timeout').value),
+    ffprobe_timeout: Number(document.getElementById('cfg-ffprobe-timeout').value),
+    ffmpeg_ocr_timeout: Number(document.getElementById('cfg-ffmpeg-ocr-timeout').value),
+    tesseract_timeout: Number(document.getElementById('cfg-tesseract-timeout').value),
+    binary_probe_timeout: Number(document.getElementById('cfg-binary-probe-timeout').value),
+    audio_probe_timeout: Number(document.getElementById('cfg-audio-probe-timeout').value),
+    media_recovery_timeout: Number(document.getElementById('cfg-media-recovery-timeout').value),
     keyframes_per_scene: Number(document.getElementById('cfg-keyframes').value),
     vlm_max_tokens_scene: Number(document.getElementById('cfg-scene-tokens').value),
     vlm_max_tokens_summary: Number(document.getElementById('cfg-summary-tokens').value),
@@ -196,11 +231,17 @@ button#stop:disabled { color:#4b4217 !important; }
   function fillSettings(s) {
     const fields = {
       'cfg-analysis-mode':'analysis_mode',
+      'cfg-inference-backend':'inference_backend',
+      'cfg-llama-vlm-context':'llama_cpp_vlm_context','cfg-ram-mode':'ram_mode',
       'cfg-ffmpeg-ocr-interval':'ffmpeg_ocr_interval',
       'cfg-ffmpeg-ocr-workers':'ffmpeg_ocr_workers',
-      'cfg-vlm-model':'vlm_model','cfg-whisper-model':'whisper_model','cfg-vlm-resolution':'vlm_resolution',
+      'cfg-vlm-model':'vlm_model','cfg-whisper-model':'whisper_model','cfg-runtime-profile':'runtime_profile','cfg-vlm-resolution':'vlm_resolution',
       'cfg-scene-threshold':'scene_threshold','cfg-min-scene-duration':'min_scene_duration',
       'cfg-max-scene-duration':'max_scene_duration','cfg-keyframes':'keyframes_per_scene',
+      'cfg-media-conversion-timeout':'media_conversion_timeout',
+      'cfg-ffprobe-timeout':'ffprobe_timeout','cfg-ffmpeg-ocr-timeout':'ffmpeg_ocr_timeout',
+      'cfg-tesseract-timeout':'tesseract_timeout','cfg-binary-probe-timeout':'binary_probe_timeout',
+      'cfg-audio-probe-timeout':'audio_probe_timeout','cfg-media-recovery-timeout':'media_recovery_timeout',
       'cfg-scene-tokens':'vlm_max_tokens_scene','cfg-summary-tokens':'vlm_max_tokens_summary',
       'cfg-text-llm-model':'text_llm_model','cfg-text-llm-max-tokens':'text_llm_max_tokens'
     };
@@ -209,7 +250,6 @@ button#stop:disabled { color:#4b4217 !important; }
       'cfg-stage-timing':'enable_stage_timing',
       'cfg-adaptive-keyframes':'enable_adaptive_keyframes',
       'cfg-ocr-cache':'enable_ocr_cache',
-      'cfg-mlx-whisper':'enable_mlx_whisper',
       'cfg-fast-scene-detection':'enable_fast_scene_detection','cfg-ffmpeg-ocr':'enable_ffmpeg_ocr','cfg-apple-ocr':'enable_apple_ocr','cfg-whisper-acceleration':'whisper_acceleration',
       'cfg-audio-features':'enable_audio_features','cfg-summary':'generate_summary','cfg-txt':'generate_txt',
       'cfg-json':'generate_json','cfg-word-timestamps':'word_timestamps','cfg-text-llm-enabled':'text_llm_enabled'};
@@ -497,8 +537,8 @@ button#stop:disabled { color:#4b4217 !important; }
         catch (_) { setState(entry, 'error', 'Ошибка: сервер вернул невалидный JSON'); resolve(); return; }
         setState(entry, 'done', data.output_directory ? `Готово · TXT/JSON сохранены в ${data.output_directory}` : 'Готово · TXT и JSON сохранены');
         const links = [];
-        if (data.txt_filename) links.push(['Скачать TXT', data.txt_filename, data.txt_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.txt_download_id) : '/api/v1/output/' + encodeURIComponent(data.txt_filename)]);
-        if (data.json_filename) links.push(['Скачать JSON', data.json_filename, data.json_download_id ? '/api/v1/output-file/' + encodeURIComponent(data.json_download_id) : '/api/v1/output/' + encodeURIComponent(data.json_filename)]);
+        if (data.txt_filename && data.txt_download_id) links.push(['Скачать TXT', data.txt_filename, '/api/v1/output-file/' + encodeURIComponent(data.txt_download_id)]);
+        if (data.json_filename && data.json_download_id) links.push(['Скачать JSON', data.json_filename, '/api/v1/output-file/' + encodeURIComponent(data.json_download_id)]);
         for (const [label, filename, href] of links) {
           const a = document.createElement('a');
 // VCE_URL_REPORT_DOWNLOAD_TARGET_V1

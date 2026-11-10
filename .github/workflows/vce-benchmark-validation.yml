@@ -3,13 +3,17 @@ name: VCE unattended benchmark validation
 on:
   push:
     paths:
+      - "VideoContextEngine_v3.19.py"
       - "scripts/vce_unattended_benchmark.py"
-      - "tools/bench_text_llm_summary.py"
+      - "tools/bench/bench_text_llm_summary.py"
+      - "tests/test_vce_text_llm_benchmark_provenance.py"
       - ".github/workflows/vce-benchmark-validation.yml"
   pull_request:
     paths:
+      - "VideoContextEngine_v3.19.py"
       - "scripts/vce_unattended_benchmark.py"
-      - "tools/bench_text_llm_summary.py"
+      - "tools/bench/bench_text_llm_summary.py"
+      - "tests/test_vce_text_llm_benchmark_provenance.py"
       - ".github/workflows/vce-benchmark-validation.yml"
 
 jobs:
@@ -23,9 +27,11 @@ jobs:
       - name: Compile benchmark runner
         run: |
           python -m py_compile scripts/vce_unattended_benchmark.py
-          python -m py_compile tools/bench_text_llm_summary.py
+          python -m py_compile tools/bench/bench_text_llm_summary.py
       - name: Check Text LLM benchmark CLI
-        run: python tools/bench_text_llm_summary.py --help
+        run: python tools/bench/bench_text_llm_summary.py --help
+      - name: Test benchmark source instrumentation without model access
+        run: python -m unittest tests.test_vce_text_llm_benchmark_provenance -v
       - name: Check FFmpeg PATH repair shell syntax
         run: bash -n scripts/repair_vce_ffmpeg_path.command
       - name: Check compact prompts fit the API limits and do not mutate settings

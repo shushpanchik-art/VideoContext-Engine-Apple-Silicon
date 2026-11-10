@@ -1,0 +1,4 @@
+# Qwen3VLChatHandler is not present in every llama-cpp-python wheel.
+# This maintained fork exposes the Qwen3-VL Python chat handler.
+# Build with: CMAKE_ARGS="-DGGML_METAL=on" FORCE_CMAKE=1 pip install --force-reinstall --no-cache-dir -r requirements-llama-cpp-metal.txt
+llama-cpp-python @ git+https://github.com/JamePeng/llama-cpp-python.git@1dd04befbaf1277853eb188cc4513d6089a931dd

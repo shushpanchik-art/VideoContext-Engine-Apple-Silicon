@@ -1,11 +1,25 @@
 {
   "vlm_model": "mlx-community/Qwen3-VL-8B-Instruct-4bit",
+  "inference_backend": "mlx_metal",
+  "llama_cpp_vlm_model": "Qwen3VL-8B-Instruct-Q4_K_M.gguf",
+  "llama_cpp_vlm_mmproj": "mmproj-Qwen3VL-8B-Instruct-F16.gguf",
+  "llama_cpp_vlm_context": 8192,
+  "llama_cpp_text_llm_model": "qwen3.5-9b-Q4_K_M.gguf",
+  "llama_cpp_text_context": 32768,
   "whisper_model": "large",
+  "runtime_profile": "baseline_mps_sequential",
   "response_format": "json",
-  "vlm_resolution": 768,
+  "vlm_resolution": 1280,
   "scene_threshold": 0.15,
   "min_scene_duration": 1.5,
   "max_scene_duration": 20,
+  "media_conversion_timeout": 3600,
+  "ffprobe_timeout": 45,
+  "ffmpeg_ocr_timeout": 1800,
+  "tesseract_timeout": 90,
+  "binary_probe_timeout": 15,
+  "audio_probe_timeout": 20,
+  "media_recovery_timeout": 240,
   "keyframes_per_scene": 1,
   "vlm_max_tokens_scene": 1024,
   "vlm_max_tokens_summary": 2048,
@@ -34,5 +48,9 @@
   "recognition_languages": [
     "ru",
     "en"
-  ]
+  ],
+  "enable_ocr_cache": false,
+  "text_llm_enabled": true,
+  "text_llm_model": "mlx-community/Qwen3.5-9B-MLX-4bit",
+  "text_llm_max_tokens": 8192
 }

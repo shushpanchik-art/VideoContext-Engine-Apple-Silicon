@@ -66,7 +66,7 @@
     "model_weights_included": false,
     "model_weights_download": "Downloaded to user cache at first analysis",
     "automatic_recognition_language_patch": true,
-    "default_vlm_resolution": 768
+    "default_vlm_resolution": 1280
   },
   "retained_benchmark_data": "Two anonymized aggregate timing/quality metrics files and an anonymized VCE parameter-tuning summary only. The retained metric manifests use video_identity=redacted_local_sample, video_sha256=null and raw_video_and_vce_scene_payload_uploaded=false.",
   "publication_contract": {

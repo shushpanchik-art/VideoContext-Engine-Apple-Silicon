@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-PATCH_PATH = Path(__file__).resolve().parents[1] / "patches" / "patch_vce_optimization_checkboxes.py"
+PATCH_PATH = Path(__file__).resolve().parents[1] / "patches" / "archive" / "patch_vce_optimization_checkboxes.py"
 spec = importlib.util.spec_from_file_location("vce_priority_patch", PATCH_PATH)
 patch = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(patch)

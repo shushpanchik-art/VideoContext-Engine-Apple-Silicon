@@ -1,4 +1,5 @@
-mlx-vlm
+mlx==0.32.4
+mlx-vlm==0.7.12
 torchvision
 ocrmac
 certifi

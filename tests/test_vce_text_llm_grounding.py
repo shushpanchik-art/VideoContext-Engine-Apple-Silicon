@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "tools" / "evaluate_text_llm_grounding.py"
+MODULE_PATH = ROOT / "tools" / "eval" / "evaluate_text_llm_grounding.py"
 SPEC = importlib.util.spec_from_file_location("vce_text_llm_grounding", MODULE_PATH)
 grounding = importlib.util.module_from_spec(SPEC)
 assert SPEC and SPEC.loader

@@ -12,7 +12,7 @@ from typing import Any
 
 DEFAULT_SETTINGS = Path.home() / "VideoContext-Engine/videocontext_settings.json"
 DEFAULT_OUTPUT = Path.home() / "Downloads/VCE_watchdog_runs"
-EVIDENCE_MARKERS = ("[VCE runtime]", "[VCE MLX]", "[VCE MLX TRACE]", "[VCE Whisper]", "Device(cpu", "Device(gpu", "mlx-whisper", "metal_smoke_test", "Metal", "MPSGraph", "CoreML", "tesseract", "ffmpeg", "Qwen", "Traceback", "KeyError", "Exception", "ERROR", "generation_stream")
+EVIDENCE_MARKERS = ("[VCE runtime]", "[VCE MLX]", "[VCE MLX TRACE]", "[VCE Whisper]", "[llama.cpp/Metal", "ggml_metal", "offloaded", "mtmd_get_video_config", "Device(cpu", "Device(gpu", "mlx-whisper", "metal_smoke_test", "Metal", "MPSGraph", "CoreML", "tesseract", "ffmpeg", "Qwen", "Traceback", "KeyError", "Exception", "ERROR", "generation_stream")
 
 
 def now() -> str:
@@ -183,6 +183,37 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
                     line_text = raw_line
                 log_parts.append(line_text)
     app_text = "\n".join(log_parts)
+    logged_runtime = {}
+    runtime_marker = "[VCE runtime] "
+    for line_text in app_text.splitlines():
+        marker_at = line_text.find(runtime_marker)
+        if marker_at < 0:
+            continue
+        try:
+            payload = json.loads(line_text[marker_at + len(runtime_marker):])
+        except (TypeError, ValueError):
+            continue
+        stage = payload.get("stage") if isinstance(payload, dict) else None
+        if stage in {"vlm", "text_llm", "whisper"}:
+            logged_runtime[stage] = payload
+    vlm_runtime = logged_runtime.get("vlm", vlm_runtime)
+    llm_runtime = logged_runtime.get("text_llm", llm_runtime)
+    vlm_device, llm_device = str(vlm_runtime.get("device", "unknown")), str(llm_runtime.get("device", "unknown"))
+    vlm_configured_device = str(vlm_runtime.get("configured_device", vlm_device))
+    vlm_default_device_observed = str(vlm_runtime.get("default_device_observed", "not_recorded"))
+    vlm_device_source = str(vlm_runtime.get("device_source", "legacy_or_unspecified"))
+    request_settings = load_json(observed_dir / "request_settings.json") if observed_dir else {}
+    request_settings = request_settings if isinstance(request_settings, dict) else {}
+    effective_fields = request_settings.get("effective_fields", {})
+    effective_fields = effective_fields if isinstance(effective_fields, dict) else {}
+    run_metadata = load_json(observed_dir / "run_metadata.json") if observed_dir else {}
+    run_metadata = run_metadata if isinstance(run_metadata, dict) else {}
+    inference_backend = str(
+        effective_fields.get("inference_backend")
+        or request_settings.get("inference_backend")
+        or run_metadata.get("inference_backend")
+        or "unknown"
+    )
     trace_snapshots = []
     for line_text in app_text.splitlines():
         marker_pos = line_text.find("[VCE MLX TRACE] ")
@@ -241,10 +272,39 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
                 pass
     power_text = "\n".join(str(x.get("stdout", "")) + "\n" + str(x.get("stderr", "")) for x in power_records)
     gpu_stream_setup = bool(re.search(r"Applied GPU-aware|generation_stream.*Device\(gpu", app_text, re.I))
-    mlx_reported = bool(vlm_runtime.get("backend") == "MLX" or llm_runtime.get("backend") == "MLX" or "mlx-whisper" in app_text or "[VCE runtime]" in app_text or "[VCE MLX TRACE]" in app_text)
-    metal_reported = bool(vlm_runtime.get("accelerator") == "Metal" or llm_runtime.get("accelerator") == "Metal" or vlm_runtime.get("metal_smoke_test") == "passed" or re.search(r"accelerator\s*[=:]\s*Metal|metal_smoke_test.{0,40}passed", app_text, re.I))
+    # A generic "[VCE runtime]" prefix is emitted by both MLX and llama.cpp; it is not MLX proof.
+    mlx_reported = bool(
+        inference_backend == "mlx_metal"
+        or vlm_runtime.get("backend") == "MLX"
+        or llm_runtime.get("backend") == "MLX"
+        or "mlx-whisper" in app_text
+        or "[VCE MLX TRACE]" in app_text
+        or "[VCE MLX]" in app_text
+    )
+    llama_reported = bool(
+        inference_backend == "llama_cpp_metal"
+        or "llama.cpp/Metal" in app_text
+        or "loaded MTL backend" in app_text
+        or "ggml_metal_device_init" in app_text
+    )
+    mtmd_missing_symbol = "mtmd_get_video_config" in app_text
+    native_abort = (
+        "Unexpected empty grammar stack" in app_text
+        or "libc++abi: terminating" in app_text
+    )
+    llama_offload_lines = [
+        line.strip() for line in app_text.splitlines()
+        if re.search(r"offloaded.*(?:GPU|Metal)|(?:GPU|Metal).*offload", line, re.I)
+    ]
+    llama_offload_reported = bool(llama_offload_lines)
+    metal_reported = bool(
+        vlm_runtime.get("accelerator") == "Metal"
+        or llm_runtime.get("accelerator") == "Metal"
+        or vlm_runtime.get("metal_smoke_test") == "passed"
+        or re.search(r"accelerator\s*[=:]\s*Metal|metal_smoke_test.{0,40}passed|loaded MTL backend|ggml_metal_device_init", app_text, re.I)
+    )
     gpu_power_label = bool(re.search(r"GPU Power|GPU active residency|GPU HW active|GPU frequency|GPU active", power_text, re.I))
-    mapped = bool(re.search(r"mlx|libmetal|metal\.framework|mpsgraph|coreml", maps, re.I))
+    mapped = bool(re.search(r"mlx|libmetal|metal\.framework|mpsgraph|coreml|libmtmd|libggml|libllama", maps, re.I))
     if "cpu" in vlm_device.lower() and "gpu" in llm_device.lower():
         status = "VLM_CPU_REPORTED_TEXT_LLM_GPU_REPORTED"
     elif "cpu" in vlm_device.lower():
@@ -261,7 +321,22 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         and vlm_scene_gpu_default_device_snapshot_count > 0
         and vlm_scene_cpu_default_device_snapshot_count == 0
     )
-    if scene_gpu_trace_consistent and metal_reported and power_records and gpu_power_label:
+    if inference_backend == "llama_cpp_metal":
+        if native_abort:
+            overall = "LLAMA_CPP_METAL_NATIVE_ABORT_GRAMMAR_OR_TRANSPORT"
+        elif mtmd_missing_symbol:
+            overall = "LLAMA_CPP_METAL_MTMD_ABI_SYMBOL_MISSING"
+        elif status == "VLM_GPU_REPORTED" and metal_reported and llama_offload_reported and gpu_power_label:
+            overall = "LLAMA_CPP_METAL_GPU_OFFLOAD_AND_SYSTEM_GPU_ACTIVITY_CORROBORATED_EXECUTION_NOT_PER_OPERATOR_PROVEN"
+        elif llama_reported and status == "VLM_GPU_REPORTED":
+            overall = "LLAMA_CPP_METAL_VLM_GPU_DEVICE_REPORTED_EXECUTION_NOT_INDEPENDENTLY_PROVEN"
+        elif llama_reported and metal_reported:
+            overall = "LLAMA_CPP_METAL_BACKEND_LOADED_MODEL_OR_INFERENCE_NOT_CONFIRMED"
+        elif llama_reported:
+            overall = "LLAMA_CPP_BACKEND_REPORTED_METAL_UNCONFIRMED"
+        else:
+            overall = "LLAMA_CPP_BACKEND_RUNTIME_EVIDENCE_MISSING"
+    elif scene_gpu_trace_consistent and metal_reported and power_records and gpu_power_label:
         # powermetrics is system-wide, not attributable to this PID, but many
         # successful high-residency samples during the end-to-end run add
         # independent system-GPU corroboration to the scene-call GPU snapshots.
@@ -286,7 +361,12 @@ def runtime_verdict(observed_dir: Path | None, console_path: Path, mappings_path
         overall = "MLX_REPORTED_METAL_UNCONFIRMED"
     else:
         overall = "NO_DIRECT_MLX_RUNTIME_EVIDENCE"
-    return {"overall_verdict": overall, "vlm_device": vlm_device, "text_llm_device": llm_device,
+    return {"overall_verdict": overall, "inference_backend": inference_backend,
+            "native_abort_detected": native_abort,
+            "llama_cpp_reported": llama_reported,
+            "mtmd_missing_symbol": mtmd_missing_symbol, "llama_offload_reported": llama_offload_reported,
+            "llama_offload_evidence_lines": llama_offload_lines,
+            "vlm_device": vlm_device, "text_llm_device": llm_device,
             "vlm_configured_device": vlm_configured_device,
             "vlm_device_source": vlm_device_source,
             "vlm_default_device_observed": vlm_default_device_observed,
@@ -325,6 +405,8 @@ def main() -> int:
     ap.add_argument("--api-url", default="http://127.0.0.1:7555")
     ap.add_argument("--out-root", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--interval", type=float, default=2.0)
+    ap.add_argument("--inference-backend", choices=("mlx_metal", "llama_cpp_metal"), required=True)
+    ap.add_argument("--observer-profile", choices=("current", "nsrspec"), default="current")
     ap.add_argument("--powermetrics", action="store_true")
     ap.add_argument("--sample-stacks", action="store_true")
     ap.add_argument("--vmmap", action="store_true")
@@ -352,14 +434,19 @@ def main() -> int:
     evidence_path, ps_debug_path = out / "runtime_evidence.jsonl", out / "ps_parser_diagnostics.jsonl"
     config = {"started_at": now(), "platform": platform.platform(), "machine": platform.machine(),
               "python": sys.version, "video": str(video), "settings": str(settings), "runner": str(runner),
-              "api_url": args.api_url, "interval_seconds": args.interval, "powermetrics_requested": args.powermetrics,
+              "api_url": args.api_url, "inference_backend": args.inference_backend,
+              "runtime_profile": "baseline_mps_sequential" if args.observer_profile == "nsrspec" else None,
+              "observer_profile": args.observer_profile,
+              "interval_seconds": args.interval, "powermetrics_requested": args.powermetrics,
               "sample_stacks": args.sample_stacks, "vmmap": args.vmmap,
-              "note": "No video/response upload. Settings are read-only."}
+              "note": "The observer may apply selected backend/profile settings through the local UI API; the launcher restores the original settings snapshot after the run."}
     (out / "watchdog_config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     port_match = re.search(r":(\d+)(?:/|$)", args.api_url.rstrip("/"))
     port = int(port_match.group(1)) if port_match else 7555
     cmd = [sys.executable, str(runner), "--video", str(video), "--settings", str(settings),
-           "--api-url", args.api_url, "--out-root", str(out / "observed_runs"), "--interval", str(max(0.5, args.interval))]
+           "--api-url", args.api_url, "--out-root", str(out / "observed_runs"),
+           "--interval", str(max(0.5, args.interval)),
+           "--inference-backend", args.inference_backend, "--profile", args.observer_profile]
     pow_cmd, pow_mode = powermetrics_command() if args.powermetrics else (None, "disabled")
     append_jsonl(power_path, {"at": now(), "status": pow_mode, "command": pow_cmd})
     print("VCE Runtime Watchdog v2")
