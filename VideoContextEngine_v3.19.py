@@ -812,24 +812,15 @@ OUTPUT_FILE_REGISTRY: Dict[str, tuple[Path, str]] = {}
 # --- SYSTEM PROMPTS ---
 
 BASE_VISUAL_PROMPT = """
-You are an assistant that analyzes one or several frames from the SAME video scene.
-
-You MUST answer with VALID JSON using EXACTLY this structure:
-{
-  "description": "short and factual description of what happens in the scene (gestures, posture, general situation)",
-  "tags": {
-    "people_count": <approximate number of visible people>,
-    "place_type": "studio | tv_set | classroom | office | home | outdoor | nature | stage | other",
-    "main_action": "short description of the main action",
-    "emotional_tone": "calm | neutral | tense | conflictual | joyful | sad | enthusiastic | serious | other",
-    "movement_level": "low | medium | high"
-  }
-}
-
-Rules:
-- Do NOT add any text outside of this JSON.
-- Do NOT change field names.
-- Use the language of the user instructions when present; otherwise use the predominant language in the scene context.
+Describe only what the frames of this scene visibly show. Return one JSON object with:
+- "description": brief factual description with relevant readable text.
+- "tags": an object with "people_count" (integer), "place_type", "main_action",
+  "emotional_tone", and "movement_level" ("low", "medium", or "high").
+Copy relevant labels, numbers, units and signs exactly. Keep each value with its own label.
+Check OCR against the frame. Omit uncertain text and details. Attribute speech to the speaker.
+Count people in the scene, excluding avatars and portraits shown in an interface.
+Use "other" if the location cannot be determined.
+Match the requested language, or the predominant scene language.
 """.strip()
 
 BASE_SUMMARY_PROMPT = """

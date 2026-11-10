@@ -40,7 +40,7 @@ REGRESSION_TESTS_PASSED=0
 AB_STARTED=0
 MISSING_FILES=""
 FILES="
-VideoContextEngine_v3.19.py a2e5c6e6d1c2c5616897cf1a98b8020d5dfbe178
+VideoContextEngine_v3.19.py de62109a2c11340a4ae24b3f95de72861fbe8bfc
 tools/bench/vce_observed_llama_cpp_run.py 9d17f43117ac8b857f08b28a0c206c8f4b663593
 tools/bench/vce_run_nsrspec_ab.command 56bc59d653803b9508b778c4dc5084fe35e201b1
 tools/bench/vce_runtime_watchdog.py 6d60468a5ba2251d0c639fb917018234d5a0bf89
