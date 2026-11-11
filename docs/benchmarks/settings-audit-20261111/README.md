@@ -1,6 +1,6 @@
 # Settings audit: completed stage evidence (interim)
 
-Evidence snapshot: 2026-11-11 00:01:25 UTC. This is not a completed settings audit or a new default preset. Only sanitized measurements and conclusions are published. Raw media, frames, transcripts, OCR text, generated reports, local paths and customer identifiers remain private.
+Baseline snapshot: 2026-11-11 00:01:25 UTC. Context-contract and pending-queue information was updated later, before publication. This is not a completed settings audit or a new default preset. Only sanitized measurements and conclusions are published. Raw media, frames, transcripts, OCR text, generated reports, local paths and customer identifiers remain private.
 
 ## Provenance and scope
 
@@ -46,7 +46,7 @@ No model was loaded and no inference quality gain or failure causality was measu
 
 ## Four-video baseline: interim
 
-At the cutoff, 11 of 12 planned baseline runs had completed: nine retained client responses/execution records and two server-log-only completions. Video D repeat 3 was still running. The initial 54-case short-input Text replay had no result at this snapshot. Before publication, the queue was expanded to 66 cases (54 short-input plus 12 long-context), still waiting for the final long baseline repeat. A separate fixed-frame VLM package was being prepared but had not started. None is counted as completed evidence.
+At the cutoff, 11 of 12 planned baseline runs had completed: nine retained client responses/execution records and two server-log-only completions. Video D repeat 3 was still running. The initial 54-case short-input Text replay had no result at this snapshot. Before publication, the queue was expanded to 66 cases (54 short-input plus 12 long-context), still waiting for the final long baseline repeat. The separate fixed-frame VLM watcher is waiting for the Text queue: 54 calls planned, zero begun and zero results at this publication update. None is counted as completed evidence.
 
 - Video A: three retained responses, 11 scenes each; median client wall time 296.414 s.
 - Video B: three retained responses, 7 scenes each; median client wall time 210.327 s.
@@ -55,7 +55,7 @@ At the cutoff, 11 of 12 planned baseline runs had completed: nine retained clien
 
 Video C repeat 3's 178.71 s is server request time, not client wall time. Video D repeat 1's 1769.85 s is likewise server request time. Missing client responses cannot be reconstructed from successful status lines, and those runs are not silently repeated or counted as retained-response quality evidence.
 
-Parsing success does not establish factual accuracy. Review of the three short-input repetitions found recurring UI-state/outcome and name-attribution errors; repeatability alone does not establish truth. Baseline runs were chronological with OCR cache enabled. In the third short-input repeats, Apple OCR fell to 0.073/0.039 s versus seconds earlier. Timings therefore include cache and load/runtime differences; the medians are neither controlled cold-to-cold nor warm-to-warm A/B comparisons. Video A client wall range was 258.650–319.811 s; Video B was 196.397–247.539 s.
+Parsing success does not establish factual accuracy. Review of three retained repetitions each for Videos A and B found recurring UI-state/outcome and name-attribution errors; repeatability alone does not establish truth. Baseline runs were chronological with OCR cache enabled. In the third short-input repeats, Apple OCR fell to 0.073/0.039 s versus seconds earlier. Timings therefore include cache and load/runtime differences; the medians are neither controlled cold-to-cold nor warm-to-warm A/B comparisons. Video A client wall range was 258.650–319.811 s; Video B was 196.397–247.539 s.
 
 ## Publication validation and next stage
 

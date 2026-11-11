@@ -1,7 +1,6 @@
 {
   "schema_version": 1,
   "status": "interim_completed_stages",
-  "evidence_cutoff_utc": "2026-11-11 00:01:25 UTC",
   "provenance": {
     "distribution_marker_commit": "823eba3b05622baa253138144e71aaa24d6a7f6f",
     "installed_runtime_sha256": "8aa39daa7815ccdd9e6656cb05aa1fe0d5a642fe101b56787a3c2c3d3a52eac7",
@@ -359,5 +358,7 @@
         "server_processing_seconds": 178.51
       }
     ]
-  }
+  },
+  "baseline_snapshot_utc": "2026-11-11 00:01:25 UTC",
+  "snapshot_scope_note": "Timestamp applies to baseline evidence; context contracts and pending queues were updated later before publication."
 }
