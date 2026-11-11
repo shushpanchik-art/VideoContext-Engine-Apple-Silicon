@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "status": "baseline_execution_complete_quality_not_accepted",
+  "runtime_sha256": "8aa39daa7815ccdd9e6656cb05aa1fe0d5a642fe101b56787a3c2c3d3a52eac7",
+  "completion_utc": "2026-11-11T00:41:12.488083+00:00",
+  "completed_runs": 12,
+  "planned_runs": 12,
+  "retained_responses": 10,
+  "log_only_completions": 2,
+  "retained_text_status_counts": {
+    "success": 9,
+    "failed": 1
+  },
+  "log_only_text_success_count": 2,
+  "runs": [
+    {
+      "video": "Video D",
+      "repeat": 1,
+      "evidence": "log_only",
+      "client_wall_seconds": null,
+      "scene_count": 90,
+      "text_llm_status": "completed_log_only",
+      "server_request_seconds": 1769.85,
+      "server_processing_seconds": 1769.6
+    },
+    {
+      "video": "Video D",
+      "repeat": 2,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 2544.606,
+      "scene_count": 90,
+      "text_llm_status": "failed"
+    },
+    {
+      "video": "Video A",
+      "repeat": 1,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 258.65,
+      "scene_count": 11,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video A",
+      "repeat": 2,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 319.811,
+      "scene_count": 11,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video A",
+      "repeat": 3,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 296.414,
+      "scene_count": 11,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video B",
+      "repeat": 1,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 196.397,
+      "scene_count": 7,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video B",
+      "repeat": 2,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 247.539,
+      "scene_count": 7,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video B",
+      "repeat": 3,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 210.327,
+      "scene_count": 7,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video C",
+      "repeat": 1,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 194.799,
+      "scene_count": 9,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video C",
+      "repeat": 2,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 225.669,
+      "scene_count": 9,
+      "text_llm_status": "success"
+    },
+    {
+      "video": "Video C",
+      "repeat": 3,
+      "evidence": "log_only",
+      "client_wall_seconds": null,
+      "scene_count": 9,
+      "text_llm_status": "success",
+      "server_request_seconds": 178.71,
+      "server_processing_seconds": 178.51
+    },
+    {
+      "video": "Video D",
+      "repeat": 3,
+      "evidence": "response_and_execution",
+      "client_wall_seconds": 2447.354925,
+      "server_processing_seconds": 2446.702,
+      "server_request_seconds": 2446.966,
+      "scene_count": 90,
+      "text_llm_status": "success_after_repair",
+      "text_llm_seconds": 416.77,
+      "apple_ocr_seconds": 0.432,
+      "whisper_device": "mps",
+      "vlm_device": "Metal",
+      "text_device": "Metal"
+    }
+  ],
+  "long_repeat_3_quality": {
+    "scene_enrichments": 17,
+    "total_scenes": 90,
+    "top_level_key_points": 18,
+    "last_key_point_seconds": 435,
+    "duration_seconds": 1434.93,
+    "context_characters": 56176,
+    "omitted_context_scenes": 10,
+    "quality_pass": false,
+    "entity_links_prove_full_model_coverage": false
+  },
+  "next_stage": "Text and fixed-frame VLM comparisons remain in progress and are not included."
+}
