@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "status": "interim_completed_stages",
+  "evidence_cutoff_utc": "2026-11-11 00:01:25 UTC",
+  "provenance": {
+    "distribution_marker_commit": "823eba3b05622baa253138144e71aaa24d6a7f6f",
+    "installed_runtime_sha256": "8aa39daa7815ccdd9e6656cb05aa1fe0d5a642fe101b56787a3c2c3d3a52eac7",
+    "note": "Installed distribution includes local installer modifications; marker is not an exact runtime Git HEAD."
+  },
+  "scene_detector": [
+    {
+      "video": "Video A",
+      "threshold": 0.15,
+      "repeats": 3,
+      "scene_counts": [
+        12,
+        12,
+        12
+      ],
+      "detector_seconds": [
+        3.406,
+        3.395,
+        3.389
+      ],
+      "median_detector_seconds": 3.395,
+      "scene_lists_identical": false
+    },
+    {
+      "video": "Video A",
+      "threshold": 0.172,
+      "repeats": 3,
+      "scene_counts": [
+        11,
+        11,
+        11
+      ],
+      "detector_seconds": [
+        3.403,
+        3.407,
+        3.408
+      ],
+      "median_detector_seconds": 3.407,
+      "scene_lists_identical": false
+    },
+    {
+      "video": "Video B",
+      "threshold": 0.15,
+      "repeats": 3,
+      "scene_counts": [
+        7,
+        7,
+        7
+      ],
+      "detector_seconds": [
+        1.828,
+        1.827,
+        1.826
+      ],
+      "median_detector_seconds": 1.827,
+      "scene_lists_identical": false
+    },
+    {
+      "video": "Video B",
+      "threshold": 0.172,
+      "repeats": 3,
+      "scene_counts": [
+        7,
+        7,
+        7
+      ],
+      "detector_seconds": [
+        1.83,
+        1.837,
+        1.836
+      ],
+      "median_detector_seconds": 1.836,
+      "scene_lists_identical": false
+    },
+    {
+      "video": "Video C",
+      "threshold": 0.15,
+      "repeats": 3,
+      "scene_counts": [
+        9,
+        9,
+        9
+      ],
+      "detector_seconds": [
+        2.518,
+        2.509,
+        2.527
+      ],
+      "median_detector_seconds": 2.518,
+      "scene_lists_identical": false
+    },
+    {
+      "video": "Video C",
+      "threshold": 0.172,
+      "repeats": 3,
+      "scene_counts": [
+        9,
+        9,
+        9
+      ],
+      "detector_seconds": [
+        2.509,
+        2.513,
+        2.514
+      ],
+      "median_detector_seconds": 2.513,
+      "scene_lists_identical": false
+    },
+    {
+      "video": "Video D",
+      "threshold": 0.15,
+      "repeats": 3,
+      "scene_counts": [
+        90,
+        90,
+        90
+      ],
+      "detector_seconds": [
+        39.393,
+        39.238,
+        39.331
+      ],
+      "median_detector_seconds": 39.331,
+      "scene_lists_identical": false
+    },
+    {
+      "video": "Video D",
+      "threshold": 0.172,
+      "repeats": 3,
+      "scene_counts": [
+        90,
+        90,
+        90
+      ],
+      "detector_seconds": [
+        39.237,
+        39.243,
+        39.208
+      ],
+      "median_detector_seconds": 39.237,
+      "scene_lists_identical": false
+    }
+  ],
+  "ocr": {
+    "calls": 75,
+    "frames": 5,
+    "videos": 4,
+    "repeats_per_condition": 3,
+    "fast_unsupported_language_failures": 15,
+    "accurate_confidence_01_vs_03_identical": true,
+    "frame_timing_seconds": [
+      {
+        "frame": 1,
+        "apple_median_seconds": 0.2802,
+        "tesseract_median_seconds": 0.7868,
+        "apple_repeat_text_identical": true,
+        "tesseract_repeat_text_identical": true
+      },
+      {
+        "frame": 2,
+        "apple_median_seconds": 0.2771,
+        "tesseract_median_seconds": 0.8082,
+        "apple_repeat_text_identical": true,
+        "tesseract_repeat_text_identical": true
+      },
+      {
+        "frame": 3,
+        "apple_median_seconds": 0.2535,
+        "tesseract_median_seconds": 0.7796,
+        "apple_repeat_text_identical": true,
+        "tesseract_repeat_text_identical": true
+      },
+      {
+        "frame": 4,
+        "apple_median_seconds": 0.3725,
+        "tesseract_median_seconds": 1.0295,
+        "apple_repeat_text_identical": true,
+        "tesseract_repeat_text_identical": true
+      },
+      {
+        "frame": 5,
+        "apple_median_seconds": 0.3366,
+        "tesseract_median_seconds": 1.1959,
+        "apple_repeat_text_identical": true,
+        "tesseract_repeat_text_identical": true
+      }
+    ]
+  },
+  "context_builder": [
+    {
+      "max_chars": 47000,
+      "max_scenes": 80,
+      "included_scene_count": 80,
+      "field_limits": [
+        140,
+        160,
+        160
+      ],
+      "context_characters": [
+        55938,
+        55938,
+        55938
+      ],
+      "identical": true,
+      "repetition_type": "deterministic_cpu_contract_not_model_quality"
+    },
+    {
+      "max_chars": 140000,
+      "max_scenes": 80,
+      "included_scene_count": 80,
+      "field_limits": [
+        600,
+        650,
+        650
+      ],
+      "context_characters": [
+        121091,
+        121091,
+        121091
+      ],
+      "identical": true,
+      "repetition_type": "deterministic_cpu_contract_not_model_quality"
+    },
+    {
+      "max_chars": 47000,
+      "max_scenes": 0,
+      "included_scene_count": 90,
+      "field_limits": [
+        140,
+        160,
+        160
+      ],
+      "context_characters": [
+        62803,
+        62803,
+        62803
+      ],
+      "identical": true,
+      "repetition_type": "deterministic_cpu_contract_not_model_quality"
+    },
+    {
+      "max_chars": 140000,
+      "max_scenes": 0,
+      "included_scene_count": 90,
+      "field_limits": [
+        600,
+        650,
+        650
+      ],
+      "context_characters": [
+        135887,
+        135887,
+        135887
+      ],
+      "identical": true,
+      "repetition_type": "deterministic_cpu_contract_not_model_quality"
+    }
+  ],
+  "baseline": {
+    "completed": 11,
+    "planned": 12,
+    "response_retained": 9,
+    "log_only": 2,
+    "runs": [
+      {
+        "video": "Video D",
+        "repeat": 1,
+        "evidence": "log_only",
+        "client_wall_seconds": null,
+        "scene_count": 90,
+        "text_llm_status": "completed_log_only",
+        "server_request_seconds": 1769.85,
+        "server_processing_seconds": 1769.6
+      },
+      {
+        "video": "Video D",
+        "repeat": 2,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 2544.606,
+        "scene_count": 90,
+        "text_llm_status": "failed"
+      },
+      {
+        "video": "Video A",
+        "repeat": 1,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 258.65,
+        "scene_count": 11,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video A",
+        "repeat": 2,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 319.811,
+        "scene_count": 11,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video A",
+        "repeat": 3,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 296.414,
+        "scene_count": 11,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video B",
+        "repeat": 1,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 196.397,
+        "scene_count": 7,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video B",
+        "repeat": 2,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 247.539,
+        "scene_count": 7,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video B",
+        "repeat": 3,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 210.327,
+        "scene_count": 7,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video C",
+        "repeat": 1,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 194.799,
+        "scene_count": 9,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video C",
+        "repeat": 2,
+        "evidence": "response_and_execution",
+        "client_wall_seconds": 225.669,
+        "scene_count": 9,
+        "text_llm_status": "success"
+      },
+      {
+        "video": "Video C",
+        "repeat": 3,
+        "evidence": "log_only",
+        "client_wall_seconds": null,
+        "scene_count": 9,
+        "text_llm_status": "success",
+        "server_request_seconds": 178.71,
+        "server_processing_seconds": 178.51
+      }
+    ]
+  }
+}
