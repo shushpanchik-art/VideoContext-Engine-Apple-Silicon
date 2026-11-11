@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "stage": "short_text_replay_complete",
+  "snapshot_utc": "2026-11-11T01:57:51Z",
+  "calls": 54,
+  "fixed_inputs": 3,
+  "conditions": 6,
+  "repeats_per_condition": 3,
+  "format_successes": 54,
+  "universal_quality_winner": false,
+  "summary_length_request": {
+    "requested_min": 100,
+    "requested_max": 160,
+    "responses": 9,
+    "observed_min": 61,
+    "observed_max": 77,
+    "target_met": 0,
+    "count_method": "whitespace-separated words, not tokenizer tokens"
+  },
+  "groups": [
+    {
+      "video": "Video A",
+      "condition": "Baseline",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 92.646426,
+        "min": 92.089266,
+        "max": 92.917477
+      },
+      "summary_whitespace_words": [
+        63,
+        49,
+        48
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video A",
+      "condition": "Domain profile",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 94.479196,
+        "min": 91.003156,
+        "max": 97.41528
+      },
+      "summary_whitespace_words": [
+        55,
+        57,
+        52
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video A",
+      "condition": "Name conflict instruction",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 93.677717,
+        "min": 90.432077,
+        "max": 96.552217
+      },
+      "summary_whitespace_words": [
+        43,
+        51,
+        50
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video A",
+      "condition": "Output limit 4096",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 92.422908,
+        "min": 87.946321,
+        "max": 95.435154
+      },
+      "summary_whitespace_words": [
+        47,
+        56,
+        60
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video A",
+      "condition": "Summary request 100–160 words",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 93.841729,
+        "min": 92.244195,
+        "max": 99.366102
+      },
+      "summary_whitespace_words": [
+        73,
+        73,
+        75
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video A",
+      "condition": "Without existing summary",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 92.543907,
+        "min": 84.718596,
+        "max": 96.293763
+      },
+      "summary_whitespace_words": [
+        65,
+        65,
+        51
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video B",
+      "condition": "Baseline",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 72.560052,
+        "min": 70.545228,
+        "max": 74.310738
+      },
+      "summary_whitespace_words": [
+        48,
+        48,
+        49
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video B",
+      "condition": "Domain profile",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 70.750355,
+        "min": 68.05263,
+        "max": 73.713163
+      },
+      "summary_whitespace_words": [
+        46,
+        40,
+        50
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video B",
+      "condition": "Name conflict instruction",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 74.839725,
+        "min": 71.110261,
+        "max": 84.691428
+      },
+      "summary_whitespace_words": [
+        44,
+        49,
+        45
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video B",
+      "condition": "Output limit 4096",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 70.785977,
+        "min": 70.558642,
+        "max": 77.190105
+      },
+      "summary_whitespace_words": [
+        54,
+        48,
+        48
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video B",
+      "condition": "Summary request 100–160 words",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 74.330419,
+        "min": 72.432105,
+        "max": 76.774598
+      },
+      "summary_whitespace_words": [
+        70,
+        65,
+        77
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video B",
+      "condition": "Without existing summary",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 74.601192,
+        "min": 71.124839,
+        "max": 76.361331
+      },
+      "summary_whitespace_words": [
+        53,
+        52,
+        50
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video C",
+      "condition": "Baseline",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 73.877483,
+        "min": 72.593524,
+        "max": 73.995167
+      },
+      "summary_whitespace_words": [
+        51,
+        48,
+        58
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video C",
+      "condition": "Domain profile",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 80.472049,
+        "min": 77.185417,
+        "max": 82.116579
+      },
+      "summary_whitespace_words": [
+        58,
+        58,
+        55
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video C",
+      "condition": "Name conflict instruction",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 77.722496,
+        "min": 74.137906,
+        "max": 82.672536
+      },
+      "summary_whitespace_words": [
+        55,
+        56,
+        55
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video C",
+      "condition": "Output limit 4096",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 75.877081,
+        "min": 73.432973,
+        "max": 81.121739
+      },
+      "summary_whitespace_words": [
+        53,
+        55,
+        53
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video C",
+      "condition": "Summary request 100–160 words",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 79.236646,
+        "min": 77.157689,
+        "max": 82.747006
+      },
+      "summary_whitespace_words": [
+        64,
+        61,
+        65
+      ],
+      "observed_repair_count": 0
+    },
+    {
+      "video": "Video C",
+      "condition": "Without existing summary",
+      "repeats": 3,
+      "format_success_count": 3,
+      "replay_seconds": {
+        "median": 82.856809,
+        "min": 70.86576,
+        "max": 89.354578
+      },
+      "summary_whitespace_words": [
+        55,
+        60,
+        57
+      ],
+      "observed_repair_count": 0
+    }
+  ],
+  "all_recorded_source_and_settings_unchanged": true
+}
