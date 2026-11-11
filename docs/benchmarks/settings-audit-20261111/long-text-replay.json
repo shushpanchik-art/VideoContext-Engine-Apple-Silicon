@@ -1,0 +1,169 @@
+{
+  "schema_version": 1,
+  "stage": "long_text_replay_complete",
+  "input": "Video D",
+  "source_scene_count": 90,
+  "attempts": 12,
+  "format_successes": 8,
+  "conditions": 4,
+  "repeats_per_condition": 3,
+  "same_fixed_raw_input": true,
+  "quality_accepted": false,
+  "timing_scope": "All replay attempts, including failures and repair costs; not full-video benchmark time.",
+  "groups": [
+    {
+      "condition": "default",
+      "character_budget_setting": 47000,
+      "scene_cap_setting": 80,
+      "field_character_limits": [
+        140,
+        160,
+        160
+      ],
+      "delivered_context_characters": 55938,
+      "attempts": 3,
+      "format_successes": 3,
+      "elapsed_seconds_all_attempts": [
+        190.065668,
+        260.074168,
+        434.55541
+      ],
+      "median_all_attempts_seconds": 260.074168,
+      "range_all_attempts_seconds": [
+        190.065668,
+        434.55541
+      ],
+      "scene_enrichment_counts": [
+        19,
+        25,
+        17
+      ],
+      "last_keypoint_scene": [
+        31,
+        33,
+        40
+      ],
+      "summary_whitespace_words": [
+        67,
+        67,
+        60
+      ]
+    },
+    {
+      "condition": "chars_only",
+      "character_budget_setting": 140000,
+      "scene_cap_setting": 80,
+      "field_character_limits": [
+        600,
+        650,
+        650
+      ],
+      "delivered_context_characters": 121091,
+      "attempts": 3,
+      "format_successes": 1,
+      "elapsed_seconds_all_attempts": [
+        549.389406,
+        533.998635,
+        565.895871
+      ],
+      "median_all_attempts_seconds": 549.389406,
+      "range_all_attempts_seconds": [
+        533.998635,
+        565.895871
+      ],
+      "scene_enrichment_counts": [
+        null,
+        2,
+        null
+      ],
+      "last_keypoint_scene": [
+        null,
+        31,
+        null
+      ],
+      "summary_whitespace_words": [
+        null,
+        74,
+        null
+      ]
+    },
+    {
+      "condition": "scenes_only",
+      "character_budget_setting": 47000,
+      "scene_cap_setting": 0,
+      "field_character_limits": [
+        140,
+        160,
+        160
+      ],
+      "delivered_context_characters": 62803,
+      "attempts": 3,
+      "format_successes": 3,
+      "elapsed_seconds_all_attempts": [
+        196.332494,
+        206.146861,
+        202.928169
+      ],
+      "median_all_attempts_seconds": 202.928169,
+      "range_all_attempts_seconds": [
+        196.332494,
+        206.146861
+      ],
+      "scene_enrichment_counts": [
+        16,
+        20,
+        19
+      ],
+      "last_keypoint_scene": [
+        41,
+        32,
+        41
+      ],
+      "summary_whitespace_words": [
+        67,
+        57,
+        104
+      ]
+    },
+    {
+      "condition": "chars_and_scenes",
+      "character_budget_setting": 140000,
+      "scene_cap_setting": 0,
+      "field_character_limits": [
+        600,
+        650,
+        650
+      ],
+      "delivered_context_characters": 135887,
+      "attempts": 3,
+      "format_successes": 1,
+      "elapsed_seconds_all_attempts": [
+        576.061966,
+        559.860655,
+        561.84464
+      ],
+      "median_all_attempts_seconds": 561.84464,
+      "range_all_attempts_seconds": [
+        559.860655,
+        576.061966
+      ],
+      "scene_enrichment_counts": [
+        null,
+        null,
+        2
+      ],
+      "last_keypoint_scene": [
+        null,
+        null,
+        29
+      ],
+      "summary_whitespace_words": [
+        null,
+        null,
+        68
+      ]
+    }
+  ],
+  "failed_payload_handling": "Null coverage is unavailable, not zero verified coverage and not reconstructed.",
+  "fallback_provenance": "Two-enrichment wide-context outputs are fallback-compatible; final payload alone does not prove the exact model/postprocessor attribution."
+}
