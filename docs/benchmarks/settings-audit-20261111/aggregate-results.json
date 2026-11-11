@@ -23,7 +23,7 @@
         3.389
       ],
       "median_detector_seconds": 3.395,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     },
     {
       "video": "Video A",
@@ -40,7 +40,7 @@
         3.408
       ],
       "median_detector_seconds": 3.407,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     },
     {
       "video": "Video B",
@@ -57,7 +57,7 @@
         1.826
       ],
       "median_detector_seconds": 1.827,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     },
     {
       "video": "Video B",
@@ -74,7 +74,7 @@
         1.836
       ],
       "median_detector_seconds": 1.836,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     },
     {
       "video": "Video C",
@@ -91,7 +91,7 @@
         2.527
       ],
       "median_detector_seconds": 2.518,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     },
     {
       "video": "Video C",
@@ -108,7 +108,7 @@
         2.514
       ],
       "median_detector_seconds": 2.513,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     },
     {
       "video": "Video D",
@@ -125,7 +125,7 @@
         39.331
       ],
       "median_detector_seconds": 39.331,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     },
     {
       "video": "Video D",
@@ -142,7 +142,7 @@
         39.208
       ],
       "median_detector_seconds": 39.237,
-      "scene_lists_identical": false
+      "scene_boundaries_identical": true
     }
   ],
   "ocr": {
