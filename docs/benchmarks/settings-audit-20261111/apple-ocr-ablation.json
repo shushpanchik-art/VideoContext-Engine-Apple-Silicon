@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "stage": "apple_ocr_prompt_ablation_complete",
+  "new_off_calls": 18,
+  "historical_on_calls": 18,
+  "frames": 6,
+  "videos": 4,
+  "matched_seeds_per_frame": 3,
+  "paired_manual_rubric_rows": 42,
+  "blinded": false,
+  "resolution": 1280,
+  "output_token_limit": 1024,
+  "criteria_descriptions": {
+    "f1c1": "Complete target table row/value/unit binding",
+    "f1c2": "Avoid invented hidden rows or completed action",
+    "f2c1": "Distinguish creation confirmation from saving/export",
+    "f2c2": "Bind generated sentence to correct table role",
+    "f3c1": "Distinguish placeholder from entered expression",
+    "f3c2": "Preserve variable roles and relational constraints",
+    "f4c1": "Distinguish an open menu from a selected option",
+    "f4c2": "Preserve variable role and placeholder state",
+    "f5c1": "Preserve measured/allowed pair without reversal",
+    "f5c2": "Distinguish nonintersection from sufficient clearance",
+    "f5c3": "Distinguish report preparation from completion and object from result count",
+    "f6c1": "Preserve full conditional requirement exception",
+    "f6c2": "Preserve object/condition/value binding",
+    "f6c3": "Avoid unsupported background reading"
+  },
+  "criteria": {
+    "f1c1": {
+      "off_counts": {
+        "partial": 1,
+        "contradicted": 2
+      },
+      "on_counts": {
+        "partial": 2,
+        "omitted": 1
+      }
+    },
+    "f1c2": {
+      "off_counts": {
+        "correct": 3
+      },
+      "on_counts": {
+        "correct": 3
+      }
+    },
+    "f2c1": {
+      "off_counts": {
+        "correct": 3
+      },
+      "on_counts": {
+        "correct": 3
+      }
+    },
+    "f2c2": {
+      "off_counts": {
+        "omitted": 1,
+        "partial": 2
+      },
+      "on_counts": {
+        "partial": 2,
+        "omitted": 1
+      }
+    },
+    "f3c1": {
+      "off_counts": {
+        "contradicted": 3
+      },
+      "on_counts": {
+        "contradicted": 3
+      }
+    },
+    "f3c2": {
+      "off_counts": {
+        "partial": 2,
+        "correct": 1
+      },
+      "on_counts": {
+        "correct": 1,
+        "partial": 2
+      }
+    },
+    "f4c1": {
+      "off_counts": {
+        "omitted": 3
+      },
+      "on_counts": {
+        "omitted": 3
+      }
+    },
+    "f4c2": {
+      "off_counts": {
+        "contradicted": 3
+      },
+      "on_counts": {
+        "contradicted": 3
+      }
+    },
+    "f5c1": {
+      "off_counts": {
+        "omitted": 3
+      },
+      "on_counts": {
+        "omitted": 1,
+        "correct": 2
+      }
+    },
+    "f5c2": {
+      "off_counts": {
+        "omitted": 3
+      },
+      "on_counts": {
+        "omitted": 1,
+        "partial": 2
+      }
+    },
+    "f5c3": {
+      "off_counts": {
+        "partial": 1,
+        "contradicted": 1,
+        "omitted": 1
+      },
+      "on_counts": {
+        "omitted": 2,
+        "contradicted": 1
+      }
+    },
+    "f6c1": {
+      "off_counts": {
+        "contradicted": 1,
+        "omitted": 2
+      },
+      "on_counts": {
+        "partial": 2,
+        "omitted": 1
+      }
+    },
+    "f6c2": {
+      "off_counts": {
+        "contradicted": 1,
+        "omitted": 2
+      },
+      "on_counts": {
+        "partial": 2,
+        "omitted": 1
+      }
+    },
+    "f6c3": {
+      "off_counts": {
+        "correct": 3
+      },
+      "on_counts": {
+        "correct": 3
+      }
+    }
+  },
+  "timing": {
+    "historical_on": {
+      "n": 18,
+      "median": 13.696558583500519,
+      "mean": 14.39373440288869,
+      "min": 11.190060834000178,
+      "max": 18.35925829199914
+    },
+    "new_off": {
+      "n": 18,
+      "median": 13.891629187499348,
+      "mean": 13.70463704161173,
+      "min": 10.929213999999774,
+      "max": 17.03223650000291
+    },
+    "paired_delta": {
+      "n": 18,
+      "median": -0.6900892914964061,
+      "mean": -0.6890973612769611,
+      "min": -5.626248208998732,
+      "max": 3.924487999000121
+    },
+    "paired_median_ratio": 0.9481162335157819,
+    "off_faster_pairs": 11
+  },
+  "validity": {
+    "off_json": 18,
+    "off_schema": 18,
+    "on_json": 18,
+    "on_schema": 18
+  },
+  "prompt_validation": [
+    {
+      "frame": "f1",
+      "exact_apple_block_only_removed": true,
+      "asr_identical": true,
+      "image_identical": true,
+      "tesseract_was_present": false
+    },
+    {
+      "frame": "f2",
+      "exact_apple_block_only_removed": true,
+      "asr_identical": true,
+      "image_identical": true,
+      "tesseract_was_present": false
+    },
+    {
+      "frame": "f3",
+      "exact_apple_block_only_removed": true,
+      "asr_identical": true,
+      "image_identical": true,
+      "tesseract_was_present": false
+    },
+    {
+      "frame": "f4",
+      "exact_apple_block_only_removed": true,
+      "asr_identical": true,
+      "image_identical": true,
+      "tesseract_was_present": false
+    },
+    {
+      "frame": "f5",
+      "exact_apple_block_only_removed": true,
+      "asr_identical": true,
+      "image_identical": true,
+      "tesseract_was_present": false
+    },
+    {
+      "frame": "f6",
+      "exact_apple_block_only_removed": true,
+      "asr_identical": true,
+      "image_identical": true,
+      "tesseract_was_present": false
+    }
+  ],
+  "runtime": {
+    "completed_at_utc": "2026-11-11T04:05:43.506262+00:00",
+    "load_seconds": 4.886755333001929,
+    "session_wall_seconds": 256.9632661342621,
+    "effective_sampler": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "do_sample": true
+    },
+    "source_unchanged": true,
+    "settings_unchanged": true,
+    "telemetry_samples": 13,
+    "all_ac": true,
+    "all_no_thermal_performance_warnings": true,
+    "gpu": "Apple M1 Max"
+  },
+  "swap_and_load_telemetry": "Not collected for this new session.",
+  "recommendation": "Retain Apple Vision OCR enabled for this tested panel.",
+  "timing_scope": "VLM prompt replay only; excludes OCR extraction and does not measure full-video speedup."
+}
