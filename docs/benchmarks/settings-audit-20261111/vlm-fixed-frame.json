@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "stage": "fixed_frame_vlm_semantic_review_complete",
+  "completed_at_utc": "2026-11-11T03:30:21.416584+00:00",
+  "calls": 54,
+  "frames": 6,
+  "videos": 4,
+  "conditions": 3,
+  "matched_seed_repeats": 3,
+  "manually_adjudicated_rows": 126,
+  "blinded": false,
+  "criteria": {
+    "f1c1": "Complete target table row/value/unit binding",
+    "f1c2": "Avoid invented hidden rows or completed action",
+    "f2c1": "Distinguish creation confirmation from saving/export",
+    "f2c2": "Bind generated sentence to correct table role",
+    "f3c1": "Distinguish placeholder from entered expression",
+    "f3c2": "Preserve variable roles and relational constraints",
+    "f4c1": "Distinguish an open menu from a selected option",
+    "f4c2": "Preserve variable role and placeholder state",
+    "f5c1": "Preserve measured/allowed pair without reversal",
+    "f5c2": "Distinguish nonintersection from sufficient clearance",
+    "f5c3": "Distinguish report preparation from completion and object from result count",
+    "f6c1": "Preserve full conditional requirement exception",
+    "f6c2": "Preserve object/condition/value binding",
+    "f6c3": "Avoid unsupported background reading"
+  },
+  "label_definitions": {
+    "correct": "Meets the frozen criterion; negative safety criteria do not establish positive coverage.",
+    "partial": "Some criterion information retained, not complete success.",
+    "omitted": "Criterion information not established.",
+    "contradicted": "Conflicts with the criterion."
+  },
+  "metrics": {
+    "baseline1280": {
+      "n": 18,
+      "json_valid": 18,
+      "schema_valid": 18,
+      "seconds": {
+        "median": 13.696558583500519,
+        "mean": 14.39373440288869,
+        "min": 11.190060834000178,
+        "max": 18.35925829199914,
+        "sum": 259.08721925199643
+      },
+      "criteria": {
+        "f1c1": {
+          "partial": 2,
+          "omitted": 1
+        },
+        "f1c2": {
+          "correct": 3
+        },
+        "f2c1": {
+          "correct": 3
+        },
+        "f2c2": {
+          "partial": 2,
+          "omitted": 1
+        },
+        "f3c1": {
+          "contradicted": 3
+        },
+        "f3c2": {
+          "correct": 1,
+          "partial": 2
+        },
+        "f4c1": {
+          "omitted": 3
+        },
+        "f4c2": {
+          "contradicted": 3
+        },
+        "f5c1": {
+          "omitted": 1,
+          "correct": 2
+        },
+        "f5c2": {
+          "omitted": 1,
+          "partial": 2
+        },
+        "f5c3": {
+          "omitted": 2,
+          "contradicted": 1
+        },
+        "f6c1": {
+          "partial": 2,
+          "omitted": 1
+        },
+        "f6c2": {
+          "partial": 2,
+          "omitted": 1
+        },
+        "f6c3": {
+          "correct": 3
+        }
+      }
+    },
+    "strong1280": {
+      "n": 18,
+      "json_valid": 18,
+      "schema_valid": 18,
+      "seconds": {
+        "median": 15.531478311999308,
+        "mean": 15.175973078666479,
+        "min": 11.812509707997378,
+        "max": 19.152368666000257,
+        "sum": 273.1675154159966
+      },
+      "criteria": {
+        "f1c1": {
+          "omitted": 1,
+          "partial": 2
+        },
+        "f1c2": {
+          "correct": 3
+        },
+        "f2c1": {
+          "correct": 2,
+          "omitted": 1
+        },
+        "f2c2": {
+          "correct": 2,
+          "partial": 1
+        },
+        "f3c1": {
+          "contradicted": 3
+        },
+        "f3c2": {
+          "partial": 2,
+          "correct": 1
+        },
+        "f4c1": {
+          "omitted": 3
+        },
+        "f4c2": {
+          "contradicted": 3
+        },
+        "f5c1": {
+          "correct": 2,
+          "omitted": 1
+        },
+        "f5c2": {
+          "partial": 2,
+          "omitted": 1
+        },
+        "f5c3": {
+          "contradicted": 1,
+          "omitted": 2
+        },
+        "f6c1": {
+          "partial": 2,
+          "omitted": 1
+        },
+        "f6c2": {
+          "partial": 1,
+          "omitted": 1,
+          "contradicted": 1
+        },
+        "f6c3": {
+          "correct": 3
+        }
+      }
+    },
+    "baseline1536": {
+      "n": 18,
+      "json_valid": 18,
+      "schema_valid": 18,
+      "seconds": {
+        "median": 16.371400458001517,
+        "mean": 17.11512340516674,
+        "min": 14.072896333000244,
+        "max": 23.04258570899765,
+        "sum": 308.07222129300135
+      },
+      "criteria": {
+        "f1c1": {
+          "partial": 1,
+          "omitted": 1,
+          "correct": 1
+        },
+        "f1c2": {
+          "correct": 3
+        },
+        "f2c1": {
+          "correct": 3
+        },
+        "f2c2": {
+          "omitted": 2,
+          "partial": 1
+        },
+        "f3c1": {
+          "contradicted": 3
+        },
+        "f3c2": {
+          "correct": 3
+        },
+        "f4c1": {
+          "omitted": 2,
+          "contradicted": 1
+        },
+        "f4c2": {
+          "contradicted": 3
+        },
+        "f5c1": {
+          "correct": 3
+        },
+        "f5c2": {
+          "partial": 2,
+          "omitted": 1
+        },
+        "f5c3": {
+          "omitted": 3
+        },
+        "f6c1": {
+          "omitted": 1,
+          "partial": 2
+        },
+        "f6c2": {
+          "omitted": 2,
+          "partial": 1
+        },
+        "f6c3": {
+          "correct": 3
+        }
+      }
+    }
+  },
+  "paired": {
+    "strong1280": {
+      "n": 18,
+      "median_delta_seconds": 1.4633716050011571,
+      "median_ratio": 1.1097372826916336,
+      "faster_pairs": 7
+    },
+    "baseline1536": {
+      "n": 18,
+      "median_delta_seconds": 2.251303541001107,
+      "median_ratio": 1.1712961550326684,
+      "faster_pairs": 0
+    }
+  },
+  "runtime": {
+    "load_seconds": 4.665818832996592,
+    "session_wall_seconds": 861.4187650680542,
+    "effective_sampler": {
+      "temperature": 0.7,
+      "top_p": 0.8,
+      "top_k": 20,
+      "do_sample": true
+    },
+    "gpu": "Apple M1 Max",
+    "source_unchanged": true,
+    "settings_unchanged": true,
+    "telemetry_samples": 43,
+    "all_ac": true,
+    "all_no_thermal_performance_warnings": true,
+    "swap_used_MB_range": [
+      0.19,
+      0.19
+    ],
+    "operator_profiling": false
+  },
+  "recommendation": "Retain baseline 1280 for this diagnostic panel; not a universal optimum."
+}
