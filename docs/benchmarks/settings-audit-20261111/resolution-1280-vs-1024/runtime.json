@@ -1,0 +1,21 @@
+{
+  "at": "2026-11-11T22:47:48.613607+00:00",
+  "python": "3.11.18",
+  "machine": "arm64",
+  "os": "ProductName:\t\tmacOS\nProductVersion:\t\t27.2.1\nBuildVersion:\t\t26B131",
+  "packages": {
+    "mlx": "0.32.4",
+    "mlx-vlm": "0.7.12",
+    "torch": "2.15.0",
+    "openai-whisper": "20250625",
+    "opencv-python": "5.0.0.93",
+    "numpy": "2.4.6",
+    "transformers": "5.22.2",
+    "fastapi": "0.162.3"
+  },
+  "hardware_from_runtime": {
+    "model": "Apple M1 Max",
+    "unified_memory_bytes": 34359738368
+  },
+  "note": "No package installation or configuration change."
+}

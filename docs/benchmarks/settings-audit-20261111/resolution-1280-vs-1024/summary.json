@@ -1,0 +1,508 @@
+{
+  "execution": {
+    "completed_utc": "2026-11-12T00:02:58.218689+00:00",
+    "status": "completed",
+    "endpoint_calls": 60,
+    "pairs": 30,
+    "independent_source_videos": 3,
+    "repeats_per_source_per_arm": 10,
+    "all_34_frozen_files_sha256_match": true,
+    "source_sha256": "8aa39daa7815ccdd9e6656cb05aa1fe0d5a642fe101b56787a3c2c3d3a52eac7",
+    "saved_settings_sha256": "42c3295418a542f247f63d2ffe349725d1842b803426d31811a941706ac718dc",
+    "all_requests_differ_only_resolution_and_job_id": true,
+    "all_scene_ASR_OCR_pairs_identical": true,
+    "all_primary_stages_executed": true,
+    "application_or_saved_settings_changed": false,
+    "degraded_text_outputs": [
+      {
+        "id": "v1_r01_s1024",
+        "text_error": "Qwen3.5 вернул некорректный JSON даже после одной попытки исправления: Не найден полный JSON-объект с непустым executive_summary.",
+        "wall_seconds": 676.9583585829969
+      },
+      {
+        "id": "v3_r07_s1024",
+        "text_error": "Qwen3.5 вернул некорректный JSON даже после одной попытки исправления: Не найден полный JSON-объект с непустым executive_summary.",
+        "wall_seconds": 598.5100025830034
+      }
+    ],
+    "logged_text_repairs": [
+      {
+        "id": "v1_r01_s1024",
+        "logged_repair_passes": 1,
+        "text_status": "failed",
+        "text_seconds": 423.685,
+        "wall_seconds": 676.9583585829969
+      },
+      {
+        "id": "v3_r05_s1024",
+        "logged_repair_passes": 1,
+        "text_status": "success",
+        "text_seconds": 277.215,
+        "wall_seconds": 455.5159748330043
+      },
+      {
+        "id": "v3_r07_s1024",
+        "logged_repair_passes": 1,
+        "text_status": "failed",
+        "text_seconds": 415.543,
+        "wall_seconds": 598.5100025830034
+      }
+    ],
+    "minimum_observed_memory_free_pct": 40,
+    "resource_guard_findings": [],
+    "per_resolution": {
+      "1280": {
+        "calls": 30,
+        "text_successes": 30,
+        "wall_sum_seconds": 9360.557693664989,
+        "wall_mean_seconds": 312.01858978883297,
+        "wall_median_seconds_mixed_sources": 298.9311696040022
+      },
+      "1024": {
+        "calls": 30,
+        "text_successes": 28,
+        "wall_sum_seconds": 9644.147688665995,
+        "wall_mean_seconds": 321.4715896221998,
+        "wall_median_seconds_mixed_sources": 287.2224436874967
+      }
+    },
+    "per_source": {
+      "v1": {
+        "pairs": 10,
+        "median_wall_delta_seconds": -17.944929020995914,
+        "median_wall_change_percent": -4.535797272732067,
+        "median_vlm_change_percent": -9.563842381076366,
+        "text_successes": {
+          "1280": 10,
+          "1024": 9
+        },
+        "faster_1024_pairs": 8
+      },
+      "v2": {
+        "pairs": 10,
+        "median_wall_delta_seconds": -19.639754021001863,
+        "median_wall_change_percent": -8.166822631388971,
+        "median_vlm_change_percent": -9.425376792584995,
+        "text_successes": {
+          "1280": 10,
+          "1024": 10
+        },
+        "faster_1024_pairs": 8
+      },
+      "v3": {
+        "pairs": 10,
+        "median_wall_delta_seconds": -6.647518499514263,
+        "median_wall_change_percent": -2.228821591003566,
+        "median_vlm_change_percent": -11.141764013721556,
+        "text_successes": {
+          "1280": 10,
+          "1024": 9
+        },
+        "faster_1024_pairs": 6
+      }
+    },
+    "overall_paired_wall_delta_median_seconds": -15.329658937502245,
+    "overall_paired_wall_change_median_percent": -4.498475391313866,
+    "overall_1024_faster_pairs": 22,
+    "notes": [
+      "All completed degraded outputs retained, no rerun of failed outcome.",
+      "Logged repair count does not detect silent deterministic json_repair or VLM parser recovery.",
+      "No accuracy claim from execution success; quality assessment separate.",
+      "Full endpoint wall excludes Python import, HTTP middleware, startup lifespan and UI.",
+      "Per-source paired medians are primary; mixed-source wall median is descriptive only."
+    ],
+    "shared_lock_count_verified_free": 9
+  },
+  "quality": {
+    "at": 1794441930.4145439,
+    "reviewed_pairs": 30,
+    "reviewed_samples": 60,
+    "judgements": 1680,
+    "primary_counts_fully_available_facts": [
+      {
+        "source": "all",
+        "resolution": 1280,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 200,
+        "labels": {
+          "supported": 20,
+          "partial": 118,
+          "omitted": 42,
+          "contradicted": 20
+        }
+      },
+      {
+        "source": "all",
+        "resolution": 1280,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 200,
+        "labels": {
+          "supported": 2,
+          "omitted": 156,
+          "partial": 41,
+          "contradicted": 1
+        }
+      },
+      {
+        "source": "all",
+        "resolution": 1280,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 200,
+        "labels": {
+          "supported": 3,
+          "omitted": 90,
+          "partial": 89,
+          "contradicted": 18
+        }
+      },
+      {
+        "source": "all",
+        "resolution": 1024,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 200,
+        "labels": {
+          "supported": 19,
+          "partial": 118,
+          "omitted": 32,
+          "contradicted": 31
+        }
+      },
+      {
+        "source": "all",
+        "resolution": 1024,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 200,
+        "labels": {
+          "partial": 48,
+          "omitted": 152
+        }
+      },
+      {
+        "source": "all",
+        "resolution": 1024,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 200,
+        "labels": {
+          "unavailable_output": 13,
+          "partial": 95,
+          "omitted": 77,
+          "contradicted": 15
+        }
+      },
+      {
+        "source": "v1",
+        "resolution": 1280,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 60,
+        "labels": {
+          "supported": 15,
+          "partial": 29,
+          "omitted": 12,
+          "contradicted": 4
+        }
+      },
+      {
+        "source": "v1",
+        "resolution": 1280,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 60,
+        "labels": {
+          "supported": 2,
+          "omitted": 48,
+          "partial": 10
+        }
+      },
+      {
+        "source": "v1",
+        "resolution": 1280,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 60,
+        "labels": {
+          "supported": 3,
+          "omitted": 30,
+          "partial": 27
+        }
+      },
+      {
+        "source": "v1",
+        "resolution": 1024,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 60,
+        "labels": {
+          "supported": 14,
+          "partial": 27,
+          "omitted": 11,
+          "contradicted": 8
+        }
+      },
+      {
+        "source": "v1",
+        "resolution": 1024,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 60,
+        "labels": {
+          "partial": 11,
+          "omitted": 49
+        }
+      },
+      {
+        "source": "v1",
+        "resolution": 1024,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 60,
+        "labels": {
+          "unavailable_output": 6,
+          "partial": 28,
+          "omitted": 25,
+          "contradicted": 1
+        }
+      },
+      {
+        "source": "v2",
+        "resolution": 1280,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 54,
+          "omitted": 14,
+          "contradicted": 2
+        }
+      },
+      {
+        "source": "v2",
+        "resolution": 1280,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 22,
+          "omitted": 48
+        }
+      },
+      {
+        "source": "v2",
+        "resolution": 1280,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 36,
+          "omitted": 28,
+          "contradicted": 6
+        }
+      },
+      {
+        "source": "v2",
+        "resolution": 1024,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 51,
+          "omitted": 13,
+          "contradicted": 4,
+          "supported": 2
+        }
+      },
+      {
+        "source": "v2",
+        "resolution": 1024,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 27,
+          "omitted": 43
+        }
+      },
+      {
+        "source": "v2",
+        "resolution": 1024,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 40,
+          "omitted": 28,
+          "contradicted": 2
+        }
+      },
+      {
+        "source": "v3",
+        "resolution": 1280,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "contradicted": 14,
+          "partial": 35,
+          "omitted": 16,
+          "supported": 5
+        }
+      },
+      {
+        "source": "v3",
+        "resolution": 1280,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 9,
+          "omitted": 60,
+          "contradicted": 1
+        }
+      },
+      {
+        "source": "v3",
+        "resolution": 1280,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "contradicted": 12,
+          "omitted": 32,
+          "partial": 26
+        }
+      },
+      {
+        "source": "v3",
+        "resolution": 1024,
+        "layer": "scene_descriptions",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "contradicted": 19,
+          "partial": 40,
+          "omitted": 8,
+          "supported": 3
+        }
+      },
+      {
+        "source": "v3",
+        "resolution": 1024,
+        "layer": "global_summary",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 10,
+          "omitted": 60
+        }
+      },
+      {
+        "source": "v3",
+        "resolution": 1024,
+        "layer": "enhanced_analysis",
+        "fully_available_fact_cells": 70,
+        "labels": {
+          "partial": 27,
+          "omitted": 24,
+          "contradicted": 12,
+          "unavailable_output": 7
+        }
+      }
+    ],
+    "paired_full_support": [
+      {
+        "source": "all",
+        "layer": "scene_descriptions",
+        "counts": {
+          "both_supported": 12,
+          "neither_fully_supported": 173,
+          "only_1024_supported": 7,
+          "only_1280_supported": 8
+        }
+      },
+      {
+        "source": "all",
+        "layer": "global_summary",
+        "counts": {
+          "only_1280_supported": 2,
+          "neither_fully_supported": 198
+        }
+      },
+      {
+        "source": "all",
+        "layer": "enhanced_analysis",
+        "counts": {
+          "pair_with_unavailable_output": 13,
+          "neither_fully_supported": 185,
+          "only_1280_supported": 2
+        }
+      },
+      {
+        "source": "v1",
+        "layer": "scene_descriptions",
+        "counts": {
+          "both_supported": 11,
+          "neither_fully_supported": 42,
+          "only_1024_supported": 3,
+          "only_1280_supported": 4
+        }
+      },
+      {
+        "source": "v1",
+        "layer": "global_summary",
+        "counts": {
+          "only_1280_supported": 2,
+          "neither_fully_supported": 58
+        }
+      },
+      {
+        "source": "v1",
+        "layer": "enhanced_analysis",
+        "counts": {
+          "pair_with_unavailable_output": 6,
+          "neither_fully_supported": 52,
+          "only_1280_supported": 2
+        }
+      },
+      {
+        "source": "v2",
+        "layer": "scene_descriptions",
+        "counts": {
+          "neither_fully_supported": 68,
+          "only_1024_supported": 2
+        }
+      },
+      {
+        "source": "v2",
+        "layer": "global_summary",
+        "counts": {
+          "neither_fully_supported": 70
+        }
+      },
+      {
+        "source": "v2",
+        "layer": "enhanced_analysis",
+        "counts": {
+          "neither_fully_supported": 70
+        }
+      },
+      {
+        "source": "v3",
+        "layer": "scene_descriptions",
+        "counts": {
+          "neither_fully_supported": 63,
+          "only_1280_supported": 4,
+          "only_1024_supported": 2,
+          "both_supported": 1
+        }
+      },
+      {
+        "source": "v3",
+        "layer": "global_summary",
+        "counts": {
+          "neither_fully_supported": 70
+        }
+      },
+      {
+        "source": "v3",
+        "layer": "enhanced_analysis",
+        "counts": {
+          "neither_fully_supported": 63,
+          "pair_with_unavailable_output": 7
+        }
+      }
+    ],
+    "limitations": [
+      "Descriptive fact retention, not a weighted overall quality score or a population accuracy estimate.",
+      "Only fully available facts used in primary counts; partial/unavailable frame facts not counted as resolution-caused loss.",
+      "Partial preserves some required association, not full equivalence. Contradiction of a required subfact can classify a compound fact as contradicted.",
+      "Unavailable enhanced output counted separately, never silently omitted or treated as a correct result.",
+      "All 10 repeats reuse the same 3 video sources and fixed sampled frames.",
+      "Summary omissions may reflect compression; reported separately from scene description correctness.",
+      "Extra hallucination examples are non-exhaustive, so not pooled into comparable rates.",
+      "No formal inter-rater reliability study was performed."
+    ]
+  }
+}
