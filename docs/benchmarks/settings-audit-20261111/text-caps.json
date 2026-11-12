@@ -1,0 +1,214 @@
+{
+  "schema_version": 1,
+  "stage": "text_caps_generation_and_same_output_replay_complete",
+  "new_generation_calls": 9,
+  "primary_valid_outputs": 0,
+  "successful_after_repair": 6,
+  "failed_after_repair": 3,
+  "fixed_context": {
+    "character_setting": 47000,
+    "scene_cap": 80,
+    "delivered_characters": 55938,
+    "field_limits": [
+      140,
+      160,
+      160
+    ],
+    "output_token_limit": 8192
+  },
+  "groups": [
+    {
+      "key_point_cap": 36,
+      "topic_cap": 15,
+      "attempts": 3,
+      "format_successes_after_repair": 3,
+      "elapsed_seconds_all_attempts": [
+        431.64777420799874,
+        430.8018979999979,
+        432.4827528749993
+      ],
+      "median_all_attempts_seconds": 431.64777420799874,
+      "range_all_attempts_seconds": [
+        430.8018979999979,
+        432.4827528749993
+      ],
+      "stage_counts": [
+        {
+          "preparser_last_valid": {
+            "keypoints": 64,
+            "topics": 15,
+            "enrichments": 0
+          },
+          "parser_last": {
+            "keypoints": 36,
+            "topics": 15,
+            "enrichments": 0
+          },
+          "final": {
+            "keypoints": 36,
+            "topics": 15,
+            "enrichments": 2
+          }
+        },
+        {
+          "preparser_last_valid": {
+            "keypoints": 78,
+            "topics": 15,
+            "enrichments": 0
+          },
+          "parser_last": {
+            "keypoints": 36,
+            "topics": 15,
+            "enrichments": 0
+          },
+          "final": {
+            "keypoints": 36,
+            "topics": 15,
+            "enrichments": 2
+          }
+        },
+        {
+          "preparser_last_valid": {
+            "keypoints": 64,
+            "topics": 15,
+            "enrichments": 0
+          },
+          "parser_last": {
+            "keypoints": 36,
+            "topics": 15,
+            "enrichments": 0
+          },
+          "final": {
+            "keypoints": 36,
+            "topics": 15,
+            "enrichments": 2
+          }
+        }
+      ]
+    },
+    {
+      "key_point_cap": 18,
+      "topic_cap": 30,
+      "attempts": 3,
+      "format_successes_after_repair": 3,
+      "elapsed_seconds_all_attempts": [
+        429.01370220899844,
+        435.52461870799743,
+        442.3980472080002
+      ],
+      "median_all_attempts_seconds": 435.52461870799743,
+      "range_all_attempts_seconds": [
+        429.01370220899844,
+        442.3980472080002
+      ],
+      "stage_counts": [
+        {
+          "preparser_last_valid": {
+            "keypoints": 26,
+            "topics": 28,
+            "enrichments": 18
+          },
+          "parser_last": {
+            "keypoints": 18,
+            "topics": 28,
+            "enrichments": 18
+          },
+          "final": {
+            "keypoints": 18,
+            "topics": 28,
+            "enrichments": 19
+          }
+        },
+        {
+          "preparser_last_valid": {
+            "keypoints": 59,
+            "topics": 23,
+            "enrichments": 0
+          },
+          "parser_last": {
+            "keypoints": 18,
+            "topics": 23,
+            "enrichments": 0
+          },
+          "final": {
+            "keypoints": 18,
+            "topics": 23,
+            "enrichments": 2
+          }
+        },
+        {
+          "preparser_last_valid": {
+            "keypoints": 36,
+            "topics": 28,
+            "enrichments": 0
+          },
+          "parser_last": {
+            "keypoints": 18,
+            "topics": 28,
+            "enrichments": 0
+          },
+          "final": {
+            "keypoints": 18,
+            "topics": 28,
+            "enrichments": 2
+          }
+        }
+      ]
+    },
+    {
+      "key_point_cap": 36,
+      "topic_cap": 30,
+      "attempts": 3,
+      "format_successes_after_repair": 0,
+      "elapsed_seconds_all_attempts": [
+        468.9428046659996,
+        470.7598833330012,
+        469.0551191249979
+      ],
+      "median_all_attempts_seconds": 469.0551191249979,
+      "range_all_attempts_seconds": [
+        468.9428046659996,
+        470.7598833330012
+      ],
+      "stage_counts": [
+        {},
+        {},
+        {}
+      ]
+    }
+  ],
+  "same_output_replay": {
+    "accepted_raw_outputs": 6,
+    "cap_combinations": 4,
+    "model_free_replays": 24,
+    "original_parser_reproduced": true,
+    "original_final_keypoints_topics_reproduced": true,
+    "last_retained_scene_by_keypoint_cap": {
+      "cap18": [
+        31,
+        29,
+        29,
+        29,
+        22,
+        28
+      ],
+      "cap36": [
+        63,
+        53,
+        57,
+        50,
+        42,
+        50
+      ]
+    },
+    "larger_keypoint_cap_extends_last_scene": 6,
+    "topic_cap_changes_keypoint_arrays": false
+  },
+  "provenance": {
+    "accepted_payloads_with_no_model_enrichments": 5,
+    "postprocess_created_enrichments_each": 2,
+    "remaining_model_enrichments": 18,
+    "remaining_final_enrichments": 19
+  },
+  "settings_applied": false
+}

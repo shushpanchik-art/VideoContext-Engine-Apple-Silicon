@@ -2,6 +2,19 @@
 
 Baseline snapshot: 2026-11-11 00:01:25 UTC. Context-contract and pending-queue information was updated later, before publication. This is not a completed settings audit or a new default preset. Only sanitized measurements and conclusions are published. Raw media, frames, transcripts, OCR text, generated reports, local paths and customer identifiers remain private.
 
+## Completed stage reports and remaining limits
+
+The baseline snapshot below is historical. Later completed evidence is recorded separately:
+
+- [Full baseline execution](baseline-complete.md): 12/12 runs, with explicit quality and retained-response limits.
+- [Short Text replay, PR #55](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/55): 54 calls, no universal semantic winner.
+- [Long Text replay, PR #56](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/56): 12 attempts, incomplete quality and repair failures.
+- [Fixed-frame VLM review, PR #57](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/57): 54 calls and 126 manual rubric rows.
+- [Apple OCR prompt ablation, PR #58](https://github.com/shushpanchik-art/VideoContext-Engine-Apple-Silicon/pull/58): 18 new calls with a historical comparator.
+- [Text output caps and same-output replay](text-caps.md): nine new calls and 24 deterministic replays.
+
+PR links identify published evidence without assuming those branches are merged. Completed execution is not quality acceptance. Sparse frames, limited videos/repetitions, clipped context, UI-state errors and incomplete downstream factual coverage remain. The 61-parameter inventory is not an exhaustive quality proof, and these stages establish no global optimum.
+
 ## Provenance and scope
 
 - Installed runtime SHA-256: `8aa39daa7815ccdd9e6656cb05aa1fe0d5a642fe101b56787a3c2c3d3a52eac7`.
