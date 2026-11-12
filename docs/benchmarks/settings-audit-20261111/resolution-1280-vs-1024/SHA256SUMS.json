@@ -1,0 +1,30 @@
+{
+  "README.md": {
+    "bytes": 15159,
+    "sha256": "67cd939fa39ef0a242b39b6db2ce0bdca59a1ea1be0d0aec847904cba31e4029"
+  },
+  "quality_cells.csv": {
+    "bytes": 116945,
+    "sha256": "4a7f8e4193f4981ddf8aeed2c150077d1059a81d865ae1f8f690ac215164eae3"
+  },
+  "rubric.json": {
+    "bytes": 15490,
+    "sha256": "6364ec30442af377637bf0b1a33313f4eb4db82e0f644f849b5ae211d9e6c5e1"
+  },
+  "runtime.json": {
+    "bytes": 575,
+    "sha256": "6f84448bb08857931c53bcc0937b95b68f990d4710aff3134e4b07762fa28ca8"
+  },
+  "summary.json": {
+    "bytes": 14102,
+    "sha256": "c74bd2cfd19251dc03f77ca8c258bb7c73016ff3bac4ce11ed8fc55e1ced9a96"
+  },
+  "timings.csv": {
+    "bytes": 5437,
+    "sha256": "e34adb8e2ba08e547bbe3230505d35b5a8b6aa82b30859263d01e93f44c4854e"
+  },
+  "validation.json": {
+    "bytes": 4851,
+    "sha256": "cd98c309d519845690d0ab6c2dece5a64ec3b5eeaa5af8b8877f61ff2077f0fc"
+  }
+}

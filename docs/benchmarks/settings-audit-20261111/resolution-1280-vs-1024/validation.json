@@ -1,0 +1,142 @@
+{
+  "source_settings_hashes_unchanged": true,
+  "frozen_file_count": 34,
+  "all_scene_asr_ocr_pairs_identical": true,
+  "only_changed_request_fields": [
+    "vlm_resolution",
+    "job_id"
+  ],
+  "endpoint_calls": 60,
+  "paired_blocks": 30,
+  "blind_review_pairs": 30,
+  "fact_layer_judgements": 1680,
+  "quote_substring_misses": 0,
+  "review_files_sha256": [
+    {
+      "file": "review_v1_pair_01_revision_02.json",
+      "sha256": "75588dc49fe3f5fd896303ce04a6b9b85fbcac55ab5a3cb146637e6f8643afd7"
+    },
+    {
+      "file": "review_v1_pair_02.json",
+      "sha256": "34ed3c77cc06b3ebe5d36d584e3d427cfe8a7a8f0084b48b5c48ca75894f1f5e"
+    },
+    {
+      "file": "review_v1_pair_03.json",
+      "sha256": "91cde903091bdd7c2c7f330ce6f147452ce5629189ca4e62f55e01e31a6c3807"
+    },
+    {
+      "file": "review_v1_pair_04.json",
+      "sha256": "52308f9ba6cd776aaa1eda2a243a6de69af51eba112ddf75380ff2f350fd2eb4"
+    },
+    {
+      "file": "review_v1_pair_05.json",
+      "sha256": "0c13ea06610980e71f75df832dc73d376899e551305cabd85dcfdb8b0eabd612"
+    },
+    {
+      "file": "review_v1_pair_06.json",
+      "sha256": "4d01278d9e4fb20c09a816c21fa54fb280ec0874ae877fac0e4aa7bb77d17388"
+    },
+    {
+      "file": "review_v1_pair_07.json",
+      "sha256": "f9925901b3289eac8ea98a222fa10b4366d24e0e0990e21a00463c8c18316b73"
+    },
+    {
+      "file": "review_v1_pair_08.json",
+      "sha256": "71020b5f5e640e33cb5042d4f8745884a652fd5ebd1cf8d4ffc3189df96d7077"
+    },
+    {
+      "file": "review_v1_pair_09.json",
+      "sha256": "ee6b10531ab1f14c8b6c1bb8c1b2144a8445a65ffc7f1ece1c33d1dc270a272b"
+    },
+    {
+      "file": "review_v1_pair_10.json",
+      "sha256": "1f680f41c775f29107acc0880723f060a4c78245115098b10082c14f112bb277"
+    },
+    {
+      "file": "review_v2_pair_01.json",
+      "sha256": "083d9845904098cd687ce2b53a117ccefae62ceee73c0c065cd8bef274f0f420"
+    },
+    {
+      "file": "review_v2_pair_02.json",
+      "sha256": "21d3a3d62d513b2a5330a79b0e32c054f5714952486504e4697a9ede33781dce"
+    },
+    {
+      "file": "review_v2_pair_03.json",
+      "sha256": "9458f8f981542aa4c7b73af432e336ea525c4c6b74eecc1446dd53ada3fd2687"
+    },
+    {
+      "file": "review_v2_pair_04.json",
+      "sha256": "94067bd37fedb1c88581090f234f8f12d4d2183df7940c30c6b0ae0f88d36c9e"
+    },
+    {
+      "file": "review_v2_pair_05.json",
+      "sha256": "d205f27e674f2e55a0f7efea943af9a178e83683d563925694a9099632a1a46d"
+    },
+    {
+      "file": "review_v2_pair_06.json",
+      "sha256": "05d305648c8c29bb24206aee866e4a934cbd3b6eb9efc2c43a552dd2d6e288c7"
+    },
+    {
+      "file": "review_v2_pair_07.json",
+      "sha256": "f42467f770b6b5f14c4bc645b3c206187aae948f350733726db9c7e333af5f5b"
+    },
+    {
+      "file": "review_v2_pair_08.json",
+      "sha256": "973d0f5eabc3712dfc6318ac52d05bad59612fb17905b48ed297a8a3f1c8fa8c"
+    },
+    {
+      "file": "review_v2_pair_09.json",
+      "sha256": "0dc84a4823606f06b72d7fc4f983da47074468a525167cd4a69b1b278bea4944"
+    },
+    {
+      "file": "review_v2_pair_10.json",
+      "sha256": "7ab7c9d8e8ee464e68fcae701b6da8332d84ccc86893f359b324c2621dc28bc2"
+    },
+    {
+      "file": "review_v3_pair_01.json",
+      "sha256": "76ee56014011d2d09dfc3b3535127138daaedfec225183a15aa6618c052efd25"
+    },
+    {
+      "file": "review_v3_pair_02.json",
+      "sha256": "94f2fbc3c0f48e6fa1ed6f2eeaca09ef3fa7ae8285f64cb877397461444b8473"
+    },
+    {
+      "file": "review_v3_pair_03.json",
+      "sha256": "ab621f3cdfd9ebf670d6ab65ae1f85061c4d9c74fa14292ce033f6303496d545"
+    },
+    {
+      "file": "review_v3_pair_04.json",
+      "sha256": "018995a0dea98aaa24898c28bd1945f061353cb99c72d749e36e4450922283eb"
+    },
+    {
+      "file": "review_v3_pair_05.json",
+      "sha256": "340859d3cfc82b53b43abe6ed90cc4f388adaafea90f614118ce6e1e917e277c"
+    },
+    {
+      "file": "review_v3_pair_06.json",
+      "sha256": "e6aebf616f7bd5ddfd8a0c09fbf7be48d12ff4f09ea52489d93b7aec5ff975b8"
+    },
+    {
+      "file": "review_v3_pair_07.json",
+      "sha256": "125b53e2e755f0643a6d5b8656800617e87bfe20ee729721911fa60572197f45"
+    },
+    {
+      "file": "review_v3_pair_08.json",
+      "sha256": "667d71a4f06c4e8750dea204dd8b7388ad150271470d1bc8fbcd55697b13dbcc"
+    },
+    {
+      "file": "review_v3_pair_09.json",
+      "sha256": "c9ffe12974d52148c47cd8e5b389edb60217e738a297895698ce3fe8ddee4e78"
+    },
+    {
+      "file": "review_v3_pair_10.json",
+      "sha256": "53c7cbb0621bd4fb2bcdcbebcb847d6be227f348f9942abcb097060cc3366322"
+    }
+  ],
+  "original_rubric_sha256": "022e39523cb0be0de15aa411128a78da3e76a32751e4314e2ff1fc0ce6d8b35f",
+  "limitations": [
+    "Structural/hash/quote checks do not establish semantic accuracy.",
+    "Actual decoding/sampling may be stochastic despite paired seeds.",
+    "Private raw outputs, frames, logs, local paths, credentials, repository history and app snapshots are intentionally excluded."
+  ]
+}

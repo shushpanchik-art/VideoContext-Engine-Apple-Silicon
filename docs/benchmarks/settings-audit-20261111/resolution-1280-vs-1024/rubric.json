@@ -1,0 +1,354 @@
+{
+  "version": "1.0",
+  "frozen_at_utc": "2026-11-11T18:32:22.062982+00:00",
+  "original_private_rubric_sha256": "022e39523cb0be0de15aa411128a78da3e76a32751e4314e2ff1fc0ce6d8b35f",
+  "source_summaries": {
+    "v1": {
+      "subject": "Разметка требования к уклону пандуса, семантический граф и CadLib",
+      "duration_seconds": 108.23,
+      "scenes": 14
+    },
+    "v2": {
+      "subject": "Таблица электрических расстояний, XML-профиль и коллизии",
+      "duration_seconds": 57.57,
+      "scenes": 5
+    },
+    "v3": {
+      "subject": "Поиск требований к объектам BIM в nanoCAD",
+      "duration_seconds": 125.0,
+      "scenes": 9
+    }
+  },
+  "facts": [
+    {
+      "id": "v1-F01",
+      "source_id": "v1",
+      "times_seconds": [
+        20,
+        60
+      ],
+      "group": "constraint",
+      "severity": "high",
+      "observable_fact": "Уклон пандусов на путях эвакуации людей следует принимать не более 1:20.",
+      "required_factual_association": "The 1:20 maximum belongs to evacuation-route ramps, not all stairs or an unrelated width; preserve not more than."
+    },
+    {
+      "id": "v1-F02",
+      "source_id": "v1",
+      "times_seconds": [
+        20
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Semantic-search row 1 gives the ramp 1:20 requirement, СП 1.13130.2020, relevance 0.666163. Row 2 has a different requirement: personnel alarm route to fire-appliance room, slope 1:10 and width at least 1.4 m.",
+      "required_factual_association": "Do not move 1:10/1.4 m or row-2 relevance onto the evacuation ramp requirement. Row 1 relevance must remain 0.666163 if reported."
+    },
+    {
+      "id": "v1-F03",
+      "source_id": "v1",
+      "times_seconds": [
+        60
+      ],
+      "group": "diagram_relation",
+      "severity": "high",
+      "observable_fact": "Segmentation diagram maps prop to Уклон, subj to пандусов, rel to на, feat to путях/эвакуации/людей.",
+      "required_factual_association": "Report the labels with their word associations, not a generic graph or disconnected list."
+    },
+    {
+      "id": "v1-F04",
+      "source_id": "v1",
+      "times_seconds": [
+        60
+      ],
+      "group": "diagram_relation",
+      "severity": "high",
+      "observable_fact": "Segmentation maps deont to следует/принимать, neg to не, compr to более, quant to 1/:/20.",
+      "required_factual_association": "Preserve the negation/comparison/quantity relationships and actual ratio tokens."
+    },
+    {
+      "id": "v1-F05",
+      "source_id": "v1",
+      "times_seconds": [
+        60,
+        80
+      ],
+      "group": "ui_field",
+      "severity": "medium",
+      "observable_fact": "Source-text field contains the ramp requirement; comment field shows Введите комментарий; ID требования is 44846.",
+      "required_factual_association": "44846 is requirement ID, and Введите комментарий is an empty-field placeholder, not entered content."
+    },
+    {
+      "id": "v1-F06",
+      "source_id": "v1",
+      "times_seconds": [
+        70
+      ],
+      "group": "ui_state",
+      "severity": "medium",
+      "observable_fact": "Калькулятор panel is open; CADLib МиА checkbox is checked and nanoCAD is unchecked. Two numbered steps show ramp context then the maximum 1:20 requirement.",
+      "required_factual_association": "Distinguish checked target from unchecked target; do not claim both exports enabled."
+    },
+    {
+      "id": "v1-F07",
+      "source_id": "v1",
+      "times_seconds": [
+        80
+      ],
+      "group": "diagram_relation",
+      "severity": "high",
+      "observable_fact": "Классификация tab is selected; class KSI > XPG_0016 is linked to prop (Уклон), and KSI > ZF__0010 is linked to feat (evacuation-route words).",
+      "required_factual_association": "Keep class-to-role associations; do not turn these codes into numerical limits."
+    },
+    {
+      "id": "v1-F08",
+      "source_id": "v1",
+      "times_seconds": [
+        50,
+        90
+      ],
+      "group": "constraint",
+      "severity": "high",
+      "observable_fact": "Rule table has Проверка, Prp>XPG_0016, logic >, value 1/20; CadLib condition reads [object1.#XPG_0016]>1/20.",
+      "required_factual_association": "The displayed collision/check predicate is >1/20, distinct from the normative maximum <=1/20. Do not reverse the sign or claim the norm itself requires >1/20."
+    },
+    {
+      "id": "v1-F09",
+      "source_id": "v1",
+      "times_seconds": [
+        85
+      ],
+      "group": "ui_menu",
+      "severity": "medium",
+      "observable_fact": "CadLib Инструменты menu is open and contains Проверка коллизий.",
+      "required_factual_association": "Associate collision checking with the Tools menu in CadLib, not with a browser menu."
+    },
+    {
+      "id": "v1-F10",
+      "source_id": "v1",
+      "times_seconds": [
+        100
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Selected CadLib object is ОБ-0010; properties show IfcEntityLabel 107066 and IfcType IfcRamp.",
+      "required_factual_association": "Keep object name, entity label and IFC type associated; do not call 107066 a requirement ID."
+    },
+    {
+      "id": "v2-F01",
+      "source_id": "v2",
+      "times_seconds": [
+        3
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Electrical-clearance table uses distance mm versus nominal voltage kV. First row Аф-з has 200 at до 10, 300 at 20, 400 at 35, 900 at 110, 1300 at 150.",
+      "required_factual_association": "Preserve units and column associations; these are not object counts or voltages in mm."
+    },
+    {
+      "id": "v2-F02",
+      "source_id": "v2",
+      "times_seconds": [
+        3,
+        7
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "First row Аф-з, to extended grounded structures/internal barriers at least 2 m high, has paired values 1800/1200 under 220 kV and 2500/2000 under 330 kV.",
+      "required_factual_association": "Keep row description and both values under each voltage; do not invent separate subcolumn labels absent from this frame."
+    },
+    {
+      "id": "v2-F03",
+      "source_id": "v2",
+      "times_seconds": [
+        3,
+        7
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Second row А1ф-з, to grounded structures including equipment head/support or wire/post/traverse, has 1600/1200 at 220 kV and 2200/1800 at 330 kV.",
+      "required_factual_association": "Do not merge this row with the first row, whose 220/330 values differ."
+    },
+    {
+      "id": "v2-F04",
+      "source_id": "v2",
+      "times_seconds": [
+        3
+      ],
+      "group": "ui_placeholder",
+      "severity": "medium",
+      "observable_fact": "Top fields show Выберите ячейки таблицы, текст из которых будет отображаться здесь; Выберите шаблон сниппета; Выберите сниппет-цель. Автопарсинг is checked.",
+      "required_factual_association": "These are selection placeholders, not selected snippet names; distinguish checked autoparsing."
+    },
+    {
+      "id": "v2-F05",
+      "source_id": "v2",
+      "times_seconds": [
+        12,
+        22,
+        32
+      ],
+      "group": "diagram_relation",
+      "severity": "medium",
+      "observable_fact": "Сегментация is selected; graph contains many numbered multiport nodes and loc-rq nodes with dense connecting edges; page indicator is 1 / 24.",
+      "required_factual_association": "24 is graph-page total, not collision count. Do not claim a simple two-node graph or invent exact edge semantics."
+    },
+    {
+      "id": "v2-F06",
+      "source_id": "v2",
+      "times_seconds": [
+        27
+      ],
+      "group": "ui_state",
+      "severity": "medium",
+      "observable_fact": "Snippet title is Табличные двойные; hovering XML shows Сохранить в XML.",
+      "required_factual_association": "XML is an export action/tooltip, not a success toast or proof of completed import."
+    },
+    {
+      "id": "v2-F07",
+      "source_id": "v2",
+      "times_seconds": [
+        35
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Displayed XML includes group изоляции with NSR_КЛАСС_НАПРЯЖЕНИЯ=220, and group токоведущих частей with class=330; linked SYS_OBJECT_NAME is ОРУ 110 кВ.",
+      "required_factual_association": "Keep the different field/value scopes; do not overwrite 220 or 330 with the linked object name’s 110."
+    },
+    {
+      "id": "v2-F08",
+      "source_id": "v2",
+      "times_seconds": [
+        42
+      ],
+      "group": "ui_state",
+      "severity": "medium",
+      "observable_fact": "CadLib import dialog Выберите импортируемый профиль is open in Downloads; type is Профили импорта (*.xml); a filename ending (3) is selected.",
+      "required_factual_association": "This is selecting an XML profile, not a video or PDF; do not infer success from the file chooser alone."
+    },
+    {
+      "id": "v2-F09",
+      "source_id": "v2",
+      "times_seconds": [
+        52
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Collision-check log shows Пар для анализа: 474 and Обнаружено коллизий минимального расстояния: 3; Готово button is available.",
+      "required_factual_association": "474 is analysed pairs and 3 is minimum-distance collisions, not the reverse or 474 failures."
+    },
+    {
+      "id": "v3-F01",
+      "source_id": "v3",
+      "times_seconds": [
+        5,
+        20,
+        40
+      ],
+      "group": "ui_state",
+      "severity": "medium",
+      "observable_fact": "nanoCAD x64 22 displays a building structural BIM model; Требования panel replaces the left properties view and contains Найденные, Документы, Текст требования, Значение в модели.",
+      "required_factual_association": "This workflow is requirements lookup inside nanoCAD, not the electrical substation collision wizard or the ramp segmentation editor."
+    },
+    {
+      "id": "v3-F02",
+      "source_id": "v3",
+      "times_seconds": [
+        40,
+        60
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Found rows include IfcPlate / Металлическая пластина / 511 and IfcPile / Свая железобетонная / 142.",
+      "required_factual_association": "Keep exact type/name/count mapping; 511 and 142 are object counts."
+    },
+    {
+      "id": "v3-F03",
+      "source_id": "v3",
+      "times_seconds": [
+        40,
+        60
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Found rows include IfcBeam / Балка / 1122, Болты фундаментные / 112, and IfcBeam / Балка железобетонная / 18.",
+      "required_factual_association": "Do not merge the two IfcBeam rows or swap 1122 with 112."
+    },
+    {
+      "id": "v3-F04",
+      "source_id": "v3",
+      "times_seconds": [
+        40
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Selected pile group shows document СП 22.13330.2016 Основания зданий и сооружений; selected document row is Пункт 9.36 and status is С 2017-06-17 действует, Добровольный.",
+      "required_factual_association": "Associate 9.36 with this document and pile selection, not a different code or row."
+    },
+    {
+      "id": "v3-F05",
+      "source_id": "v3",
+      "times_seconds": [
+        60
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Selected document is СП 63.13330.2018 Бетонные и железобетонные конструкции. Основные положения, Приложение В Расчет конструктивных систем; text starts В.20 and concerns modelling piles as reinforced concrete.",
+      "required_factual_association": "Preserve the document/year and appendix association; В.20 is not a count of objects."
+    },
+    {
+      "id": "v3-F06",
+      "source_id": "v3",
+      "times_seconds": [
+        80
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Found list shows IfcWall / Стена плоская / 17, IfcSlab / Плита перекрытия / 36, IfcColumn / Колонна / 156.",
+      "required_factual_association": "Keep wall/slab/column names, IFC classes and corresponding counts separate."
+    },
+    {
+      "id": "v3-F07",
+      "source_id": "v3",
+      "times_seconds": [
+        80
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Selected wall group has document СП 14.13330.2018 Строительство в сейсмических районах, selected Пункт 6.12.8. Visible requirement permits at most five floors for seismicity 7/8 and at most three for 9 (for other building types).",
+      "required_factual_association": "Do not reverse floor limits or seismicity values; preserve the visible contextual restriction rather than universalizing it."
+    },
+    {
+      "id": "v3-F08",
+      "source_id": "v3",
+      "times_seconds": [
+        100
+      ],
+      "group": "numeric_row",
+      "severity": "high",
+      "observable_fact": "Selected found row is IfcPlate / FnS>C30 / 19; selected document is ГОСТ 27751-2014, section 5.2 Расчет по предельным состояниям, Добровольный.",
+      "required_factual_association": "19 belongs to this class row, not to all plates; keep standard and section association."
+    },
+    {
+      "id": "v3-F09",
+      "source_id": "v3",
+      "times_seconds": [
+        110
+      ],
+      "group": "ui_state",
+      "severity": "medium",
+      "observable_fact": "Browser displays specification.normacs.info/requirements/152; top status is с 01.07.2015 Добровольное. Expanded classifier sections include date ranges 01.07.2021–13.10.2021 and 14.10.2021–16.12.2021.",
+      "required_factual_association": "Do not conflate requirement effective date with classifier version ranges or invent a save-confirmation toast."
+    }
+  ],
+  "assessment": {
+    "per_fact_labels": [
+      "supported",
+      "partial",
+      "omitted",
+      "contradicted",
+      "unassessable"
+    ],
+    "policy": "Require the listed association, not merely the isolated number. Partial means incomplete but non-conflicting. Contradicted means wrong value/relation/state. Log unsupported extra factual claims separately. An omission is not itself a hallucination. Severity is descriptive impact, not a numerical weight. Use timestamps as anchors, not exact transition boundaries."
+  },
+  "note": "Frame files and source paths are kept in the private evidence archive, not published."
+}
