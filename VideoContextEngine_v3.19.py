@@ -2433,7 +2433,7 @@ def run_text_llm_postprocess(
         else:
             # For this constrained extraction task, avoid spending time on long reasoning output.
             try:
-                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=True)
+                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=False)
             except TypeError:
                 formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
         if progress_callback:
@@ -2451,8 +2451,7 @@ def run_text_llm_postprocess(
                     prompt=formatted_prompt,
                     max_tokens=generation_limit,
                     temperature=0.1,
-                    enable_thinking=True,
-                    thinking_budget=512,
+                    enable_thinking=False,
                 ):
                     piece = getattr(item, "text", None)
                     if piece is None and isinstance(item, str):
@@ -2507,7 +2506,7 @@ def run_text_llm_postprocess(
                     max_tokens=generation_limit,
                     temperature=0.1,
                     verbose=False,
-                    enable_thinking=True,
+                    enable_thinking=False,
                 )
             except TypeError:
                 raw = generate(
