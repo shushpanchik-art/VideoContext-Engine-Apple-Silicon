@@ -4,6 +4,7 @@ import asyncio
 import builtins
 import contextlib
 import io
+import importlib
 import json
 import os
 from pathlib import Path
@@ -36,6 +37,13 @@ class BackendCleanupTests(unittest.TestCase):
                 raise AssertionError('Cleanup attempted backend import: ' + name)
             return original(name, *args, **kwargs)
         self.import_mock = patch('builtins.__import__', side_effect=reject_backend).start()
+        original_import_module = importlib.import_module
+        def reject_dynamic_backend(name, *args, **kwargs):
+            if name.split('.')[0] in {'mlx', 'mlx_vlm', 'mlx_whisper', 'torch'}:
+                self.backend_imports.append(name)
+                raise AssertionError('Cleanup attempted dynamic backend import: ' + name)
+            return original_import_module(name, *args, **kwargs)
+        patch('importlib.import_module', side_effect=reject_dynamic_backend).start()
         self.addCleanup(patch.stopall)
 
     def clean(self):
@@ -129,19 +137,26 @@ class BackendCleanupTests(unittest.TestCase):
         exec(compile(ast.Module(body=[release], type_ignores=[]), '<release>', 'exec'), self.ns)
         owner = types.SimpleNamespace(model_path='own')
         self.ns['release'](owner)  # missing module must not import
-        holder = types.SimpleNamespace(model_path='other', model=object())
+        other_model = object()
+        holder = types.SimpleNamespace(model_path='other', model=other_model)
         self.modules['mlx_whisper.transcribe'] = types.SimpleNamespace(ModelHolder=holder)
         self.ns['release'](owner)
         self.assertEqual(holder.model_path, 'other')
+        self.assertIs(holder.model, other_model)
         holder.model_path = 'own'
         self.ns['release'](owner)
         self.assertIsNone(holder.model); self.assertIsNone(holder.model_path)
+        self.assertEqual(self.backend_imports, [])
 
-    def test_text_finally_does_not_import_missing_mlx(self):
+    def test_text_finally_skips_missing_mlx_and_clears_loaded_mlx(self):
         text = next(n for n in TREE.body if getattr(n,'name','') == 'run_text_llm_postprocess')
         final = next(n.finalbody for n in text.body if isinstance(n,ast.Try) and n.finalbody)
         self.ns.update(inference_backend='mlx', VCE_INFERENCE_BACKEND_MLX='mlx')
         exec(compile(ast.Module(body=final,type_ignores=[]), '<text-finally>', 'exec'), self.ns)
+        mx = types.SimpleNamespace(clear_cache=Mock())
+        self.modules['mlx.core'] = mx
+        exec(compile(ast.Module(body=final,type_ignores=[]), '<text-finally>', 'exec'), self.ns)
+        mx.clear_cache.assert_called_once()
         self.assertEqual(self.backend_imports, [])
 
     def test_ram_minus_final_cleanup_retained_for_previously_cached_model(self):
