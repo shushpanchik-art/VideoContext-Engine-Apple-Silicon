@@ -41,8 +41,23 @@ Performed after the owner explicitly authorized testing during active host use. 
 - Input: synthetic six-second 640×360 H.264 video at 5 fps, printed `BLUE DOOR TEST 123`, and synthesized speech `The blue door is open. This is a short video test.`
 - Real HTTP `ocr_only`: 200; expected OCR text recovered; output TXT and JSON exist in the isolated upload cwd and contain the expected text.
 - Real HTTP `whisper_ocr`: 200; cached medium ran on CPU with acceleration disabled; expected speech recovered verbatim and expected OCR recovered. TXT and JSON verified by reading their contents.
-- Both: baseline_mps_sequential, RAM−, VLM disabled by analysis mode, Text disabled, summary disabled. Blocking/journaling hooks on direct and dynamic MLX-family imports installed before runtime import. Final report after application shutdown: `attempts=[]`, `loaded=[]`.
-- Server completed application shutdown. Python emitted a warning about one leaked multiprocessing semaphore; this is an unresolved shutdown hygiene warning, not evidence of MLX initialization or SIGABRT. No claim of warning-free shutdown.
+- Both: baseline_mps_sequential, RAM−, VLM disabled by analysis mode, Text disabled, summary disabled. Blocking/journaling hooks on direct and dynamic MLX-family imports installed before runtime import. Initial atexit-only report was not reliable under signal termination; a subsequent observed-lifespan + normal-exit run below verifies `attempts=[]`, `loaded=[]`.
+- Server completed application shutdown. Python emitted a warning about one leaked multiprocessing semaphore; subsequent controlled investigation below traces this warning to signal termination of a tqdm lock; it is not evidence of MLX initialization or SIGABRT.
 - Separate short-lived native smoke: actual MLX CPU and GPU evaluation of `[1,2,3] * 2` each produced `[2,4,6]`; the real extracted cleanup function bodies ran against loaded MLX successfully. Exit 0, stderr empty. No model inference or deliberate failed-import retry was performed in this smoke.
 
 The host was active and swapping before/during the test. These runs establish bounded functional acceptance only; their durations must not be used as comparative performance evidence. A full real-model MLX/VLM pipeline, live cancellation, RAM+→RAM− hardware lifecycle, broad backend matrix, and long-run/native initialization stability remain unverified. PR remains draft pending that broader acceptance decision; do not interpret one native smoke as a fix for every native initializer failure.
+
+
+## Semaphore warning investigation
+
+Instrumented `multiprocessing.resource_tracker.register/unregister` with stack capture in isolated subprocesses. Compared baseline de3d97d against the patch, keeping the same dependency environment, synthetic input, CPU settings and MLX-import rejection hooks. Those hooks intentionally prevent baseline cleanup from reaching native MLX and are a stated control, not an unmodified baseline-native stability claim.
+
+- Idle startup + SIGTERM shutdown: baseline 2/2 and patched 2/2 without semaphore warnings.
+- OCR-only + SIGTERM: baseline and patched each HTTP 200, no semaphore warning.
+- Whisper+OCR + SIGTERM: baseline and patched each HTTP 200, each the same one-semaphore warning.
+- Registration stack: `whisper.transcribe` line 264 → `tqdm.tqdm` → `TqdmDefaultWriteLock.create_mp_lock` → `multiprocessing.RLock` → `SemLock` registration. No unregister under signal termination.
+- Installed Uvicorn `Server.capture_signals` restores handlers and re-raises the captured signal after application shutdown. Thus application lifespan completion is not equivalent to normal Python interpreter finalization.
+- Minimal independent reproduction, no VCE/MLX/Whisper model: `tqdm.get_lock()` followed by normal interpreter exit yields exit 0 without warning; the same followed by SIGTERM yields exit -15 and the same one-semaphore warning.
+- Patched real Whisper+OCR repeated with the test server stopped via `server.should_exit=True`, not a process signal: HTTP 200, expected OCR and speech, exit 0, semaphore registration AND matching unregister, no semaphore warning. A report written after the actual lifespan cleanup verifies zero attempted MLX-family imports and zero loaded MLX-family modules. This also corrects the initial atexit-only reporting weakness under signal termination.
+
+Conclusion limited to this warning: it is reproducible from tqdm's multiprocessing lock plus the signal-exit path, already present on baseline, rather than a regression introduced by the backend-cleanup patch. No production shutdown code, lock internals or dependencies were changed. This does not establish behavior for every launcher shutdown route or long-running process.
