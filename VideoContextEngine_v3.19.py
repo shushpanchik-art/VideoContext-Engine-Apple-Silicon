@@ -134,6 +134,19 @@ def _vce_mlx_trace_stream(value):
     return {"type": type(value).__name__, "repr": repr(value), "device": device}
 
 
+def _vce_loaded_backend_module(name: str):
+    """Observe a completed import without initializing/retrying a native backend.
+
+    Cleanup and diagnostics must never import MLX: a failed native initializer
+    may leave registered C++ types behind even when Python removes sys.modules.
+    Skip modules still initializing on another thread as well.
+    """
+    module = _vce_mlx_trace_sys.modules.get(name)
+    if module is None or getattr(getattr(module, "__spec__", None), "_initializing", False):
+        return None
+    return module
+
+
 def _vce_mlx_trace_runtime(phase: str, function_name: str, error: str = "") -> None:
     # Snapshot the executor thread around the VCE call into mlx-vlm.
     # This records device/stream wiring, not per-operator GPU execution.
@@ -148,7 +161,9 @@ def _vce_mlx_trace_runtime(phase: str, function_name: str, error: str = "") -> N
     if error:
         trace["error"] = error[:1000]
     try:
-        import mlx.core as mx
+        mx = _vce_loaded_backend_module("mlx.core")
+        if mx is None:
+            raise RuntimeError("MLX is not loaded or is still initializing; snapshot skipped")
         trace["mlx_default_device"] = str(mx.default_device())
         trace["mlx_gpu_available"] = bool(mx.is_available(mx.gpu))
         trace["metal_available"] = bool(mx.metal.is_available())
@@ -357,10 +372,9 @@ class _VCEWhisperMLXCPU:
     def release(self) -> None:
         """Release mlx-whisper's private global model cache in RAM- mode."""
         import gc
-        import importlib
 
         with _VCE_MLX_WHISPER_LOCK:
-            module = importlib.import_module("mlx_whisper.transcribe")
+            module = _vce_loaded_backend_module("mlx_whisper.transcribe")
             holder = getattr(module, "ModelHolder", None)
             if holder is not None and getattr(holder, "model_path", None) == self.model_path:
                 holder.model = None
@@ -844,8 +858,8 @@ def release_accelerator_memory(stage: str = "") -> None:
     """Release unused PyTorch MPS and MLX allocator caches between model stages."""
     gc.collect()
     try:
-        import torch
-        if hasattr(torch, "mps") and torch.backends.mps.is_available():
+        torch = _vce_loaded_backend_module("torch")
+        if torch is not None and hasattr(torch, "mps") and torch.backends.mps.is_available():
             try:
                 torch.mps.synchronize()
             except Exception:
@@ -855,18 +869,19 @@ def release_accelerator_memory(stage: str = "") -> None:
     except Exception as exc:
         print(f"⚠️ Не удалось очистить кэш PyTorch MPS ({stage}): {exc}")
     try:
-        import mlx.core as mx
-        clear_cache = getattr(mx, "clear_cache", None)
-        if callable(clear_cache):
-            clear_cache()
-        else:
-            # Compatibility fallback for versions exposing this only under mx.metal.
-            metal_api = getattr(mx, "metal", None)
-            metal_clear_cache = getattr(metal_api, "clear_cache", None)
-            if callable(metal_clear_cache):
-                metal_clear_cache()
+        mx = _vce_loaded_backend_module("mlx.core")
+        if mx is not None:
+            clear_cache = getattr(mx, "clear_cache", None)
+            if callable(clear_cache):
+                clear_cache()
             else:
-                raise RuntimeError("В этой версии MLX нет доступного clear_cache API")
+                # Compatibility fallback for versions exposing this only under mx.metal.
+                metal_api = getattr(mx, "metal", None)
+                metal_clear_cache = getattr(metal_api, "clear_cache", None)
+                if callable(metal_clear_cache):
+                    metal_clear_cache()
+                else:
+                    raise RuntimeError("В этой версии MLX нет доступного clear_cache API")
     except Exception as exc:
         print(f"⚠️ Не удалось очистить кэш MLX ({stage}): {exc}")
     gc.collect()
@@ -2607,8 +2622,9 @@ def run_text_llm_postprocess(
         gc.collect()
         if inference_backend == VCE_INFERENCE_BACKEND_MLX:
             try:
-                import mlx.core as mx
-                mx.clear_cache()
+                mx = _vce_loaded_backend_module("mlx.core")
+                if mx is not None:
+                    mx.clear_cache()
             except Exception:
                 # Cache clearing is optional on non-MLX hosts and must not mask cleanup.
                 pass
@@ -3939,16 +3955,16 @@ def _vce_clear_metal_memory_caches():
         # Memory cleanup is best-effort after model allocation failures.
         pass
     try:
-        import mlx.core as mx
-        # Wait for outstanding work before releasing unused cached buffers.
-        mx.synchronize()
-        # MLX documents clear_cache() as the public cache-management API.
-        mx.clear_cache()
+        mx = _vce_loaded_backend_module("mlx.core")
+        if mx is not None:
+            # Wait for outstanding work before releasing unused cached buffers.
+            mx.synchronize()
+            mx.clear_cache()
     except Exception:
         # MLX may be unavailable or already shutting down; continue other cleanup paths.
         pass
     try:
-        import torch
+        torch = _vce_loaded_backend_module("torch")
         mps = getattr(torch, "mps", None)
         if mps is not None and getattr(torch.backends, "mps", None) is not None:
             if torch.backends.mps.is_available():
