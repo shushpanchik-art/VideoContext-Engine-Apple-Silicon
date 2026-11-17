@@ -2154,6 +2154,43 @@ def _text_llm_find_json_candidate_offset(raw: str) -> int:
     return -1
 
 
+def _text_llm_close_complete_root(raw: str) -> Optional[str]:
+    """Repair ONLY an omitted final root brace, never invent missing field content.
+
+    Require the entire six-field schema with completed nested values. Appending
+    one brace must parse strictly; cut strings/items, trailing prose, nested
+    truncation, duplicate keys and incomplete schemas remain failures.
+    """
+    text = str(raw or "").strip()
+    if not text.startswith('{') or text.endswith('}'):
+        return None
+    required = {
+        "executive_summary": str, "topics": list, "key_points": list,
+        "entities": list, "scene_enrichment": list, "uncertainties": list,
+    }
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate JSON key")
+            result[key] = value
+        return result
+    def reject_constant(value):
+        raise ValueError("Non-standard JSON constant")
+    try:
+        payload = json.loads(text + '}', object_pairs_hook=unique_pairs,
+                             parse_constant=reject_constant)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict) or set(payload) != set(required):
+        return None
+    if not all(isinstance(payload[key], kind) for key, kind in required.items()):
+        return None
+    if not payload["executive_summary"].strip():
+        return None
+    return text + '}'
+
+
 def _text_llm_parse_json(raw: str) -> Dict[str, Any]:
     payload = _text_llm_extract_json_object(raw)
     summary = payload.get("executive_summary")
@@ -2433,7 +2470,7 @@ def run_text_llm_postprocess(
         else:
             # For this constrained extraction task, avoid spending time on long reasoning output.
             try:
-                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=True)
+                formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0, enable_thinking=False)
             except TypeError:
                 formatted_prompt = apply_chat_template(processor, config, instruction, num_images=0)
         if progress_callback:
@@ -2451,8 +2488,7 @@ def run_text_llm_postprocess(
                     prompt=formatted_prompt,
                     max_tokens=generation_limit,
                     temperature=0.1,
-                    enable_thinking=True,
-                    thinking_budget=512,
+                    enable_thinking=False,
                 ):
                     piece = getattr(item, "text", None)
                     if piece is None and isinstance(item, str):
@@ -2493,9 +2529,14 @@ def run_text_llm_postprocess(
                                 progress_callback("generating", reported_tokens, reported_tokens / elapsed_stream)
                         raw = "".join(chunks)
                     except Exception as fallback_stream_error:
+                        if is_gpu_memory_error(fallback_stream_error):
+                            raise
                         print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}")
                         raw = ""
             except Exception as stream_error:
+                # Retrying the same model after allocation failure compounds pressure.
+                if is_gpu_memory_error(stream_error):
+                    raise
                 print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}")
                 raw = ""
         if not raw.strip():
@@ -2507,7 +2548,7 @@ def run_text_llm_postprocess(
                     max_tokens=generation_limit,
                     temperature=0.1,
                     verbose=False,
-                    enable_thinking=True,
+                    enable_thinking=False,
                 )
             except TypeError:
                 raw = generate(
@@ -2545,13 +2586,18 @@ def run_text_llm_postprocess(
 
             # First attempt a deterministic syntax-only repair if the optional helper exists.
             repaired_payload = None
+            closed_root = _text_llm_close_complete_root(raw[first_brace_offset:])
+            if closed_root is not None:
+                repaired_payload = json.loads(closed_root)
+                _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)["syntax_repair"] = "final_root_brace"
             try:
                 from json_repair import repair_json
-                repaired_payload = repair_json(raw[first_brace_offset:], return_objects=True)
+                if repaired_payload is None:
+                    repaired_payload = repair_json(raw[first_brace_offset:], return_objects=True)
                 if not isinstance(repaired_payload, dict):
                     repaired_payload = None
             except Exception:
-                repaired_payload = None
+                pass  # Preserve a strict root-only repair when optional json_repair is absent.
             if repaired_payload is not None:
                 # Run the same validation/sanitization path on repaired content.
                 repaired_text = json.dumps(repaired_payload, ensure_ascii=False)
