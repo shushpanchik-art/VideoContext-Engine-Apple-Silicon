@@ -2492,9 +2492,14 @@ def run_text_llm_postprocess(
                                 progress_callback("generating", reported_tokens, reported_tokens / elapsed_stream)
                         raw = "".join(chunks)
                     except Exception as fallback_stream_error:
+                        if is_gpu_memory_error(fallback_stream_error):
+                            raise
                         print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {fallback_stream_error}")
                         raw = ""
             except Exception as stream_error:
+                # Retrying the same model after allocation failure compounds pressure.
+                if is_gpu_memory_error(stream_error):
+                    raise
                 print(f"⚠️ [Text LLM] Потоковая генерация недоступна, переключаюсь на обычную: {stream_error}")
                 raw = ""
         if not raw.strip():
