@@ -2154,6 +2154,48 @@ def _text_llm_find_json_candidate_offset(raw: str) -> int:
     return -1
 
 
+def _text_llm_repeated_point_output(raw: str) -> bool:
+    """Detect four identical complete key points, including their evidence identity."""
+    raw = str(raw or "").lstrip()
+    if not raw.startswith("{"):
+        return False
+    decoder = json.JSONDecoder()
+    pos = 1
+    counts = {}
+    while pos < len(raw):
+        try:
+            pos = len(raw) - len(raw[pos:].lstrip())
+            key, pos = decoder.raw_decode(raw, pos)
+            remainder = raw[pos:].lstrip()
+            if not isinstance(key, str) or not remainder.startswith(":"):
+                return False
+            pos = len(raw) - len(remainder[1:].lstrip())
+            if key == "key_points" and raw[pos:pos+1] == "[":
+                pos += 1
+                while pos < len(raw):
+                    pos = len(raw) - len(raw[pos:].lstrip())
+                    point, pos = decoder.raw_decode(raw, pos)
+                    if isinstance(point, dict) and isinstance(point.get("text"), str) and len(point["text"]) >= 20:
+                        if all(k in point for k in ("scene_id", "time", "evidence")):
+                            identity = json.dumps(point, sort_keys=True, ensure_ascii=False)
+                            counts[identity] = counts.get(identity, 0) + 1
+                            if counts[identity] >= 4:
+                                return True
+                    remainder = raw[pos:].lstrip()
+                    if not remainder.startswith(","):
+                        return False
+                    pos = len(raw) - len(remainder[1:])
+                return False
+            _, pos = decoder.raw_decode(raw, pos)
+            remainder = raw[pos:].lstrip()
+            if not remainder.startswith(","):
+                return False
+            pos = len(raw) - len(remainder[1:])
+        except (ValueError, RecursionError):
+            return False
+    return False
+
+
 def _text_llm_close_complete_root(raw: str) -> Optional[str]:
     """Repair ONLY an omitted final root brace, never invent missing field content.
 
@@ -2477,10 +2519,12 @@ def run_text_llm_postprocess(
             progress_callback("generating", 0, 0.0)
         generation_limit = max(1024, int(max_tokens))
         raw = ""
+        repetition_detected = False
         if stream_generate is not None:
             chunks = []
             started_stream = time.time()
             reported_tokens = 0
+            next_repetition_check = 64
             try:
                 for item in stream_generate(
                     model,
@@ -2504,6 +2548,11 @@ def run_text_llm_postprocess(
                     if current_tokens <= reported_tokens:
                         current_tokens = reported_tokens + 1
                     reported_tokens = current_tokens
+                    if reported_tokens >= next_repetition_check:
+                        next_repetition_check = (reported_tokens // 64 + 1) * 64
+                        if _text_llm_repeated_point_output("".join(chunks)):
+                            repetition_detected = True
+                            break
                     elapsed_stream = max(0.001, time.time() - started_stream)
                     rate = reported_tokens / elapsed_stream
                     if progress_callback:
@@ -2516,6 +2565,8 @@ def run_text_llm_postprocess(
                 else:
                     try:
                         chunks = []
+                        reported_tokens = 0
+                        next_repetition_check = 64
                         for item in stream_generate(
                             model, processor, prompt=formatted_prompt,
                             max_tokens=generation_limit, temperature=0.1,
@@ -2524,6 +2575,11 @@ def run_text_llm_postprocess(
                             if piece is None and isinstance(item, str): piece = item
                             if piece: chunks.append(str(piece))
                             reported_tokens += 1
+                            if reported_tokens >= next_repetition_check:
+                                next_repetition_check = (reported_tokens // 64 + 1) * 64
+                                if _text_llm_repeated_point_output("".join(chunks)):
+                                    repetition_detected = True
+                                    break
                             if progress_callback:
                                 elapsed_stream = max(0.001, time.time() - started_stream)
                                 progress_callback("generating", reported_tokens, reported_tokens / elapsed_stream)
@@ -2557,15 +2613,19 @@ def run_text_llm_postprocess(
                 )
             if not isinstance(raw, str):
                 raw = getattr(raw, "text", None) or str(raw)
+        repetition_detected = repetition_detected or _text_llm_repeated_point_output(raw)
         first_brace_offset = _text_llm_find_json_candidate_offset(raw)
         _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS).update({
             "raw_length": len(raw),
+            "repetition_detected": repetition_detected,
             "first_brace_offset": first_brace_offset,
             "first_literal_brace_offset": raw.find("{"),
             "raw_tail_excerpt": _text_llm_clip(raw[-1500:], 1500),
             "raw_head_excerpt": _text_llm_clip(raw, 2000),
         })
         try:
+            if repetition_detected:
+                raise ValueError("Text generation repeated the same point four times")
             parsed = _text_llm_parse_json(raw)
         except Exception as parse_error:
             if first_brace_offset < 0:
@@ -2586,13 +2646,13 @@ def run_text_llm_postprocess(
 
             # First attempt a deterministic syntax-only repair if the optional helper exists.
             repaired_payload = None
-            closed_root = _text_llm_close_complete_root(raw[first_brace_offset:])
+            closed_root = None if repetition_detected else _text_llm_close_complete_root(raw[first_brace_offset:])
             if closed_root is not None:
                 repaired_payload = json.loads(closed_root)
                 _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)["syntax_repair"] = "final_root_brace"
             try:
                 from json_repair import repair_json
-                if repaired_payload is None:
+                if repaired_payload is None and not repetition_detected:
                     repaired_payload = repair_json(raw[first_brace_offset:], return_objects=True)
                 if not isinstance(repaired_payload, dict):
                     repaired_payload = None
@@ -2612,6 +2672,19 @@ def run_text_llm_postprocess(
                     "Сохрани ключи executive_summary, topics, key_points, entities, scene_enrichment, uncertainties.\n\n"
                     "Невалидный JSON для исправления:\n" + raw[first_brace_offset:][:18000]
                 )
+                if repetition_detected or len(raw[first_brace_offset:]) > 18000:
+                    # A clipped/repetitive draft is not a trustworthy repair source.
+                    # Regenerate ONCE from the same original evidence, not its partial JSON.
+                    repair_instruction = (
+                        instruction + "\n\nПредыдущий ответ не завершился. Сформируй новый полный JSON по ИСХОДНЫМ данным выше. "
+                        "Ничего не дописывай по памяти. Не повторяй одинаковые тезисы. "
+                        f"Не более {min(max_key_points, 8)} key_points, {min(max_topics, 8)} topics, "
+                        "8 entities и одного scene_enrichment на сцену; каждый текст краткий. "
+                        "Сохрани все шесть полей и закрой корневой объект."
+                    )
+                    _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)["retry_kind"] = "regenerate_from_original_evidence"
+                else:
+                    _vce_request_diagnostics(VCE_TEXT_LLM_GENERATION_DIAGNOSTICS)["retry_kind"] = "syntax_repair"
                 if inference_backend == VCE_INFERENCE_BACKEND_LLAMA_CPP:
                     repair_prompt = repair_instruction
                 else:
@@ -2628,6 +2701,8 @@ def run_text_llm_postprocess(
                 if not isinstance(repaired_raw, str):
                     repaired_raw = getattr(repaired_raw, "text", None) or str(repaired_raw)
                 try:
+                    if _text_llm_repeated_point_output(repaired_raw):
+                        raise ValueError("Text retry repeated the same point four times")
                     parsed = _text_llm_parse_json(repaired_raw)
                 except Exception as second_error:
                     failure = ValueError(
