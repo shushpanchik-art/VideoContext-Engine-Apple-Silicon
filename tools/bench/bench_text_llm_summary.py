@@ -502,6 +502,9 @@ def instrument_source(src):
     for line_number, hook in sorted(insertions.items(), reverse=True):
         lines.insert(line_number, hook)
     fn = "".join(lines)
+    raw_anchor = "        first_brace_offset = _text_llm_find_json_candidate_offset(raw)"
+    if raw_anchor not in fn:
+        raw_anchor = "        try:\n            parsed = _text_llm_parse_json(raw)"
     patches = [
         (
             "                from json_repair import repair_json",
@@ -512,8 +515,8 @@ def instrument_source(src):
             "        BENCH.prompt_started = time.perf_counter()\n        limits = (600, 650, 650)",
         ),
         (
-            "        try:\n            parsed = _text_llm_parse_json(raw)",
-            "        BENCH.primary_raw = raw\n        try:\n            parsed = _text_llm_parse_json(raw)",
+            raw_anchor,
+            "        BENCH.primary_raw = raw\n" + raw_anchor,
         ),
     ]
     for old, new in patches:
